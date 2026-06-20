@@ -59,12 +59,12 @@ impl Downloader {
             let p = pending.clone();
             let pb = pb.clone();
             let fl = failed.clone();
+            let vb = self.verbose;
             let a = Client::new(self.api.cache_dir.clone(), self.api.cache_enabled, self.api.cache_ttl,
                 self.api.search_urls.clone(), self.api.catalog_url.clone(), self.api.content_urls.clone(),
                 vb);
             let od = self.out_dir.clone();
             let ft = self.ft.clone();
-            let vb = self.verbose;
 
             handles.push(thread::spawn(move || {
                 for i in (w..n).step_by(count) {
@@ -109,10 +109,10 @@ impl Downloader {
             let pb = pb.clone();
             let fl = failed.clone();
             let ep = ep.clone();
+            let vb = self.verbose;
             let a = Client::new(self.api.cache_dir.clone(), self.api.cache_enabled, self.api.cache_ttl,
                 self.api.search_urls.clone(), self.api.catalog_url.clone(), self.api.content_urls.clone(),
                 vb);
-            let vb = self.verbose;
 
             handles.push(thread::spawn(move || {
                 for i in (w..total).step_by(count) {
