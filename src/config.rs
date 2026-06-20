@@ -65,6 +65,11 @@ content_url = https://tt.sjmyzq.cn/api/raw_full?item_id={},http://101.35.133.34:
         if let Some(v) = catalog_url { self.catalog_url = v.into(); }
         if let Some(v) = content_url { self.content_urls = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(); }
     }
+
+    pub fn ensure_dirs(&self) {
+        fs::create_dir_all(&self.cache_dir).ok();
+        if let Some(p) = self.bookmark_file.parent() { fs::create_dir_all(p).ok(); }
+    }
 }
 
 pub fn load_bookmarks() -> Vec<(String, String)> {
