@@ -149,18 +149,49 @@ impl Client {
     }
 
     pub fn http_get(&self, url: &str) -> Result<String, String> {
-        let resp = minreq::get(url)
+        // try Rust HTTP client first
+        let result = minreq::get(url)
             .with_header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-            .with_timeout(30)
-            .send()
-            .map_err(|e| format!("请求失败: {}", e))?;
-        let status = resp.status_code;
-        let text = resp.as_str().map_err(|e| format!("编码错误: {}", e))?.to_string();
-        if self.verbose { eprintln!("  [verbose] {} {} ({}b)", status, url, text.len()); }
-        if status != 200 {
-            let snippet: String = text.chars().take(200).collect();
-            return Err(format!("HTTP {}: {}", status, snippet));
+            .with_timeout(15)
+            .send();
+        match result {
+            Ok(resp) if resp.status_code == 200 => {
+                let text = resp.as_str().map_err(|e| format!("编码错误: {}", e))?.to_string();
+                if self.verbose { eprintln!("  [verbose] 200 {} ({}b)", url, text.len()); }
+                Ok(text)
+            }
+            Ok(resp) => {
+                let status = resp.status_code;
+                let text = resp.as_str().unwrap_or("").to_string();
+                if self.verbose { eprintln!("  [verbose] {} {} ({}b)", status, url, text.len()); }
+                // fallback to curl
+                self.http_get_curl(url)
+            }
+            Err(e) => {
+                if self.verbose { eprintln!("  [verbose] 请求失败: {}, 改用curl", e); }
+                self.http_get_curl(url)
+            }
         }
+    }
+
+    fn http_get_curl(&self, url: &str) -> Result<String, String> {
+        let out = std::process::Command::new("curl")
+            .arg("-s")
+            .arg("--connect-timeout")
+            .arg("10")
+            .arg("--max-time")
+            .arg("20")
+            .arg("-A")
+            .arg("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+            .arg(url)
+            .output()
+            .map_err(|e| format!("curl执行失败: {}", e))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            return Err(format!("curl退出码 {}: {}", out.status, stderr.trim()));
+        }
+        let text = String::from_utf8(out.stdout).map_err(|e| format!("curl输出编码错误: {}", e))?;
+        if self.verbose { eprintln!("  [verbose] curl {} ({}b)", url, text.len()); }
         Ok(text)
     }
 }
