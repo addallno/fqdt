@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use std::fs;
 
 pub struct Client {
+    use_curl: bool,
     pub cache_dir: PathBuf,
     pub cache_enabled: bool,
     pub cache_ttl: u64,
@@ -18,7 +19,10 @@ impl Client {
     pub fn new(cache_dir: PathBuf, cache_enabled: bool, cache_ttl: u64,
                search_urls: Vec<String>, catalog_url: String, content_urls: Vec<String>,
                verbose: bool) -> Self {
-        Client { cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, verbose }
+        let use_curl = std::process::Command::new("curl")
+            .arg("--version").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+            .status().map(|s| s.success()).unwrap_or(false);
+        Client { use_curl, cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, verbose }
     }
 
     pub fn search(&self, keyword: &str, page: usize) -> Result<Vec<Book>, String> {
@@ -149,45 +153,37 @@ impl Client {
     }
 
     pub fn http_get(&self, url: &str) -> Result<String, String> {
-        // try Rust HTTP client first
-        let result = minreq::get(url)
+        if self.use_curl {
+            return self.http_curl(url);
+        }
+        // fallback: pure Rust HTTP
+        let resp = minreq::get(url)
             .with_header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .with_timeout(15)
-            .send();
-        match result {
-            Ok(resp) if resp.status_code == 200 => {
-                let text = resp.as_str().map_err(|e| format!("编码错误: {}", e))?.to_string();
-                if self.verbose { eprintln!("  [verbose] 200 {} ({}b)", url, text.len()); }
-                Ok(text)
-            }
-            Ok(resp) => {
-                let status = resp.status_code;
-                let text = resp.as_str().unwrap_or("").to_string();
-                if self.verbose { eprintln!("  [verbose] {} {} ({}b)", status, url, text.len()); }
-                // fallback to curl
-                self.http_get_curl(url)
-            }
-            Err(e) => {
-                if self.verbose { eprintln!("  [verbose] 请求失败: {}, 改用curl", e); }
-                self.http_get_curl(url)
-            }
+            .send()
+            .map_err(|e| format!("请求失败: {}", e))?;
+        let status = resp.status_code;
+        let text = resp.as_str().map_err(|e| format!("编码错误: {}", e))?.to_string();
+        if self.verbose { eprintln!("  [verbose] {} {} ({}b)", status, url, text.len()); }
+        if status != 200 {
+            let snippet: String = text.chars().take(200).collect();
+            return Err(format!("HTTP {}: {}", status, snippet));
         }
+        Ok(text)
     }
 
-    fn http_get_curl(&self, url: &str) -> Result<String, String> {
+    fn http_curl(&self, url: &str) -> Result<String, String> {
         let out = std::process::Command::new("curl")
             .arg("-s")
-            .arg("--connect-timeout")
-            .arg("10")
-            .arg("--max-time")
-            .arg("20")
-            .arg("-A")
-            .arg("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+            .arg("--connect-timeout").arg("10")
+            .arg("--max-time").arg("20")
+            .arg("-A").arg("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .arg(url)
             .output()
             .map_err(|e| format!("curl执行失败: {}", e))?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
+            if self.verbose { eprintln!("  [verbose] curl退出码 {}: {}", out.status, stderr.trim()); }
             return Err(format!("curl退出码 {}: {}", out.status, stderr.trim()));
         }
         let text = String::from_utf8(out.stdout).map_err(|e| format!("curl输出编码错误: {}", e))?;
