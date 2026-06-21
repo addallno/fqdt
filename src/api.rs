@@ -5,7 +5,7 @@ use std::time::SystemTime;
 use std::fs;
 
 pub struct Client {
-    http: reqwest::blocking::Client,
+    http: ureq::Agent,
     pub cache_dir: PathBuf,
     pub cache_enabled: bool,
     pub cache_ttl: u64,
@@ -19,12 +19,11 @@ impl Client {
     pub fn new(cache_dir: PathBuf, cache_enabled: bool, cache_ttl: u64,
                search_urls: Vec<String>, catalog_url: String, content_urls: Vec<String>,
                verbose: bool) -> Self {
-        let http = reqwest::blocking::Client::builder()
+        let http = ureq::AgentBuilder::new()
+            .timeout_connect(std::time::Duration::from_secs(10))
+            .timeout_read(std::time::Duration::from_secs(30))
             .user_agent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-            .timeout(std::time::Duration::from_secs(30))
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .http1_only()
-            .build().expect("HTTP 客户端创建失败");
+            .build();
         Client { http, cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, verbose }
     }
 
@@ -156,14 +155,23 @@ impl Client {
     }
 
     pub fn http_get(&self, url: &str) -> Result<String, String> {
-        let resp = self.http.get(url).send().map_err(|e| format!("请求失败: {}", e))?;
-        let status = resp.status();
-        let text = resp.text().map_err(|e| format!("读取失败: {}", e))?;
+        let result = self.http.get(url).call();
+        let (status, text) = match result {
+            Ok(resp) => {
+                let status = resp.status();
+                let text = resp.into_string().map_err(|e| format!("读取失败: {}", e))?;
+                (status, text)
+            }
+            Err(ureq::Error::Status(code, resp)) => {
+                let status = code;
+                let text = resp.into_string().unwrap_or_default();
+                if self.verbose { eprintln!("  [verbose] {} {} ({}b)", status, url, text.len()); }
+                let snippet: String = text.chars().take(200).collect();
+                return Err(format!("HTTP {}: {}", status, snippet));
+            }
+            Err(e) => return Err(format!("请求失败: {}", e)),
+        };
         if self.verbose { eprintln!("  [verbose] {} {} ({}b)", status, url, text.len()); }
-        if !status.is_success() {
-            let snippet: String = text.chars().take(200).collect();
-            return Err(format!("HTTP {}: {}", status, snippet));
-        }
         Ok(text)
     }
 }
