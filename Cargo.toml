@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-ureq = "3"
+minreq = { version = "2", features = ["https-rustls"] }
 serde_json = "1"
 indicatif = "0.17"
 zip = { version = "2", default-features = false, features = ["deflate"] }
