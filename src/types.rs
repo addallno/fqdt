@@ -89,6 +89,7 @@ impl Default for Config {
             ],
             catalog_url: "https://fanqienovel.com/api/reader/directory/detail?bookId={}".into(),
             content_urls: vec![
+                "http://101.35.133.34:5000/api/content?tab=小说&item_id={}".into(),
                 "https://tt.sjmyzq.cn/api/raw_full?item_id={}".into(),
                 "http://101.35.133.34:5000/api/raw_full?item_id={}".into(),
             ],

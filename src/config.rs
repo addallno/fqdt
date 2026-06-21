@@ -54,8 +54,8 @@ cache_ttl = 86400
 search_url = https://novel.snssdk.com/api/novel/channel/homepage/search/search/v1/?aid=1967&q={}&offset={},http://101.35.133.34:5000/api/search?key={}&offset={}
 # 目录API
 catalog_url = https://fanqienovel.com/api/reader/directory/detail?bookId={}
-# 内容API(逗号分隔)
-content_url = https://tt.sjmyzq.cn/api/raw_full?item_id={},http://101.35.133.34:5000/api/raw_full?item_id={}
+# 内容API(逗号分隔,从前往后尝试,{}会被item_id替换)
+content_url = http://101.35.133.34:5000/api/content?tab=小说&item_id={},https://tt.sjmyzq.cn/api/raw_full?item_id={},http://101.35.133.34:5000/api/raw_full?item_id={}
 ";
         fs::write(&path, ini).map_err(|e| e.to_string())
     }

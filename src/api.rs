@@ -22,6 +22,8 @@ impl Client {
         let http = reqwest::blocking::Client::builder()
             .user_agent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .http1_only()
             .build().expect("HTTP 客户端创建失败");
         Client { http, cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, verbose }
     }
