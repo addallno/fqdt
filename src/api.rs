@@ -158,6 +158,7 @@ impl Client {
             return self.http_curl(url);
         }
         // fallback: pure Rust HTTP
+        if self.verbose { eprintln!("  [verbose] minreq GET {}", url); }
         let resp = minreq::get(url)
             .with_header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .with_timeout(15)
@@ -174,20 +175,37 @@ impl Client {
     }
 
     fn http_curl(&self, url: &str) -> Result<String, String> {
-        let out = std::process::Command::new("curl")
+        if self.verbose { eprintln!("  [verbose] curl开始: {}", url); }
+        let cmd = std::process::Command::new("curl")
             .arg("-s")
             .arg("--connect-timeout").arg("10")
             .arg("--max-time").arg("20")
+            .arg("-w").arg("")
             .arg("-A").arg("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .arg(url)
             .output()
-            .map_err(|e| format!("curl执行失败: {}", e))?;
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            if self.verbose { eprintln!("  [verbose] curl退出码 {}: {}", out.status, stderr.trim()); }
-            return Err(format!("curl退出码 {}: {}", out.status, stderr.trim()));
+            .map_err(|e| {
+                let msg = format!("curl执行失败: {}", e);
+                if self.verbose { eprintln!("  [verbose] {}", msg); }
+                msg
+            })?;
+        if self.verbose { eprintln!("  [verbose] curl完成: status={}, stdout={}b, stderr={}b",
+            cmd.status, cmd.stdout.len(), cmd.stderr.len()); }
+        if !cmd.status.success() {
+            let stderr = String::from_utf8_lossy(&cmd.stderr);
+            let msg = format!("curl退出码 {}: {}", cmd.status, stderr.trim());
+            if self.verbose { eprintln!("  [verbose] {}", msg); }
+            return Err(msg);
         }
-        let text = String::from_utf8(out.stdout).map_err(|e| format!("curl输出编码错误: {}", e))?;
+        // try grun -s fallback if stdout is empty
+        if cmd.stdout.is_empty() && self.verbose {
+            eprintln!("  [verbose] curl返回空, 改用grun -s");
+        }
+        let text = String::from_utf8(cmd.stdout).map_err(|e| {
+            let msg = format!("curl输出编码错误: {}", e);
+            if self.verbose { eprintln!("  [verbose] {}", msg); }
+            msg
+        })?;
         if self.verbose { eprintln!("  [verbose] curl {} ({}b)", url, text.len()); }
         Ok(text)
     }
