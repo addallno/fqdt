@@ -22,6 +22,7 @@ impl Client {
         let use_curl = std::process::Command::new("curl")
             .arg("--version").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
             .status().map(|s| s.success()).unwrap_or(false);
+        if verbose { eprintln!("  [verbose] curl检测: {}", if use_curl { "可用" } else { "不可用" }); }
         Client { use_curl, cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, verbose }
     }
 
