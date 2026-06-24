@@ -114,19 +114,16 @@ impl Client {
 
     fn fetch_content_from(&self, url: &str, item_id: &str) -> Result<String, String> {
         if self.verbose { eprintln!("  [verbose] GET {}", url); }
-        let text = if self.cache_enabled {
-            let cp = self.cache_dir.join(format!("c_{}.json", item_id));
-            if cp.exists() {
-                if let Ok(c) = fs::read_to_string(&cp) { c }
-                else { let t = self.http_get(url)?; fs::write(&cp, &t).ok(); t }
-            } else { let t = self.http_get(url)?; fs::write(&cp, &t).ok(); t }
-        } else { self.http_get(url)? };
-
-        let root: Value = serde_json::from_str(&text).map_err(|e| {
-            if self.verbose { eprintln!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, text); }
+        let raw = self.http_get(url)?;
+        let root: Value = serde_json::from_str(&raw).map_err(|e| {
+            if self.verbose { eprintln!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, raw); }
             format!("JSON: {}", item_id)
         })?;
         let content = root.pointer("/data/content").and_then(|v| v.as_str()).unwrap_or("");
+        if self.cache_enabled {
+            let cp = self.cache_dir.join(format!("c_{}.json", item_id));
+            fs::write(&cp, &raw).ok();
+        }
         Ok(strip_html(content))
     }
 
@@ -144,14 +141,17 @@ impl Client {
             }
         }
         let text = self.http_get(url)?;
-        fs::write(&cp, &text).ok();
+        // only cache valid JSON responses
+        if serde_json::from_str::<Value>(&text).is_ok() {
+            fs::write(&cp, &text).ok();
+        }
         Ok(text)
     }
 
     pub fn http_get(&self, url: &str) -> Result<String, String> {
         // try #1: grun -s curl (Termux glibc-runner shell)
         if self.verbose { eprintln!("  [verbose] trying grun..."); }
-        let q = format!("curl -s --connect-timeout 10 --max-time 20 -A 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36' '{}'", url);
+        let q = format!("curl -sf --connect-timeout 10 --max-time 20 -A 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36' '{}'", url);
         let r = std::process::Command::new("grun")
             .args(["-s", &q])
             .output();
@@ -167,11 +167,8 @@ impl Client {
         // try #2: direct curl
         if self.verbose { eprintln!("  [verbose] trying curl..."); }
         let r = std::process::Command::new("curl")
-            .arg("-s")
-            .arg("--connect-timeout").arg("10")
-            .arg("--max-time").arg("20")
-            .arg("-A").arg("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-            .arg(url)
+            .args(["-sf", "--connect-timeout", "10", "--max-time", "20",
+                "-A", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36", url])
             .output();
         if let Ok(out) = r {
             if out.status.success() && !out.stdout.is_empty() {
