@@ -5,7 +5,6 @@ use std::time::SystemTime;
 use std::fs;
 
 pub struct Client {
-    use_curl: bool,
     pub cache_dir: PathBuf,
     pub cache_enabled: bool,
     pub cache_ttl: u64,
@@ -19,11 +18,7 @@ impl Client {
     pub fn new(cache_dir: PathBuf, cache_enabled: bool, cache_ttl: u64,
                search_urls: Vec<String>, catalog_url: String, content_urls: Vec<String>,
                verbose: bool) -> Self {
-        let use_curl = std::process::Command::new("curl")
-            .arg("--version").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
-            .status().map(|s| s.success()).unwrap_or(false);
-        if verbose { eprintln!("  [verbose] curl检测: {}", if use_curl { "可用" } else { "不可用" }); }
-        Client { use_curl, cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, verbose }
+        Client { cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, verbose }
     }
 
     pub fn search(&self, keyword: &str, page: usize) -> Result<Vec<Book>, String> {
@@ -154,11 +149,44 @@ impl Client {
     }
 
     pub fn http_get(&self, url: &str) -> Result<String, String> {
-        if self.use_curl {
-            return self.http_curl(url);
+        // try #1: grun -s curl (Termux glibc-runner shell)
+        if self.verbose { eprintln!("  [verbose] trying grun..."); }
+        let q = format!("curl -s --connect-timeout 10 --max-time 20 -A 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36' '{}'", url);
+        let r = std::process::Command::new("grun")
+            .args(["-s", &q])
+            .output();
+        if let Ok(out) = r {
+            if out.status.success() && !out.stdout.is_empty() {
+                let text = String::from_utf8(out.stdout).map_err(|e| format!("编码: {}", e))?;
+                if self.verbose { eprintln!("  [verbose] OK grun ({}b)", text.len()); }
+                return Ok(text);
+            }
+            if self.verbose { eprintln!("  [verbose] no grun"); }
         }
-        // fallback: pure Rust HTTP
-        if self.verbose { eprintln!("  [verbose] minreq GET {}", url); }
+
+        // try #2: direct curl
+        if self.verbose { eprintln!("  [verbose] trying curl..."); }
+        let r = std::process::Command::new("curl")
+            .arg("-s")
+            .arg("--connect-timeout").arg("10")
+            .arg("--max-time").arg("20")
+            .arg("-A").arg("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+            .arg(url)
+            .output();
+        if let Ok(out) = r {
+            if out.status.success() && !out.stdout.is_empty() {
+                let text = String::from_utf8(out.stdout).map_err(|e| format!("编码: {}", e))?;
+                if self.verbose { eprintln!("  [verbose] OK curl ({}b)", text.len()); }
+                return Ok(text);
+            }
+            if self.verbose {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                eprintln!("  [verbose] curl fail: status={}, out={}b, err={}", out.status, out.stdout.len(), stderr.trim());
+            }
+        }
+
+        // try #3: minreq
+        if self.verbose { eprintln!("  [verbose] trying minreq..."); }
         let resp = minreq::get(url)
             .with_header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .with_timeout(15)
@@ -171,42 +199,6 @@ impl Client {
             let snippet: String = text.chars().take(200).collect();
             return Err(format!("HTTP {}: {}", status, snippet));
         }
-        Ok(text)
-    }
-
-    fn http_curl(&self, url: &str) -> Result<String, String> {
-        if self.verbose { eprintln!("  [verbose] curl开始: {}", url); }
-        let cmd = std::process::Command::new("curl")
-            .arg("-s")
-            .arg("--connect-timeout").arg("10")
-            .arg("--max-time").arg("20")
-            .arg("-w").arg("")
-            .arg("-A").arg("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-            .arg(url)
-            .output()
-            .map_err(|e| {
-                let msg = format!("curl执行失败: {}", e);
-                if self.verbose { eprintln!("  [verbose] {}", msg); }
-                msg
-            })?;
-        if self.verbose { eprintln!("  [verbose] curl完成: status={}, stdout={}b, stderr={}b",
-            cmd.status, cmd.stdout.len(), cmd.stderr.len()); }
-        if !cmd.status.success() {
-            let stderr = String::from_utf8_lossy(&cmd.stderr);
-            let msg = format!("curl退出码 {}: {}", cmd.status, stderr.trim());
-            if self.verbose { eprintln!("  [verbose] {}", msg); }
-            return Err(msg);
-        }
-        // try grun -s fallback if stdout is empty
-        if cmd.stdout.is_empty() && self.verbose {
-            eprintln!("  [verbose] curl返回空, 改用grun -s");
-        }
-        let text = String::from_utf8(cmd.stdout).map_err(|e| {
-            let msg = format!("curl输出编码错误: {}", e);
-            if self.verbose { eprintln!("  [verbose] {}", msg); }
-            msg
-        })?;
-        if self.verbose { eprintln!("  [verbose] curl {} ({}b)", url, text.len()); }
         Ok(text)
     }
 }
