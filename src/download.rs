@@ -15,20 +15,26 @@ pub struct Downloader {
     format: String,
     ft: String,
     verbose: bool,
+    book_id: String,
+    book_title: String,
 }
 
 impl Downloader {
-    pub fn new(api: Client, out_dir: PathBuf, format: &str, ft: &str, verbose: bool) -> Self {
-        Downloader { api, out_dir, format: format.into(), ft: ft.into(), verbose }
+    pub fn new(api: Client, out_dir: PathBuf, format: &str, ft: &str, verbose: bool,
+               book_id: &str, book_title: &str) -> Self {
+        Downloader { api, out_dir, format: format.into(), ft: ft.into(), verbose,
+            book_id: book_id.into(), book_title: book_title.into() }
     }
 
-    pub fn run(&self, chapters: &[&Chapter], book_title: Option<&str>, concurrent: usize) {
+    pub fn run(&self, chapters: &[&Chapter], concurrent: usize) {
         if chapters.is_empty() { println!("  无章节"); return; }
         fs::create_dir_all(&self.out_dir).expect("创建目录失败");
         if self.format == "epub" {
-            return self.do_epub(chapters, book_title, concurrent);
+            self.do_epub(chapters, concurrent);
+        } else {
+            self.do_files(chapters, concurrent);
         }
-        self.do_files(chapters, concurrent);
+        self.write_info_list(chapters);
     }
 
     fn do_files(&self, chapters: &[&Chapter], concurrent: usize) {
@@ -86,8 +92,8 @@ impl Downloader {
         if f > 0 { println!("  失败 {} 章", f); }
     }
 
-    fn do_epub(&self, chapters: &[&Chapter], book_title: Option<&str>, concurrent: usize) {
-        let title = sanitize_filename(book_title.unwrap_or("小说"));
+    fn do_epub(&self, chapters: &[&Chapter], concurrent: usize) {
+        let title = sanitize_filename(&self.book_title);
         let epub_path = self.out_dir.join(format!("{}.epub", title));
 
         let resolved: Vec<Chapter> = chapters.iter().map(|c| (*c).clone()).collect();
@@ -169,4 +175,40 @@ fn bar_style() -> ProgressStyle {
     ProgressStyle::default_bar()
         .template("[{elapsed_precise}] {bar:28.cyan/blue} {pos}/{len} {msg}")
         .unwrap().progress_chars("━▶")
+}
+
+fn json_esc(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+impl Downloader {
+    fn write_info_list(&self, chapters: &[&Chapter]) {
+        let path = self.out_dir.join("info.list");
+        let items: Vec<String> = chapters.iter().map(|ch| {
+            format!("    {{\"idx\":{}, \"title\":\"{}\", \"file\":\"{}\"}}",
+                ch.index, json_esc(&ch.title), json_esc(&self.fname(ch)))
+        }).collect();
+        let json = format!("{{\n  \"book_id\": \"{}\",\n  \"book_title\": \"{}\",\n  \"format\": \"{}\",\n  \"chapters\": [\n{}\n  ]\n}}\n",
+            json_esc(&self.book_id), json_esc(&self.book_title), self.format, items.join(",\n"));
+        fs::write(&path, json).ok();
+    }
+}
+
+pub fn read_info_list(dir: &std::path::Path) -> Result<(String, String, String, Vec<(usize, String, String)>), String> {
+    let text = fs::read_to_string(dir.join("info.list")).map_err(|e| format!("读 info.list: {}", e))?;
+    let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("JSON: {}", e))?;
+    let book_id = root["book_id"].as_str().unwrap_or("").to_string();
+    let book_title = root["book_title"].as_str().unwrap_or("").to_string();
+    let format = root["format"].as_str().unwrap_or("txt").to_string();
+    let mut chapters = vec![];
+    if let Some(arr) = root["chapters"].as_array() {
+        for item in arr {
+            let idx = item["idx"].as_u64().unwrap_or(0) as usize;
+            let title = item["title"].as_str().unwrap_or("").to_string();
+            let file = item["file"].as_str().unwrap_or("").to_string();
+            chapters.push((idx, title, file));
+        }
+    }
+    if book_id.is_empty() { return Err("info.list 缺少 book_id".into()); }
+    Ok((book_id, book_title, format, chapters))
 }

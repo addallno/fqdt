@@ -252,8 +252,10 @@ fn download(book_id: &str, output: Option<&str>, concurrent: Option<usize>,
 
     let fmt = format.unwrap_or(&cfg.format);
     let out = output.map(|s| s.into()).unwrap_or(cfg.output_dir.clone());
-    let dler = download::Downloader::new(api, out, fmt, &cfg.filename_template, verbose || cfg.verbose);
-    dler.run(&chs, book_title, concurrent.unwrap_or(cfg.concurrent));
+    let bt = book_title.unwrap_or("小说");
+    let dler = download::Downloader::new(api, out, fmt, &cfg.filename_template, verbose || cfg.verbose,
+        book_id, bt);
+    dler.run(&chs, concurrent.unwrap_or(cfg.concurrent));
 }
 
 fn shelf(add: Option<String>, delete: Option<usize>, dl: Option<usize>, cfg: &Config) {
@@ -293,6 +295,41 @@ fn shelf(add: Option<String>, delete: Option<usize>, dl: Option<usize>, cfg: &Co
 
 fn update(book_id: &str, output: Option<&str>, concurrent: Option<usize>,
           format: Option<&str>, verbose: bool, cfg: &Config) {
+    let path = PathBuf::from(book_id);
+
+    // 如果参数是已有目录, 从 info.list 自动检测
+    if path.is_dir() {
+        let (bid, btitle, fmt, existing) = match download::read_info_list(&path) {
+            Ok(v) => v,
+            Err(e) => { eprintln!("  ✗ {}", e); return; }
+        };
+        let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
+            cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
+            cfg.audio_content_urls.clone(), verbose || cfg.verbose);
+        print!("  获取目录... ");
+        flush();
+        let all = match api.fetch_catalog(&bid) {
+            Ok(c) => c, Err(e) => { eprintln!("\n  ✗ {}", e); return; }
+        };
+        if all.is_empty() { println!("  ❌ 空目录"); return; }
+
+        let new_chs: Vec<&types::Chapter> = all.iter()
+            .filter(|c| !existing.iter().any(|(idx, _, _)| *idx == c.index))
+            .collect();
+        if new_chs.is_empty() {
+            println!("  已是最新 (共{}章)", all.len());
+            return;
+        }
+        println!("  发现 {} 章新章节 (共{}/{})", new_chs.len(), existing.len(), all.len());
+
+        let f = format.unwrap_or(&fmt);
+        let dler = download::Downloader::new(api, path, f, &cfg.filename_template, verbose || cfg.verbose,
+            &bid, &btitle);
+        dler.run(&new_chs, concurrent.unwrap_or(cfg.concurrent));
+        return;
+    }
+
+    // 旧方式: book_id 参数
     let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
         cfg.audio_content_urls.clone(), verbose || cfg.verbose);
@@ -327,8 +364,9 @@ fn update(book_id: &str, output: Option<&str>, concurrent: Option<usize>,
     }
     println!("  发现 {} 章新章节 (共{}→{})", new_chs.len(), max_existing, all.len());
 
-    let dler = download::Downloader::new(api, out_dir, fmt, &cfg.filename_template, verbose || cfg.verbose);
-    dler.run(&new_chs, None, concurrent.unwrap_or(cfg.concurrent));
+    let dler = download::Downloader::new(api, out_dir, fmt, &cfg.filename_template, verbose || cfg.verbose,
+        book_id, "小说");
+    dler.run(&new_chs, concurrent.unwrap_or(cfg.concurrent));
 }
 
 fn audio_dl(book_id: &str, output: Option<&str>, range: Option<&str>, tone: usize, verbose: bool, cfg: &Config) {
