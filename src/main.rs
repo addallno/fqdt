@@ -121,10 +121,10 @@ enum Cmd {
     /// 测试API连接(搜索/目录/内容)
     #[command(name = "test-api")]
     TestApi,
-    /// 下载语音(有声书MP3)
+    /// 下载语音(有声书MP3/TTS)
     Audio {
-        /// 小说bookId
-        book_id: String,
+        /// 小说bookId (下载官方TTS用)
+        book_id: Option<String>,
         /// 输出目录
         #[arg(short='o', long)]
         output: Option<String>,
@@ -137,6 +137,12 @@ enum Cmd {
         /// 调试输出
         #[arg(short='v', long)]
         verbose: bool,
+        /// TTS转换: 文本文件或目录
+        #[arg(long)]
+        tts: Option<String>,
+        /// TTS语音(如 zh-CN-XiaoxiaoNeural)
+        #[arg(long, default_value = "zh-CN-XiaoxiaoNeural")]
+        voice: String,
     },
 }
 
@@ -163,8 +169,8 @@ fn main() {
             println!("  ✓ ~/.config/fqdt/config.ini");
         }
         Cmd::TestApi => test_api(&cfg),
-        Cmd::Audio { book_id, output, range, tone, verbose } =>
-            audio_dl(&book_id, output.as_deref(), range.as_deref(), tone, verbose, &cfg),
+        Cmd::Audio { book_id, output, range, tone, verbose, tts, voice } =>
+            audio_dl(book_id.as_deref(), output.as_deref(), range.as_deref(), tone, verbose, tts.as_deref(), &voice, &cfg),
     }
 }
 
@@ -378,13 +384,29 @@ fn update(book_id: &str, output: Option<&str>, concurrent: Option<usize>,
     dler.run(&new_chs, concurrent.unwrap_or(cfg.concurrent));
 }
 
-fn audio_dl(book_id: &str, output: Option<&str>, range: Option<&str>, tone: usize, verbose: bool, cfg: &Config) {
+fn audio_dl(book_id: Option<&str>, output: Option<&str>, range: Option<&str>, tone: usize, verbose: bool,
+            tts_path: Option<&str>, voice: &str, cfg: &Config) {
+    // TTS模式: 文本文件/目录转MP3
+    if let Some(path) = tts_path {
+        let p = std::path::Path::new(path);
+        if p.is_dir() {
+            audio::convert_tts_dir(p, output.map(PathBuf::from), voice, verbose || cfg.verbose);
+        } else if p.is_file() {
+            audio::convert_tts_file(p, output.map(PathBuf::from), voice, verbose || cfg.verbose);
+        } else {
+            eprintln!("  ✗ 文件不存在: {}", path);
+        }
+        return;
+    }
+
+    // 官方TTS下载模式
+    let bid = match book_id { Some(id) => id, None => { eprintln!("  ✗ 需要 book_id 或 --tts"); return; } };
     let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
         cfg.audio_content_urls.clone(), verbose || cfg.verbose);
     print!("  获取目录... ");
     flush();
-    let all = match api.fetch_catalog(book_id) {
+    let all = match api.fetch_catalog(bid) {
         Ok(c) => c, Err(e) => { eprintln!("\n  ✗ {}", e); return; }
     };
     let r = range.and_then(ChapterRange::parse);

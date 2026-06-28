@@ -2,7 +2,7 @@ use crate::api::Client;
 use crate::types::{Chapter, sanitize_filename};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -181,4 +181,94 @@ fn bar_style() -> ProgressStyle {
     ProgressStyle::default_bar()
         .template("[{elapsed_precise}] {bar:28.green/cyan} {pos}/{len} {msg}")
         .unwrap().progress_chars("━▶")
+}
+
+// ── TTS conversion ──────────────────────────────────────────
+
+pub fn convert_tts_file(input: &Path, output_dir: Option<PathBuf>, voice: &str, verbose: bool) {
+    let name = input.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
+    let out = output_dir.unwrap_or_else(|| input.parent().unwrap_or(Path::new(".")).to_path_buf());
+    fs::create_dir_all(&out).expect("创建目录失败");
+    let out_path = out.join(format!("{}.mp3", name));
+    if out_path.exists() {
+        println!("  ✓ 已存在: {}", out_path.display());
+        return;
+    }
+    let text = match fs::read_to_string(input) {
+        Ok(t) => t,
+        Err(e) => { eprintln!("  ✗ 读文件: {}", e); return; }
+    };
+    println!("  🗣  \"{}\" → {}", name, out_path.display());
+    if let Err(e) = run_edge_tts(&text, voice, &out_path, verbose) {
+        eprintln!("  ✗ {}", e);
+    }
+}
+
+pub fn convert_tts_dir(input: &Path, output_dir: Option<PathBuf>, voice: &str, verbose: bool) {
+    let out = output_dir.unwrap_or_else(|| {
+        let mut p = input.to_path_buf();
+        p.push("Audio");
+        p
+    });
+    fs::create_dir_all(&out).expect("创建目录失败");
+
+    let entries: Vec<_> = match fs::read_dir(input) {
+        Ok(d) => d.filter_map(|e| e.ok()).filter(|e| {
+            e.path().extension().map(|ext| ext == "txt").unwrap_or(false)
+        }).collect(),
+        Err(e) => { eprintln!("  ✗ 读目录: {}", e); return; }
+    };
+    if entries.is_empty() { println!("  无 .txt 文件"); return; }
+
+    let pb = ProgressBar::new(entries.len() as u64);
+    pb.set_style(ProgressStyle::default_bar()
+        .template("[{elapsed_precise}] {bar:28.magenta/cyan} {pos}/{len} {msg}")
+        .unwrap().progress_chars("━▶"));
+
+    let mut failed = 0usize;
+    for entry in &entries {
+        let inp = entry.path();
+        let name = inp.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+        let out_path = out.join(format!("{}.mp3", name));
+        if out_path.exists() {
+            pb.inc(1);
+            continue;
+        }
+        let text = match fs::read_to_string(&inp) {
+            Ok(t) => t,
+            Err(e) => { pb.set_message(format!("✗{}: {}", name, e)); failed += 1; pb.inc(1); continue; }
+        };
+        pb.set_message(format!("{}", name));
+        if let Err(e) = run_edge_tts(&text, voice, &out_path, verbose) {
+            pb.set_message(format!("✗{}: {}", name, e));
+            failed += 1;
+        }
+        pb.inc(1);
+        thread::sleep(std::time::Duration::from_millis(100));
+    }
+    pb.finish_and_clear();
+    let total = entries.len();
+    println!("  完成 {}/{}", total - failed, total);
+    if failed > 0 { println!("  失败 {} 文件", failed); }
+}
+
+fn run_edge_tts(text: &str, voice: &str, out_path: &Path, verbose: bool) -> Result<(), String> {
+    // try edge-tts CLI
+    let r = std::process::Command::new("edge-tts")
+        .arg("-t").arg(text)
+        .arg("-v").arg(voice)
+        .arg("--write-media").arg(&out_path.to_string_lossy().to_string())
+        .output();
+    if let Ok(out) = r {
+        if out.status.success() {
+            let size = fs::metadata(out_path).map(|m| m.len()).unwrap_or(0);
+            if size > 1000 { return Ok(()); }
+        }
+        if verbose {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            eprintln!("  [verbose] edge-tts: status={}, err={}", out.status, stderr.trim());
+        }
+        return Err(format!("edge-tts 退出码 {}", out.status));
+    }
+    Err("找不到 edge-tts 命令".into())
 }
