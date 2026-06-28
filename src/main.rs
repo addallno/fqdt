@@ -222,7 +222,7 @@ fn search(keyword: &str, page: usize, output: Option<&str>, concurrent: Option<u
 fn info(book_id: &str, range: Option<&str>, cfg: &Config) {
     let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
-        cfg.audio_content_urls.clone(), verbose || cfg.verbose);
+        cfg.audio_content_urls.clone(), cfg.verbose);
     print!("  获取目录... ");
     flush();
     let chs = match api.fetch_catalog(book_id) {
@@ -240,7 +240,7 @@ fn download(book_id: &str, output: Option<&str>, concurrent: Option<usize>,
             cfg: &Config, book_title: Option<&str>) {
     let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
-        verbose || cfg.verbose);
+        cfg.audio_content_urls.clone(), verbose || cfg.verbose);
     print!("  获取目录... ");
     flush();
     let all = match api.fetch_catalog(book_id) {
@@ -295,7 +295,7 @@ fn update(book_id: &str, output: Option<&str>, concurrent: Option<usize>,
           format: Option<&str>, verbose: bool, cfg: &Config) {
     let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
-        verbose || cfg.verbose);
+        cfg.audio_content_urls.clone(), verbose || cfg.verbose);
     print!("  获取目录... ");
     flush();
     let all = match api.fetch_catalog(book_id) {

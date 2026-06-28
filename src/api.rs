@@ -199,7 +199,6 @@ impl Client {
         }
         Ok(text)
     }
-}
 
     pub fn fetch_audio_url(&self, item_id: &str, tone_id: usize) -> Result<String, String> {
         let mut last_err = String::new();
@@ -221,6 +220,7 @@ impl Client {
         }
         Err(last_err)
     }
+}
 
     fn urlencode(s: &str) -> String {
     let mut r = String::new();
