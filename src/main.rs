@@ -55,6 +55,9 @@ enum Cmd {
         /// 自动下载指定序号(跳过交互选择)
         #[arg(short='D', long)]
         auto: Option<usize>,
+        /// 仅搜索不下载
+        #[arg(short='n', long)]
+        no_download: bool,
     },
     /// 查看小说目录
     Info {
@@ -145,8 +148,8 @@ fn main() {
     Config::save_default().ok();
 
     match cli.cmd {
-        Cmd::Search { keyword, page, output, concurrent, range, format, verbose, auto } =>
-            search(&keyword, page, output.as_deref(), concurrent, range.as_deref(), format.as_deref(), verbose, auto, &cfg),
+        Cmd::Search { keyword, page, output, concurrent, range, format, verbose, auto, no_download } =>
+            search(&keyword, page, output.as_deref(), concurrent, range.as_deref(), format.as_deref(), verbose, auto, no_download, &cfg),
         Cmd::Info { book_id, range } =>
             info(&book_id, range.as_deref(), &cfg),
         Cmd::Download { book_id, output, concurrent, range, format, verbose } =>
@@ -166,7 +169,8 @@ fn main() {
 }
 
 fn search(keyword: &str, page: usize, output: Option<&str>, concurrent: Option<usize>,
-          range: Option<&str>, format: Option<&str>, verbose: bool, auto: Option<usize>, cfg: &Config) {
+          range: Option<&str>, format: Option<&str>, verbose: bool, auto: Option<usize>,
+          no_download: bool, cfg: &Config) {
     let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
         cfg.audio_content_urls.clone(), verbose || cfg.verbose);
@@ -184,19 +188,24 @@ fn search(keyword: &str, page: usize, output: Option<&str>, concurrent: Option<u
         let status = b.status_text();
         let abs: String = b.abstract_.chars().take(60).collect();
         let abs = if b.abstract_.chars().count() > 60 { format!("{}...", abs) } else { b.abstract_.clone() };
-        println!("  \x1b[1;36m{:>2}.\x1b[0m {}", i+1, b.title);
-        println!("      {} \x1b[33m{}\x1b[0m | {} | \x1b[35m{}\x1b[0m \x1b[2m#{}\x1b[0m",
-            b.author, b.category, status, b.score, b.book_id);
-        list_lines += 2;
-        if !abs.is_empty() {
-            println!("      {}", abs);
-            list_lines += 1;
-        }
-        println!();
+    println!("  \x1b[1;36m{:>2}.\x1b[0m {}", i+1, b.title);
+    println!("      {} \x1b[33m{}\x1b[0m | {} | \x1b[35m{}\x1b[0m \x1b[2m#{}\x1b[0m",
+        b.author, b.category, status, b.score, b.book_id);
+    list_lines += 2;
+    if !abs.is_empty() {
+        println!("      {}", abs);
         list_lines += 1;
     }
+    println!();
+    list_lines += 1;
+}
 
-    let idx = auto.map_or_else(|| {
+if no_download {
+    println!("\n  \x1b[2m提示: 使用 info <book_id> 查看目录, download <book_id> 下载\x1b[0m");
+    return;
+}
+
+let idx = auto.map_or_else(|| {
         print!("  \x1b[2m输入序号 (1-{}, 0=取消): \x1b[0m", books.len());
         flush();
         list_lines += 1;
