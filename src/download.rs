@@ -80,7 +80,6 @@ impl Downloader {
                         Err(e) => { fl.fetch_add(1, Ordering::SeqCst); pb.set_message(format!("✗{:04}:{}", ch.index, e)); }
                     }
                     pb.inc(1);
-                    thread::sleep(std::time::Duration::from_millis(50));
                 }
             }));
         }
@@ -88,7 +87,7 @@ impl Downloader {
 
         pb.finish_and_clear();
         let f = failed.load(Ordering::SeqCst);
-        println!("  完成 {}/{} (跳过 {})", n - f, total, skipped);
+        println!("  ok {}/{} (跳过 {})", n - f, total, skipped);
         if f > 0 { println!("  失败 {} 章", f); }
     }
 
@@ -134,7 +133,6 @@ impl Downloader {
                     }
                     pb.inc(1);
                     if vb { eprintln!("  {:04} {} ✓", ch.index, ch.title); }
-                    thread::sleep(std::time::Duration::from_millis(50));
                 }
             }));
         }

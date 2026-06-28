@@ -71,7 +71,6 @@ impl AudioDownloader {
                         Err(e) => { fl.fetch_add(1, Ordering::SeqCst); pb.set_message(format!("✗{:04}:{}", ch.index, e)); }
                     }
                     pb.inc(1);
-                    thread::sleep(std::time::Duration::from_millis(50));
                 }
             }));
         }
@@ -198,7 +197,7 @@ pub fn convert_tts_file(input: &Path, output_dir: Option<PathBuf>, voice: &str, 
         Ok(t) => t,
         Err(e) => { eprintln!("  ✗ 读文件: {}", e); return; }
     };
-    println!("  🗣  \"{}\" → {}", name, out_path.display());
+    println!("  \"{}\" → {}", name, out_path.display());
     if let Err(e) = run_edge_tts(&text, voice, &out_path, verbose) {
         eprintln!("  ✗ {}", e);
     }

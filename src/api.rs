@@ -150,41 +150,8 @@ impl Client {
     }
 
     pub fn http_get(&self, url: &str) -> Result<String, String> {
-        // try #1: grun -s curl (Termux glibc-runner shell)
-        if self.verbose { eprintln!("  [verbose] trying grun..."); }
-        let q = format!("curl -sf --connect-timeout 10 --max-time 20 -A 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36' '{}'", url);
-        let r = std::process::Command::new("grun")
-            .args(["-s", &q])
-            .output();
-        if let Ok(out) = r {
-            if out.status.success() && !out.stdout.is_empty() {
-                let text = String::from_utf8(out.stdout).map_err(|e| format!("编码: {}", e))?;
-                if self.verbose { eprintln!("  [verbose] OK grun ({}b)", text.len()); }
-                return Ok(text);
-            }
-            if self.verbose { eprintln!("  [verbose] no grun"); }
-        }
-
-        // try #2: direct curl
-        if self.verbose { eprintln!("  [verbose] trying curl..."); }
-        let r = std::process::Command::new("curl")
-            .args(["-sf", "--connect-timeout", "10", "--max-time", "20",
-                "-A", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36", url])
-            .output();
-        if let Ok(out) = r {
-            if out.status.success() && !out.stdout.is_empty() {
-                let text = String::from_utf8(out.stdout).map_err(|e| format!("编码: {}", e))?;
-                if self.verbose { eprintln!("  [verbose] OK curl ({}b)", text.len()); }
-                return Ok(text);
-            }
-            if self.verbose {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                eprintln!("  [verbose] curl fail: status={}, out={}b, err={}", out.status, out.stdout.len(), stderr.trim());
-            }
-        }
-
-        // try #3: minreq
-        if self.verbose { eprintln!("  [verbose] trying minreq..."); }
+        // fast path: minreq (in-process, no fork overhead)
+        if self.verbose { eprintln!("  [verbose] minreq GET {}", url); }
         let resp = minreq::get(url)
             .with_header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .with_timeout(15)
@@ -192,12 +159,29 @@ impl Client {
             .map_err(|e| format!("请求失败: {}", e))?;
         let status = resp.status_code;
         let text = resp.as_str().map_err(|e| format!("编码错误: {}", e))?.to_string();
-        if self.verbose { eprintln!("  [verbose] {} {} ({}b)", status, url, text.len()); }
-        if status != 200 {
-            let snippet: String = text.chars().take(200).collect();
-            return Err(format!("HTTP {}: {}", status, snippet));
+        if status == 200 { return Ok(text); }
+        if self.verbose { eprintln!("  [verbose] minreq {} {}b, status={}", url, text.len(), status); }
+
+        // slow path: curl fallback (only when minreq fails)
+        if self.verbose { eprintln!("  [verbose] fallback curl GET {}", url); }
+        let r = std::process::Command::new("curl")
+            .args(["-sf", "--connect-timeout", "15", "--max-time", "30",
+                "-A", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36", url])
+            .output();
+        if let Ok(out) = r {
+            if out.status.success() && !out.stdout.is_empty() {
+                let ct = String::from_utf8(out.stdout).map_err(|e| format!("编码: {}", e))?;
+                if self.verbose { eprintln!("  [verbose] OK curl ({}b)", ct.len()); }
+                return Ok(ct);
+            }
+            if self.verbose {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                eprintln!("  [verbose] curl fail: status={}, err={}", out.status, stderr.trim());
+            }
         }
-        Ok(text)
+
+        let snippet: String = text.chars().take(200).collect();
+        Err(format!("HTTP {}: {}", status, snippet))
     }
 
     pub fn fetch_audio_url(&self, item_id: &str, tone_id: usize) -> Result<String, String> {
