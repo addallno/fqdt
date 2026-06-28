@@ -11,14 +11,15 @@ pub struct Client {
     pub search_urls: Vec<String>,
     pub catalog_url: String,
     pub content_urls: Vec<String>,
+    pub audio_content_urls: Vec<String>,
     pub verbose: bool,
 }
 
 impl Client {
     pub fn new(cache_dir: PathBuf, cache_enabled: bool, cache_ttl: u64,
                search_urls: Vec<String>, catalog_url: String, content_urls: Vec<String>,
-               verbose: bool) -> Self {
-        Client { cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, verbose }
+               audio_content_urls: Vec<String>, verbose: bool) -> Self {
+        Client { cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, audio_content_urls, verbose }
     }
 
     pub fn search(&self, keyword: &str, page: usize) -> Result<Vec<Book>, String> {
@@ -200,7 +201,28 @@ impl Client {
     }
 }
 
-fn urlencode(s: &str) -> String {
+    pub fn fetch_audio_url(&self, item_id: &str, tone_id: usize) -> Result<String, String> {
+        let mut last_err = String::new();
+        for tmpl in &self.audio_content_urls {
+            let url = tmpl.replacen("{}", item_id, 1).replacen("{}", &tone_id.to_string(), 1);
+            if self.verbose { eprintln!("  [verbose] GET {}", url); }
+            let raw = self.http_get(&url)?;
+            let root: Value = serde_json::from_str(&raw).map_err(|e| {
+                if self.verbose { eprintln!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, raw); }
+                format!("JSON: {}", item_id)
+            })?;
+            let audio_url = root.pointer("/data/content").and_then(|v| v.as_str()).unwrap_or("");
+            if !audio_url.is_empty() {
+                if self.verbose { eprintln!("  [verbose] audio URL: {}b", audio_url.len()); }
+                return Ok(audio_url.to_string());
+            }
+            let msg = root.pointer("/message").and_then(|v| v.as_str()).unwrap_or("");
+            last_err = if msg.is_empty() { "无可听音频".into() } else { format!("{}", msg) };
+        }
+        Err(last_err)
+    }
+
+    fn urlencode(s: &str) -> String {
     let mut r = String::new();
     for b in s.bytes() {
         match b {

@@ -23,6 +23,9 @@ impl Config {
                         "search_url" => cfg.search_urls = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
                         "catalog_url" => cfg.catalog_url = v.into(),
                         "content_url" => cfg.content_urls = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+                        "audio_content_url" => cfg.audio_content_urls = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+                        "audio_tone" => cfg.audio_tone = v.parse().unwrap_or(1),
+                        "audio_tone_fallbacks" => cfg.audio_tone_fallbacks = v.split(',').filter_map(|s| s.trim().parse().ok()).collect(),
                         _ => {}
                     }
                 }
@@ -56,6 +59,12 @@ search_url = https://novel.snssdk.com/api/novel/channel/homepage/search/search/v
 catalog_url = https://fanqienovel.com/api/reader/directory/detail?bookId={}
 # 内容API(逗号分隔,从前往后尝试,{}会被item_id替换)
 content_url = http://101.35.133.34:5000/api/content?tab=小说&item_id={},https://tt.sjmyzq.cn/api/raw_full?item_id={},http://101.35.133.34:5000/api/raw_full?item_id={}
+# 语音内容API(两个{}: 第一个item_id, 第二个tone_id)
+audio_content_url = http://101.35.133.34:5000/api/content?tab=听书&item_id={}&tone_id={}
+# 默认语音音色(1-91)
+audio_tone = 1
+# 音色回退列表(主音色失败时依次尝试)
+audio_tone_fallbacks = 2,4,5,6,74,91
 ";
         fs::write(&path, ini).map_err(|e| e.to_string())
     }

@@ -62,7 +62,7 @@ impl Downloader {
             let vb = self.verbose;
             let a = Client::new(self.api.cache_dir.clone(), self.api.cache_enabled, self.api.cache_ttl,
                 self.api.search_urls.clone(), self.api.catalog_url.clone(), self.api.content_urls.clone(),
-                vb);
+                self.api.audio_content_urls.clone(), vb);
             let od = self.out_dir.clone();
             let ft = self.ft.clone();
 
@@ -112,7 +112,7 @@ impl Downloader {
             let vb = self.verbose;
             let a = Client::new(self.api.cache_dir.clone(), self.api.cache_enabled, self.api.cache_ttl,
                 self.api.search_urls.clone(), self.api.catalog_url.clone(), self.api.content_urls.clone(),
-                vb);
+                self.api.audio_content_urls.clone(), vb);
 
             handles.push(thread::spawn(move || {
                 for i in (w..total).step_by(count) {

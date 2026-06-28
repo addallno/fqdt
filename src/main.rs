@@ -1,4 +1,5 @@
 mod api;
+mod audio;
 mod config;
 mod download;
 mod epub;
@@ -117,6 +118,23 @@ enum Cmd {
     /// 测试API连接(搜索/目录/内容)
     #[command(name = "test-api")]
     TestApi,
+    /// 下载语音(有声书MP3)
+    Audio {
+        /// 小说bookId
+        book_id: String,
+        /// 输出目录
+        #[arg(short='o', long)]
+        output: Option<String>,
+        /// 章节范围
+        #[arg(short='r', long)]
+        range: Option<String>,
+        /// 语音音色(1/2/4/5/6/74/91)
+        #[arg(long, default_value = "1")]
+        tone: usize,
+        /// 调试输出
+        #[arg(short='v', long)]
+        verbose: bool,
+    },
 }
 
 fn main() {
@@ -142,6 +160,8 @@ fn main() {
             println!("  ✓ ~/.config/fqdt/config.ini");
         }
         Cmd::TestApi => test_api(&cfg),
+        Cmd::Audio { book_id, output, range, tone, verbose } =>
+            audio_dl(&book_id, output.as_deref(), range.as_deref(), tone, verbose, &cfg),
     }
 }
 
@@ -149,7 +169,7 @@ fn search(keyword: &str, page: usize, output: Option<&str>, concurrent: Option<u
           range: Option<&str>, format: Option<&str>, verbose: bool, auto: Option<usize>, cfg: &Config) {
     let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
-        verbose || cfg.verbose);
+        cfg.audio_content_urls.clone(), verbose || cfg.verbose);
     print!("  🔍 \"{}\" (第{}页)... ", keyword, page);
     flush();
     let books = match api.search(keyword, page) {
@@ -202,7 +222,7 @@ fn search(keyword: &str, page: usize, output: Option<&str>, concurrent: Option<u
 fn info(book_id: &str, range: Option<&str>, cfg: &Config) {
     let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
-        cfg.verbose);
+        cfg.audio_content_urls.clone(), verbose || cfg.verbose);
     print!("  获取目录... ");
     flush();
     let chs = match api.fetch_catalog(book_id) {
@@ -311,6 +331,33 @@ fn update(book_id: &str, output: Option<&str>, concurrent: Option<usize>,
     dler.run(&new_chs, None, concurrent.unwrap_or(cfg.concurrent));
 }
 
+fn audio_dl(book_id: &str, output: Option<&str>, range: Option<&str>, tone: usize, verbose: bool, cfg: &Config) {
+    let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
+        cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
+        cfg.audio_content_urls.clone(), verbose || cfg.verbose);
+    print!("  获取目录... ");
+    flush();
+    let all = match api.fetch_catalog(book_id) {
+        Ok(c) => c, Err(e) => { eprintln!("\n  ✗ {}", e); return; }
+    };
+    let r = range.and_then(ChapterRange::parse);
+    let chs: Vec<&types::Chapter> = all.iter().filter(|c| r.as_ref().map_or(true, |x| x.contains(c.index))).collect();
+    if chs.is_empty() { println!("  ❌ 空范围"); return; }
+
+    let out = output.map(|s| PathBuf::from(s).join("Audio")).unwrap_or_else(|| {
+        let mut p = cfg.output_dir.clone();
+        p.push("Audio");
+        p
+    });
+    let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
+        vec![2, 4, 5, 6, 74, 91]
+    } else {
+        cfg.audio_tone_fallbacks.clone()
+    };
+    let dler = audio::AudioDownloader::new(api, out, tone, fallbacks, &cfg.filename_template, verbose || cfg.verbose);
+    dler.run(&chs, None);
+}
+
 fn test_api(cfg: &Config) {
     fn test(api: &Client, label: &str, url: &str, desc: &str) {
         print!("  {} {} ... ", label, desc);
@@ -329,7 +376,7 @@ fn test_api(cfg: &Config) {
     let api = Client::new(
         cfg.cache_dir.clone(), false, 0,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
-        cfg.verbose,
+        cfg.audio_content_urls.clone(), cfg.verbose,
     );
 
     println!("\n  📡 API 测试\n");
