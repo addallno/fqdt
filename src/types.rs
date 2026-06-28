@@ -71,6 +71,8 @@ pub struct Config {
     pub audio_content_urls: Vec<String>,
     pub audio_tone: usize,
     pub audio_tone_fallbacks: Vec<usize>,
+    pub interval_ms: u64,
+    pub timeout: u64,
 }
 
 impl Default for Config {
@@ -101,6 +103,8 @@ impl Default for Config {
             ],
             audio_tone: 1,
             audio_tone_fallbacks: vec![2, 4, 5, 6, 74, 91],
+            interval_ms: 0,
+            timeout: 15,
         }
     }
 }

@@ -56,7 +56,7 @@ impl AudioDownloader {
             let vb = self.verbose;
             let a = Client::new(self.api.cache_dir.clone(), self.api.cache_enabled, self.api.cache_ttl,
                 self.api.search_urls.clone(), self.api.catalog_url.clone(), self.api.content_urls.clone(),
-                self.api.audio_content_urls.clone(), vb);
+                self.api.audio_content_urls.clone(), vb, self.api.timeout);
             let od = self.out_dir.clone();
             let ft = self.ft.clone();
             let tone = self.tone;

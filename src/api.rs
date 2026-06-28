@@ -13,13 +13,14 @@ pub struct Client {
     pub content_urls: Vec<String>,
     pub audio_content_urls: Vec<String>,
     pub verbose: bool,
+    pub timeout: u64,
 }
 
 impl Client {
     pub fn new(cache_dir: PathBuf, cache_enabled: bool, cache_ttl: u64,
                search_urls: Vec<String>, catalog_url: String, content_urls: Vec<String>,
-               audio_content_urls: Vec<String>, verbose: bool) -> Self {
-        Client { cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, audio_content_urls, verbose }
+               audio_content_urls: Vec<String>, verbose: bool, timeout: u64) -> Self {
+        Client { cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, audio_content_urls, verbose, timeout }
     }
 
     pub fn search(&self, keyword: &str, page: usize) -> Result<Vec<Book>, String> {
@@ -152,9 +153,10 @@ impl Client {
     pub fn http_get(&self, url: &str) -> Result<String, String> {
         // fast path: minreq (in-process, no fork overhead)
         if self.verbose { eprintln!("  [verbose] minreq GET {}", url); }
+        let to = self.timeout.max(5);
         let resp = minreq::get(url)
             .with_header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-            .with_timeout(15)
+            .with_timeout(to)
             .send()
             .map_err(|e| format!("请求失败: {}", e))?;
         let status = resp.status_code;
@@ -164,8 +166,10 @@ impl Client {
 
         // slow path: curl fallback (only when minreq fails)
         if self.verbose { eprintln!("  [verbose] fallback curl GET {}", url); }
+        let ct = to.to_string();
+        let mt = (to * 2).to_string();
         let r = std::process::Command::new("curl")
-            .args(["-sf", "--connect-timeout", "15", "--max-time", "30",
+            .args(["-sf", "--connect-timeout", &ct, "--max-time", &mt,
                 "-A", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36", url])
             .output();
         if let Ok(out) = r {

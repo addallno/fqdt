@@ -26,6 +26,8 @@ impl Config {
                         "audio_content_url" => cfg.audio_content_urls = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
                         "audio_tone" => cfg.audio_tone = v.parse().unwrap_or(1),
                         "audio_tone_fallbacks" => cfg.audio_tone_fallbacks = v.split(',').filter_map(|s| s.trim().parse().ok()).collect(),
+                        "interval_ms" => cfg.interval_ms = v.parse().unwrap_or(0),
+                        "timeout" => cfg.timeout = v.parse().unwrap_or(15),
                         _ => {}
                     }
                 }
