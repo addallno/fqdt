@@ -15,17 +15,17 @@ use types::{ChapterRange, Config};
 #[derive(Parser)]
 #[command(name = "fqdt", version, about = "番茄小说下载器")]
 struct Cli {
-    #[arg(long, global = true, help = "搜索 API 地址，逗号分隔多个")]
+    #[arg(long, global = true, help = "搜索 API")]
     search_url: Option<String>,
-    #[arg(long, global = true, help = "目录 API 地址")]
+    #[arg(long, global = true, help = "目录 API")]
     catalog_url: Option<String>,
-    #[arg(long, global = true, help = "内容 API 地址，逗号分隔多个")]
+    #[arg(long, global = true, help = "内容 API")]
     content_url: Option<String>,
-    #[arg(long, global = true, help = "HTTP 超时(秒)")]
+    #[arg(long, global = true, help = "超时秒")]
     timeout: Option<u64>,
-    #[arg(long, global = true, help = "HTTP 方式: auto/minreq/curl")]
+    #[arg(long, global = true, help = "HTTP auto/minreq/curl")]
     http: Option<String>,
-    #[arg(long, global = true, help = "curl 额外参数")]
+    #[arg(long, global = true, help = "curl 参数")]
     curl_args: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
@@ -48,19 +48,19 @@ enum Cmd {
         /// 输出目录
         #[arg(short='o', long)]
         output: Option<String>,
-        /// 并行下载数
+        /// 并发数
         #[arg(short='j', long)]
         jobs: Option<usize>,
-        /// 章节范围 1-50 / -5 / 10-
+        /// 范围
         #[arg(short='r', long)]
         range: Option<String>,
-        /// 输出格式 txt/epub
+        /// 格式
         #[arg(short='t', long)]
         format: Option<String>,
-        /// 下载间隔(ms)
+        /// 间隔ms
         #[arg(short='i', long, default_value = "0")]
         interval: u64,
-        /// 显示详细输出
+        /// 详细
         #[arg(short='v', long)]
         verbose: bool,
     },
@@ -73,7 +73,7 @@ enum Cmd {
         /// 显示章节正文
         #[arg(short='s', long)]
         show: bool,
-        /// 显示详细输出
+        /// 详细
         #[arg(short='v', long)]
         verbose: bool,
     },
@@ -83,42 +83,42 @@ enum Cmd {
         /// 输出目录
         #[arg(short='o', long)]
         output: Option<String>,
-        /// 并行下载数
+        /// 并发数
         #[arg(short='j', long)]
         jobs: Option<usize>,
         /// 章节范围
         #[arg(short='r', long)]
         range: Option<String>,
-        /// 输出格式 txt/epub
+        /// 格式
         #[arg(short='t', long)]
         format: Option<String>,
-        /// 下载间隔(ms)
+        /// 间隔ms
         #[arg(short='i', long, default_value = "0")]
         interval: u64,
-        /// 显示详细输出
+        /// 详细
         #[arg(short='v', long)]
         verbose: bool,
     },
     /// 增量更新（只下载新章节）
     Update {
-        /// bookId 或已有目录（含 info.list）
+        /// bookId或目录
         book_id: Option<String>,
         /// 输出目录
         #[arg(short='o', long)]
         output: Option<String>,
-        /// 并行下载数
+        /// 并发数
         #[arg(short='j', long)]
         jobs: Option<usize>,
-        /// 章节范围 1-50 / -5 / 10-
+        /// 范围
         #[arg(short='r', long)]
         range: Option<String>,
-        /// 更新音频而非正文
+        /// 音频
         #[arg(long)]
         audio: bool,
-        /// 显示详细输出
+        /// 详细
         #[arg(short='v', long)]
         verbose: bool,
-        /// 下载间隔(ms)
+        /// 间隔ms
         #[arg(short='i', long, default_value = "0")]
         interval: u64,
     },
@@ -141,7 +141,7 @@ enum Cmd {
     TestApi,
     /// 下载语音或 TTS 转语音
     Audio {
-        /// bookId（下载官方语音用）
+        /// bookId
         book_id: Option<String>,
         /// 输出目录
         #[arg(short='o', long)]
@@ -149,46 +149,46 @@ enum Cmd {
         /// 章节范围
         #[arg(short='r', long)]
         range: Option<String>,
-        /// 音色 1/2/4/5/6/74/91
+        /// 音色
         #[arg(long, default_value = "1")]
         tone: usize,
-        /// 文本转语音：文件或目录路径
+        /// TTS文件/目录
         #[arg(short='t', long)]
         tts: Option<String>,
-        /// TTS 语音名
+        /// 语音
         #[arg(long, default_value = "zh-CN-XiaoxiaoNeural")]
         voice: String,
-        /// TTS 语速 (+0% / -50% / +100%)
+        /// 语速
         #[arg(long)]
         rate: Option<String>,
-        /// TTS 音量 (+0% / -50%)
+        /// 音量
         #[arg(long)]
         volume: Option<String>,
-        /// TTS 音调 (+0Hz / -10Hz / +10Hz)
+        /// 音调
         #[arg(long)]
         pitch: Option<String>,
-        /// MP3 编码码率 kbps (0=原始, 32/64/128)
+        /// 码率kbps
         #[arg(long)]
         abr: Option<u32>,
-        /// 播放变速 (0.5/1.0/1.5/2.0)
+        /// 变速
         #[arg(long)]
         speed: Option<f32>,
-        /// 音量归一化
+        /// 归一化
         #[arg(long)]
         normalize: bool,
-        /// 后处理命令 {input} {output}
+        /// 处理命令
         #[arg(short='x', long)]
         exec: Option<String>,
-        /// LRC 模式: external/embed/both/off
+        /// LRC模式
         #[arg(long, default_value = "external")]
         lrc: String,
-        /// 并行下载数
+        /// 并发数
         #[arg(short='j', long)]
         jobs: Option<usize>,
-        /// 下载间隔(ms)
+        /// 间隔ms
         #[arg(short='i', long, default_value = "0")]
         interval: u64,
-        /// 显示详细输出
+        /// 详细
         #[arg(short='v', long)]
         verbose: bool,
     },
@@ -199,31 +199,31 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum FunctionCmd {
-    /// 嵌入元数据到媒体文件
+    /// 嵌入元数据
     Embed {
-        /// 文件或目录
+        /// 输入路径
         input: String,
-        /// 嵌入 LRC 歌词
+        /// 嵌入LRC
         #[arg(long)]
         lrc: bool,
-        /// 嵌入封面图片
+        /// 封面
         #[arg(long)]
         cover: Option<String>,
     },
-    /// 后处理音频文件
+    /// 后处理
     Process {
-        /// 文件或目录
+        /// 输入路径
         input: String,
-        /// MP3 码率 kbps (0=原始)
+        /// 码率
         #[arg(long)]
         abr: Option<u32>,
-        /// 播放变速
+        /// 变速
         #[arg(long)]
         speed: Option<f32>,
-        /// 音量归一化
+        /// 归一化
         #[arg(long)]
         normalize: bool,
-        /// 自定义命令 {input} {output}
+        /// 命令
         #[arg(long)]
         cmd: Option<String>,
     },
