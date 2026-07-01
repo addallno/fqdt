@@ -13,132 +13,125 @@ use clap::{Parser, Subcommand};
 use types::{ChapterRange, Config};
 
 #[derive(Parser)]
-#[command(name = "fqdt", version, about = "📖 番茄小说下载器")]
+#[command(name = "fqdt", version, about = "番茄小说下载器")]
 struct Cli {
-    /// 搜索API地址,逗号分隔多个按顺序尝试,用{}代替关键词和页码
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help = "搜索 API 地址，逗号分隔多个")]
     search_url: Option<String>,
-    /// 目录API地址,用{}代替bookId
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help = "目录 API 地址")]
     catalog_url: Option<String>,
-    /// 内容API地址,逗号分隔多个按顺序尝试,用{}代替item_id
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help = "内容 API 地址，逗号分隔多个")]
     content_url: Option<String>,
+    #[arg(long, global = true, help = "HTTP 超时(秒)")]
+    timeout: Option<u64>,
     #[command(subcommand)]
     cmd: Cmd,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// 搜索小说并交互选择下载
+    /// 搜索并下载小说
     Search {
-        /// 搜索关键词
         keyword: String,
-        /// 页码(默认1)
+        /// 页码
         #[arg(short='p', long, default_value="1")]
         page: usize,
-        /// 输出目录
-        #[arg(short='o', long)]
-        output: Option<String>,
-        /// 并发下载线程数
-        #[arg(short='c', long)]
-        concurrent: Option<usize>,
-        /// 章节范围如 1-50 / -5(前5章) / 10-(10章起)
-        #[arg(short='r', long)]
-        range: Option<String>,
-        /// 输出格式 txt/html/epub
-        #[arg(short='t', long)]
-        format: Option<String>,
-        /// 调试输出
-        #[arg(short='v', long)]
-        verbose: bool,
-        /// 自动下载指定序号(跳过交互选择)
+        /// 自动下载第N本（跳过交互）
         #[arg(short='D', long)]
         auto: Option<usize>,
         /// 仅搜索不下载
-        #[arg(short='n', long)]
-        no_download: bool,
-        /// 下载间隔毫秒(防止限速)
+        #[arg(long)]
+        dry_run: bool,
+        /// 输出目录
+        #[arg(short='o', long)]
+        output: Option<String>,
+        /// 并行下载数
+        #[arg(short='j', long)]
+        jobs: Option<usize>,
+        /// 章节范围 1-50 / -5 / 10-
+        #[arg(short='r', long)]
+        range: Option<String>,
+        /// 输出格式 txt/epub
+        #[arg(short='t', long)]
+        format: Option<String>,
+        /// 下载间隔(ms)
         #[arg(short='i', long, default_value = "0")]
         interval: u64,
+        /// 显示详细输出
+        #[arg(short='v', long)]
+        verbose: bool,
     },
-    /// 查看小说目录/内容
+    /// 查看目录或内容
     Info {
-        /// 小说bookId
         book_id: String,
         /// 章节范围
         #[arg(short='r', long)]
         range: Option<String>,
-        /// 显示章节内容(分页)
+        /// 显示章节正文
         #[arg(short='s', long)]
         show: bool,
-        /// 调试输出
+        /// 显示详细输出
         #[arg(short='v', long)]
         verbose: bool,
     },
-    /// 下载小说(需指定bookId)
+    /// 下载章节正文
     Download {
-        /// 小说bookId
         book_id: String,
         /// 输出目录
         #[arg(short='o', long)]
         output: Option<String>,
-        /// 并发下载线程数
-        #[arg(short='c', long)]
-        concurrent: Option<usize>,
+        /// 并行下载数
+        #[arg(short='j', long)]
+        jobs: Option<usize>,
         /// 章节范围
         #[arg(short='r', long)]
         range: Option<String>,
-        /// 输出格式 txt/html/epub
+        /// 输出格式 txt/epub
         #[arg(short='t', long)]
         format: Option<String>,
-        /// 调试输出
-        #[arg(short='v', long)]
-        verbose: bool,
-        /// 下载间隔毫秒
+        /// 下载间隔(ms)
         #[arg(short='i', long, default_value = "0")]
         interval: u64,
+        /// 显示详细输出
+        #[arg(short='v', long)]
+        verbose: bool,
     },
-    /// 增量更新(只下载新章节)
+    /// 增量更新（只下载新章节）
     Update {
-        /// 小说bookId, 或目录路径(含info.list)
+        /// bookId 或已有目录（含 info.list）
         book_id: Option<String>,
-        /// 输出目录(默认从book_id或当前目录)
+        /// 输出目录
         #[arg(short='o', long)]
         output: Option<String>,
-        /// 并发下载线程数
-        #[arg(short='c', long)]
-        concurrent: Option<usize>,
-        /// 输出格式
-        #[arg(short='t', long)]
-        format: Option<String>,
-        /// 调试输出
+        /// 并行下载数
+        #[arg(short='j', long)]
+        jobs: Option<usize>,
+        /// 显示详细输出
         #[arg(short='v', long)]
         verbose: bool,
-        /// 下载间隔毫秒
+        /// 下载间隔(ms)
         #[arg(short='i', long, default_value = "0")]
         interval: u64,
     },
-    /// 书架管理: list / add / remove / download
+    /// 书架管理
     Shelf {
-        /// 添加书架: <ID>:<标题>
+        /// 添加 <ID>:<标题>
         #[arg(short='a', long)]
         add: Option<String>,
-        /// 删除书架: 序号
+        /// 删除第N本
         #[arg(short='d', long)]
         delete: Option<usize>,
-        /// 下载书架: 序号
+        /// 下载第N本
         #[arg(short='D', long)]
         dl: Option<usize>,
     },
-    /// 生成默认配置文件
+    /// 生成默认配置
     Init,
-    /// 测试API连接(搜索/目录/内容)
+    /// 测试 API 连接
     #[command(name = "test-api")]
     TestApi,
-    /// 下载语音(有声书MP3/TTS)
+    /// 下载语音或 TTS 转语音
     Audio {
-        /// 小说bookId (下载官方TTS用)
+        /// bookId（下载官方语音用）
         book_id: Option<String>,
         /// 输出目录
         #[arg(short='o', long)]
@@ -146,21 +139,24 @@ enum Cmd {
         /// 章节范围
         #[arg(short='r', long)]
         range: Option<String>,
-        /// 语音音色(1/2/4/5/6/74/91)
+        /// 音色 1/2/4/5/6/74/91
         #[arg(long, default_value = "1")]
         tone: usize,
-        /// 调试输出
-        #[arg(short='v', long)]
-        verbose: bool,
-        /// TTS转换: 文本文件或目录
-        #[arg(long)]
+        /// 文本转语音：文件或目录路径
+        #[arg(short='t', long)]
         tts: Option<String>,
-        /// TTS语音(如 zh-CN-XiaoxiaoNeural)
+        /// TTS 语音名
         #[arg(long, default_value = "zh-CN-XiaoxiaoNeural")]
         voice: String,
-        /// 下载间隔毫秒
+        /// 并行下载数
+        #[arg(short='j', long)]
+        jobs: Option<usize>,
+        /// 下载间隔(ms)
         #[arg(short='i', long, default_value = "0")]
         interval: u64,
+        /// 显示详细输出
+        #[arg(short='v', long)]
+        verbose: bool,
     },
 }
 
@@ -168,18 +164,19 @@ fn main() {
     let cli = Cli::parse();
     let mut cfg = Config::load();
     cfg.apply_cli_overrides(cli.search_url.as_deref(), cli.catalog_url.as_deref(), cli.content_url.as_deref());
+    if let Some(to) = cli.timeout { cfg.timeout = to; }
     cfg.ensure_dirs();
     Config::save_default().ok();
 
     match cli.cmd {
-        Cmd::Search { keyword, page, output, concurrent, range, format, verbose, auto, no_download, interval } =>
-            search(&keyword, page, output.as_deref(), concurrent, range.as_deref(), format.as_deref(), verbose, auto, no_download, interval, &cfg),
+        Cmd::Search { keyword, page, auto, dry_run, output, jobs, range, format, interval, verbose } =>
+            search(&keyword, page, output.as_deref(), jobs, range.as_deref(), format.as_deref(), verbose, auto, dry_run, interval, &cfg),
         Cmd::Info { book_id, range, show, verbose } =>
             info(&book_id, range.as_deref(), show, verbose, &cfg),
-        Cmd::Download { book_id, output, concurrent, range, format, verbose, interval } =>
-            download(&book_id, output.as_deref(), concurrent, range.as_deref(), format.as_deref(), verbose, interval, &cfg, None),
-        Cmd::Update { book_id, output, concurrent, format, verbose, interval } =>
-            update(book_id.as_deref(), output.as_deref(), concurrent, format.as_deref(), verbose, interval, &cfg),
+        Cmd::Download { book_id, output, jobs, range, format, interval, verbose } =>
+            download(&book_id, output.as_deref(), jobs, range.as_deref(), format.as_deref(), verbose, interval, &cfg, None),
+        Cmd::Update { book_id, output, jobs, verbose, interval } =>
+            update(book_id.as_deref(), output.as_deref(), jobs, verbose, interval, &cfg),
         Cmd::Shelf { add, delete, dl } =>
             shelf(add, delete, dl, &cfg),
         Cmd::Init => {
@@ -187,8 +184,8 @@ fn main() {
             println!("  ok ~/.config/fqdt/config.ini");
         }
         Cmd::TestApi => test_api(&cfg),
-        Cmd::Audio { book_id, output, range, tone, verbose, tts, voice, interval } =>
-            audio_dl(book_id.as_deref(), output.as_deref(), range.as_deref(), tone, verbose, tts.as_deref(), &voice, interval, &cfg),
+        Cmd::Audio { book_id, output, range, tone, tts, voice, jobs, interval, verbose } =>
+            audio_dl(book_id.as_deref(), output.as_deref(), range.as_deref(), tone, verbose, tts.as_deref(), &voice, jobs, interval, &cfg),
     }
 }
 
@@ -287,7 +284,7 @@ fn info(book_id: &str, range: Option<&str>, show: bool, verbose: bool, cfg: &Con
 
 fn download(book_id: &str, output: Option<&str>, concurrent: Option<usize>,
             range: Option<&str>, format: Option<&str>, verbose: bool,
-            interval: u64, cfg: &Config, book_title: Option<&str>) {
+            _interval: u64, cfg: &Config, book_title: Option<&str>) {
     let api = Client::new(cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
         cfg.search_urls.clone(), cfg.catalog_url.clone(), cfg.content_urls.clone(),
         cfg.audio_content_urls.clone(), verbose || cfg.verbose, cfg.timeout);
@@ -344,7 +341,7 @@ fn shelf(add: Option<String>, delete: Option<usize>, dl: Option<usize>, cfg: &Co
 }
 
 fn update(book_id: Option<&str>, output: Option<&str>, concurrent: Option<usize>,
-          format: Option<&str>, verbose: bool, _interval: u64, cfg: &Config) {
+          verbose: bool, _interval: u64, cfg: &Config) {
     let path = match book_id { Some(s) => PathBuf::from(s), None => { eprintln!("  err 需要 book_id 或目录"); return; } };
 
     // 如果参数是已有目录, 从 info.list 自动检测
@@ -372,8 +369,7 @@ fn update(book_id: Option<&str>, output: Option<&str>, concurrent: Option<usize>
         }
         println!("  发现 {} 章新章节 (共{}/{})", new_chs.len(), existing.len(), all.len());
 
-        let f = format.unwrap_or(&fmt);
-        let dler = download::Downloader::new(api, path, f, &cfg.filename_template, verbose || cfg.verbose,
+        let dler = download::Downloader::new(api, path, &fmt, &cfg.filename_template, verbose || cfg.verbose,
             &bid, &btitle);
         dler.run(&new_chs, concurrent.unwrap_or(cfg.concurrent));
         return;
@@ -391,7 +387,6 @@ fn update(book_id: Option<&str>, output: Option<&str>, concurrent: Option<usize>
     };
     if all.is_empty() { println!("  err 空目录"); return; }
 
-    let fmt = format.unwrap_or(&cfg.format);
     let out_dir = output.map(PathBuf::from).unwrap_or(cfg.output_dir.clone());
 
     let mut max_existing = 0usize;
@@ -415,13 +410,13 @@ fn update(book_id: Option<&str>, output: Option<&str>, concurrent: Option<usize>
     }
     println!("  发现 {} 章新章节 (共{}→{})", new_chs.len(), max_existing, all.len());
 
-    let dler = download::Downloader::new(api, out_dir, fmt, &cfg.filename_template, verbose || cfg.verbose,
+    let dler = download::Downloader::new(api, out_dir, &cfg.format, &cfg.filename_template, verbose || cfg.verbose,
         bid, "小说");
     dler.run(&new_chs, concurrent.unwrap_or(cfg.concurrent));
 }
 
 fn audio_dl(book_id: Option<&str>, output: Option<&str>, range: Option<&str>, tone: usize, verbose: bool,
-            tts_path: Option<&str>, voice: &str, _interval: u64, cfg: &Config) {
+            tts_path: Option<&str>, voice: &str, _jobs: Option<usize>, _interval: u64, cfg: &Config) {
     // TTS模式: 文本文件/目录转MP3
     if let Some(path) = tts_path {
         let p = std::path::Path::new(path);
