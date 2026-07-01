@@ -73,6 +73,13 @@ pub struct Config {
     pub audio_tone_fallbacks: Vec<usize>,
     pub interval_ms: u64,
     pub timeout: u64,
+    pub http_method: String,
+    pub curl_args: String,
+    pub tts_rate: String,
+    pub tts_volume: String,
+    pub tts_pitch: String,
+    pub abr: u32,
+    pub post_process: String,
 }
 
 impl Default for Config {
@@ -105,6 +112,13 @@ impl Default for Config {
             audio_tone_fallbacks: vec![2, 4, 5, 6, 74, 91],
             interval_ms: 0,
             timeout: 15,
+            http_method: "auto".into(),
+            curl_args: String::new(),
+            tts_rate: "+0%".into(),
+            tts_volume: "+0%".into(),
+            tts_pitch: "+0Hz".into(),
+            abr: 0,
+            post_process: String::new(),
         }
     }
 }

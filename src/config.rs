@@ -28,6 +28,13 @@ impl Config {
                         "audio_tone_fallbacks" => cfg.audio_tone_fallbacks = v.split(',').filter_map(|s| s.trim().parse().ok()).collect(),
                         "interval_ms" => cfg.interval_ms = v.parse().unwrap_or(0),
                         "timeout" => cfg.timeout = v.parse().unwrap_or(15),
+                        "http_method" => cfg.http_method = v.into(),
+                        "curl_args" => cfg.curl_args = v.into(),
+                        "tts_rate" => cfg.tts_rate = v.into(),
+                        "tts_volume" => cfg.tts_volume = v.into(),
+                        "tts_pitch" => cfg.tts_pitch = v.into(),
+                        "abr" => cfg.abr = v.parse().unwrap_or(0),
+                        "post_process" => cfg.post_process = v.into(),
                         _ => {}
                     }
                 }
@@ -67,6 +74,24 @@ audio_content_url = http://101.35.133.34:5000/api/content?tab=听书&item_id={}&
 audio_tone = 1
 # 音色回退列表(主音色失败时依次尝试)
 audio_tone_fallbacks = 2,4,5,6,74,91
+
+[http]
+# HTTP 方式: auto / minreq / curl
+http_method = auto
+# curl 额外参数(如 --proxy http://proxy:8080)
+curl_args =
+
+[tts]
+# edge-tts 语速/音量/音调
+tts_rate = +0%
+tts_volume = +0%
+tts_pitch = +0Hz
+
+[audio]
+# MP3 编码码率 0=原始(不重编码), 32/64/128
+abr = 0
+# 后处理命令模板 {input} {output} (如 lame --abr 32 {input} {output})
+post_process =
 ";
         fs::write(&path, ini).map_err(|e| e.to_string())
     }

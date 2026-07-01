@@ -68,7 +68,8 @@ impl Downloader {
             let vb = self.verbose;
             let a = Client::new(self.api.cache_dir.clone(), self.api.cache_enabled, self.api.cache_ttl,
                 self.api.search_urls.clone(), self.api.catalog_url.clone(), self.api.content_urls.clone(),
-                self.api.audio_content_urls.clone(), vb, self.api.timeout);
+                self.api.audio_content_urls.clone(), vb, self.api.timeout,
+                self.api.http_method.clone(), self.api.curl_args.clone());
             let od = self.out_dir.clone();
             let ft = self.ft.clone();
 
@@ -117,7 +118,8 @@ impl Downloader {
             let vb = self.verbose;
             let a = Client::new(self.api.cache_dir.clone(), self.api.cache_enabled, self.api.cache_ttl,
                 self.api.search_urls.clone(), self.api.catalog_url.clone(), self.api.content_urls.clone(),
-                self.api.audio_content_urls.clone(), vb, self.api.timeout);
+                self.api.audio_content_urls.clone(), vb, self.api.timeout,
+                self.api.http_method.clone(), self.api.curl_args.clone());
 
             handles.push(thread::spawn(move || {
                 for i in (w..total).step_by(count) {
@@ -209,4 +211,22 @@ pub fn read_info_list(dir: &std::path::Path) -> Result<(String, String, String, 
     }
     if book_id.is_empty() { return Err("info.list 缺少 book_id".into()); }
     Ok((book_id, book_title, format, chapters))
+}
+
+pub fn read_audio_info_list(dir: &std::path::Path) -> Result<(String, String, Vec<(usize, String, String)>), String> {
+    let text = fs::read_to_string(dir.join("info.list")).map_err(|e| format!("读 Audio/info.list: {}", e))?;
+    let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("JSON: {}", e))?;
+    let book_id = root["book_id"].as_str().unwrap_or("").to_string();
+    let book_title = root["book_title"].as_str().unwrap_or("").to_string();
+    let mut chapters = vec![];
+    if let Some(arr) = root["chapters"].as_array() {
+        for item in arr {
+            let idx = item["idx"].as_u64().unwrap_or(0) as usize;
+            let title = item["title"].as_str().unwrap_or("").to_string();
+            let file = item["file"].as_str().unwrap_or("").to_string();
+            chapters.push((idx, title, file));
+        }
+    }
+    if book_id.is_empty() { return Err("Audio/info.list 缺少 book_id".into()); }
+    Ok((book_id, book_title, chapters))
 }

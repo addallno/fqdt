@@ -14,13 +14,16 @@ pub struct Client {
     pub audio_content_urls: Vec<String>,
     pub verbose: bool,
     pub timeout: u64,
+    pub http_method: String,
+    pub curl_args: String,
 }
 
 impl Client {
     pub fn new(cache_dir: PathBuf, cache_enabled: bool, cache_ttl: u64,
                search_urls: Vec<String>, catalog_url: String, content_urls: Vec<String>,
-               audio_content_urls: Vec<String>, verbose: bool, timeout: u64) -> Self {
-        Client { cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, audio_content_urls, verbose, timeout }
+               audio_content_urls: Vec<String>, verbose: bool, timeout: u64,
+               http_method: String, curl_args: String) -> Self {
+        Client { cache_dir, cache_enabled, cache_ttl, search_urls, catalog_url, content_urls, audio_content_urls, verbose, timeout, http_method, curl_args }
     }
 
     pub fn search(&self, keyword: &str, page: usize) -> Result<Vec<Book>, String> {
@@ -151,41 +154,55 @@ impl Client {
     }
 
     pub fn http_get(&self, url: &str) -> Result<String, String> {
-        // fast path: minreq (in-process, no fork overhead)
-        if self.verbose { eprintln!("  [verbose] minreq GET {}", url); }
         let to = self.timeout.max(5);
-        let resp = minreq::get(url)
-            .with_header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-            .with_timeout(to)
-            .send()
-            .map_err(|e| format!("请求失败: {}", e))?;
-        let status = resp.status_code;
-        let text = resp.as_str().map_err(|e| format!("编码错误: {}", e))?.to_string();
-        if status == 200 { return Ok(text); }
-        if self.verbose { eprintln!("  [verbose] minreq {} {}b, status={}", url, text.len(), status); }
+        let use_minreq = self.http_method == "minreq" || (self.http_method != "curl");
+        let use_curl = self.http_method == "curl" || (self.http_method != "minreq");
 
-        // slow path: curl fallback (only when minreq fails)
-        if self.verbose { eprintln!("  [verbose] fallback curl GET {}", url); }
-        let ct = to.to_string();
-        let mt = (to * 2).to_string();
-        let r = std::process::Command::new("curl")
-            .args(["-sf", "--connect-timeout", &ct, "--max-time", &mt,
-                "-A", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36", url])
-            .output();
-        if let Ok(out) = r {
-            if out.status.success() && !out.stdout.is_empty() {
-                let ct = String::from_utf8(out.stdout).map_err(|e| format!("编码: {}", e))?;
-                if self.verbose { eprintln!("  [verbose] OK curl ({}b)", ct.len()); }
-                return Ok(ct);
-            }
-            if self.verbose {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                eprintln!("  [verbose] curl fail: status={}, err={}", out.status, stderr.trim());
+        // fast path: minreq (in-process, no fork overhead)
+        if use_minreq {
+            if self.verbose { eprintln!("  [verbose] minreq GET {}", url); }
+            let resp = minreq::get(url)
+                .with_header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                .with_timeout(to)
+                .send()
+                .map_err(|e| format!("请求失败: {}", e))?;
+            let status = resp.status_code;
+            let text = resp.as_str().map_err(|e| format!("编码错误: {}", e))?.to_string();
+            if status == 200 { return Ok(text); }
+            if self.verbose { eprintln!("  [verbose] minreq {} {}b, status={}", url, text.len(), status); }
+            if self.http_method == "minreq" {
+                let snippet: String = text.chars().take(200).collect();
+                return Err(format!("HTTP {}: {}", status, snippet));
             }
         }
 
-        let snippet: String = text.chars().take(200).collect();
-        Err(format!("HTTP {}: {}", status, snippet))
+        // slow path: curl (or fallback)
+        if use_curl {
+            if self.verbose { eprintln!("  [verbose] curl GET {}", url); }
+            let ct = to.to_string();
+            let mt = (to * 2).to_string();
+            let mut cmd = std::process::Command::new("curl");
+            cmd.args(["-sf", "--connect-timeout", &ct, "--max-time", &mt,
+                "-A", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"]);
+            for arg in self.curl_args.split_whitespace() {
+                if !arg.is_empty() { cmd.arg(arg); }
+            }
+            cmd.arg(url);
+            let r = cmd.output();
+            if let Ok(out) = r {
+                if out.status.success() && !out.stdout.is_empty() {
+                    let ct = String::from_utf8(out.stdout).map_err(|e| format!("编码: {}", e))?;
+                    if self.verbose { eprintln!("  [verbose] OK curl ({}b)", ct.len()); }
+                    return Ok(ct);
+                }
+                if self.verbose {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    eprintln!("  [verbose] curl fail: status={}, err={}", out.status, stderr.trim());
+                }
+            }
+        }
+
+        Err(format!("HTTP 请求失败: {}", url))
     }
 
     pub fn fetch_audio_url(&self, item_id: &str, tone_id: usize) -> Result<String, String> {
