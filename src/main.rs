@@ -176,9 +176,9 @@ enum Cmd {
         /// 音量归一化
         #[arg(long)]
         normalize: bool,
-        /// 后处理命令模板 {input} {output}
-        #[arg(long)]
-        audio_cmd: Option<String>,
+        /// 后处理命令 {input} {output}
+        #[arg(short='x', long)]
+        exec: Option<String>,
         /// LRC 模式: external/embed/both/off
         #[arg(long, default_value = "external")]
         lrc: String,
@@ -191,6 +191,41 @@ enum Cmd {
         /// 显示详细输出
         #[arg(short='v', long)]
         verbose: bool,
+    },
+    /// 小工具集 (嵌入/后处理/转换)
+    #[command(subcommand)]
+    Function(FunctionCmd),
+}
+
+#[derive(Subcommand)]
+enum FunctionCmd {
+    /// 嵌入元数据到媒体文件
+    Embed {
+        /// 文件或目录
+        input: String,
+        /// 嵌入 LRC 歌词
+        #[arg(long)]
+        lrc: bool,
+        /// 嵌入封面图片
+        #[arg(long)]
+        cover: Option<String>,
+    },
+    /// 后处理音频文件
+    Process {
+        /// 文件或目录
+        input: String,
+        /// MP3 码率 kbps (0=原始)
+        #[arg(long)]
+        abr: Option<u32>,
+        /// 播放变速
+        #[arg(long)]
+        speed: Option<f32>,
+        /// 音量归一化
+        #[arg(long)]
+        normalize: bool,
+        /// 自定义命令 {input} {output}
+        #[arg(long)]
+        cmd: Option<String>,
     },
 }
 
@@ -220,8 +255,9 @@ fn main() {
             println!("  ok ~/.config/fqdt/config.ini");
         }
         Cmd::TestApi => test_api(&cfg),
-        Cmd::Audio { book_id, output, range, tone, tts, voice, rate, volume, pitch, abr, speed, normalize, audio_cmd, lrc, jobs, interval, verbose } =>
-            audio_dl(book_id.as_deref(), output.as_deref(), range.as_deref(), tone, verbose, tts.as_deref(), &voice, rate, volume, pitch, abr, speed, normalize, audio_cmd, &lrc, jobs, interval, &cfg),
+        Cmd::Audio { book_id, output, range, tone, tts, voice, rate, volume, pitch, abr, speed, normalize, exec, lrc, jobs, interval, verbose } =>
+            audio_dl(book_id.as_deref(), output.as_deref(), range.as_deref(), tone, verbose, tts.as_deref(), &voice, rate, volume, pitch, abr, speed, normalize, exec, &lrc, jobs, interval, &cfg),
+        Cmd::Function(fcmd) => run_function(fcmd, &cfg),
     }
 }
 
@@ -591,6 +627,59 @@ fn test_api(cfg: &Config) {
     }
 
     println!();
+}
+
+fn run_function(cmd: FunctionCmd, cfg: &Config) {
+    let vb = cfg.verbose;
+    match cmd {
+        FunctionCmd::Embed { input, lrc, cover } => {
+            let p = std::path::Path::new(&input);
+            if !p.exists() { eprintln!("  err {} 不存在", input); return; }
+            if lrc {
+                if p.is_dir() {
+                    for entry in std::fs::read_dir(p).unwrap() {
+                        if let Ok(e) = entry {
+                            let path = e.path();
+                            if path.extension().map(|x| x == "mp3").unwrap_or(false) {
+                                let ch = crate::types::Chapter { index: 0, title: path.file_stem().unwrap().to_string_lossy().to_string(), item_id: String::new() };
+                                crate::audio::embed_lrc(&path, &ch, vb);
+                                println!("  ok {}", path.display());
+                            }
+                        }
+                    }
+                } else if p.extension().map(|x| x == "mp3").unwrap_or(false) {
+                    let ch = crate::types::Chapter { index: 0, title: p.file_stem().unwrap().to_string_lossy().to_string(), item_id: String::new() };
+                    crate::audio::embed_lrc(p, &ch, vb);
+                    println!("  ok {}", p.display());
+                } else {
+                    eprintln!("  err 不是 MP3 文件");
+                }
+            }
+            if let Some(cover_path) = cover {
+                eprintln!("  warn 封面嵌入暂未实现: {}", cover_path);
+            }
+        }
+        FunctionCmd::Process { input, abr, speed, normalize, cmd } => {
+            let p = std::path::Path::new(&input);
+            if !p.exists() { eprintln!("  err {} 不存在", input); return; }
+            let abr_val = abr.unwrap_or(0);
+            let cmd_ref = cmd.as_deref().unwrap_or("");
+            if p.is_dir() {
+                for entry in std::fs::read_dir(p).unwrap() {
+                    if let Ok(e) = entry {
+                        let path = e.path();
+                        if path.extension().map(|x| x == "mp3").unwrap_or(false) {
+                            crate::audio::post_process(&path, abr_val, speed, normalize, cmd_ref, vb);
+                            println!("  ok {}", path.display());
+                        }
+                    }
+                }
+            } else {
+                crate::audio::post_process(p, abr_val, speed, normalize, cmd_ref, vb);
+                println!("  ok {}", p.display());
+            }
+        }
+    }
 }
 
 
