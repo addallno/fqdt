@@ -133,6 +133,7 @@ pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {
                         cfg.audio_tone_fallbacks.clone()
                     };
                     let dler = audio::AudioDownloader::new(api, audio_dir, audio::AudioParams {
+                        book_id: bid.clone(),
                         tone: p.tone, fallbacks,
                         ft: cfg.filename_template.clone(), force: p.force, verbose: vb,
                         abr: p.abr, speed: None, normalize: false,
@@ -171,6 +172,7 @@ pub async fn fetch_and_dl_audio(book_id: &str, audio_dir: &Path, range: &Option<
                 fallbacks.to_vec()
             };
             let dler = audio::AudioDownloader::new(api, audio_dir.to_path_buf(), audio::AudioParams {
+                book_id: book_id.to_string(),
                 tone, fallbacks: fb,
                 ft: cfg.filename_template.clone(), force, verbose: vb,
                 abr, speed: None, normalize: false,

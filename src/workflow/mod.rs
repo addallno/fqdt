@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod discover;
 pub mod download;
 pub mod embed;
 pub mod info;

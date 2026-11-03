@@ -3,6 +3,7 @@ mod audio;
 mod config;
 mod download;
 mod epub;
+mod fqapi;
 mod types;
 mod util;
 mod workflow;
@@ -147,6 +148,70 @@ enum Cmd {
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         args: Vec<String>,
     },
+    /// 透传调用 fqapi 端点（gh api 式，46 端点全覆盖）
+    ///
+    /// 路径如 /api/v1/books/{id}/directory，query 可拼在 ? 后或用 -q 追加。
+    /// 默认 GET，响应体原样输出（管道友好）；--jq 提取字段。
+    /// 示例: fqdt api /api/v1/search -q query=诡秘 -q tab_type=3
+    ///       fqdt api /api/v1/books/123 --jq data.book_name
+    Api {
+        /// 端点路径（含可选 ?query）
+        path: Option<String>,
+        /// HTTP 方法
+        #[arg(short = 'X', long, default_value = "GET", help = "HTTP 方法")]
+        method: String,
+        /// 追加查询参数 k=v（可重复）
+        #[arg(short = 'q', long = "query", value_name = "K=V", help = "查询参数")]
+        query: Vec<String>,
+        /// 请求体（POST/PUT 用）
+        #[arg(short = 'd', long = "data", help = "请求体")]
+        data: Option<String>,
+        /// 简易 JSON 提取（.a.b[0].c 形式，字符串无引号输出）
+        #[arg(long = "jq", help = "JSON 字段提取路径")]
+        jq: Option<String>,
+        /// stderr 打印 HTTP 状态码
+        #[arg(long = "status", help = "stderr 打印状态码")]
+        status: bool,
+        /// 列出常用端点
+        #[arg(long = "list", help = "列出常用端点")]
+        list: bool,
+    },
+    /// 首页推荐流
+    Recommend {
+        #[arg(long, default_value = "2", help = "区块类型 (2 推荐/25 小说/11 经典/5 听书)")]
+        tab_type: u32,
+        #[arg(long, default_value = "0", help = "区块索引")]
+        tab_index: u32,
+        #[arg(long, default_value = "0", help = "偏移")]
+        offset: u32,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
+    /// 分类列表（男频/女频/出版/听书）
+    Category {
+        #[arg(long, default_value = "1", help = "1 男频 / 2 女频 / 3 出版 / 4 听书")]
+        tab: u32,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
+    /// 书评列表
+    Comments {
+        book_id: String,
+        #[arg(short = 'n', long, default_value = "10", help = "条数")]
+        count: usize,
+        #[arg(long, default_value = "0", help = "偏移")]
+        offset: usize,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
+    /// 作者资料 + 书单
+    Author {
+        author_id: String,
+        #[arg(short = 'n', long, default_value = "20", help = "书单条数")]
+        count: usize,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
     /// [兼容] 统一下载命令
     #[command(hide = true)]
     Get {
@@ -202,6 +267,16 @@ async fn main() {
         Cmd::Shelf { add, delete, dl, update } => workflow::shelf::run(add, delete, dl, update, &cfg).await,
         Cmd::Init => { Config::save_default().ok(); println!("  ok ~/.config/fqdt/config.ini"); }
         Cmd::Function { args } => run_function(args, &cfg).await,
+        Cmd::Api { path, method, query, data, jq, status, list } =>
+            run_api(path, method, query, data, jq, status, list).await,
+        Cmd::Recommend { tab_type, tab_index, offset, json } =>
+            workflow::discover::recommend(tab_type, tab_index, offset, json, &cfg).await,
+        Cmd::Category { tab, json } =>
+            workflow::discover::category(tab, json, &cfg).await,
+        Cmd::Comments { book_id, count, offset, json } =>
+            workflow::discover::comments(&book_id, count, offset, json, &cfg).await,
+        Cmd::Author { author_id, count, json } =>
+            workflow::discover::author(&author_id, count, json, &cfg).await,
         Cmd::Custom(args) => dispatch_custom(args, &cfg),
     }
 }
@@ -326,6 +401,82 @@ async fn dispatch_get(target: Option<String>, output: Option<String>, range: Opt
     workflow::download::run(&target, &p, cfg).await;
 }
 
+/// 写一行到 stdout；下游管道已关闭（EPIPE）时静默退出，避免 panic
+fn emit_line(s: &str) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    if writeln!(out, "{s}").is_err() {
+        std::process::exit(0);
+    }
+}
+
+/// 拆分路径内的 `?query` 并合并 `-q` 追加项
+fn merge_query(path: &str, extra: &[String]) -> (String, String) {
+    let (p, mut q) = match path.split_once('?') {
+        Some((a, b)) => (a.to_string(), b.to_string()),
+        None => (path.to_string(), String::new()),
+    };
+    for kv in extra {
+        if !q.is_empty() {
+            q.push('&');
+        }
+        q.push_str(kv);
+    }
+    (p, q)
+}
+
+/// `fqdt api` 分发：列出端点，或透传调用后按 `--jq` 输出
+async fn run_api(
+    path: Option<String>,
+    method: String,
+    query: Vec<String>,
+    data: Option<String>,
+    jq: Option<String>,
+    show_status: bool,
+    list: bool,
+) {
+    if list {
+        for ep in fqapi::ENDPOINTS {
+            let req = if ep.required.is_empty() { "-" } else { ep.required };
+            emit_line(&format!("{:<4} {:<52} {:<22} {}", ep.method, ep.path, req, ep.note));
+        }
+        return;
+    }
+    let Some(path) = path else {
+        eprintln!(
+            "  err 缺少端点路径\n  \
+             用法: fqdt api <path> [-X METHOD] [-q k=v]... [--data BODY] [--jq PATH] [--status]\n  \
+             \x20     fqdt api --list"
+        );
+        std::process::exit(1);
+    };
+    let (p, q) = merge_query(&path, &query);
+    let body = data.map(|s| s.into_bytes()).unwrap_or_default();
+    let reply = match fqapi::call(&method.to_uppercase(), &p, &q, body).await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("  err {e}");
+            std::process::exit(1);
+        }
+    };
+    if show_status {
+        eprintln!("  ok HTTP {}", reply.status);
+    }
+    match jq {
+        Some(filter) => match reply.json().ok().as_ref().and_then(|v| util::jq_extract(v, &filter)) {
+            Some(v) => emit_line(&util::jq_display(&v)),
+            None => {
+                eprintln!("  err jq 无匹配: {filter}");
+                std::process::exit(1);
+            }
+        },
+        None => emit_line(reply.text().trim_end()),
+    }
+    if reply.status >= 400 {
+        std::process::exit(1);
+    }
+}
+
 async fn run_function(args: Vec<String>, cfg: &Config) {
     if args.is_empty() {
         eprintln!("  err 需要函数名或管道\n  用法:\n  \
@@ -333,7 +484,7 @@ async fn run_function(args: Vec<String>, cfg: &Config) {
             fqdt function process <file> [--abr N] [--speed X] [--normalize] [--cmd <cmd>]\n  \
             fqdt function fetch-catalog <book_id>\n  \
             fqdt function fetch-content <item_id>\n  \
-            fqdt function fetch-audio-url <item_id> [tone]\n  \
+            fqdt function fetch-audio-url <book_id> <item_id> [tone]\n  \
             fqdt function search <keyword> [-p <page>]\n  \
             fqdt function strip-html <file|->\n  \
             fqdt function compress <file> [--abr N]\n  \
@@ -437,11 +588,15 @@ async fn dispatch_one(args: &[String], cfg: &Config, piped: &str) -> String {
             }
         }
         "fetch-audio-url" | "audio-url" => {
-            if rest.is_empty() { return err("需要 item_id".into()); }
-            let tone: usize = rest.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+            if rest.len() < 2 { return err("需要 book_id item_id [tone]".into()); }
+            let tone: usize = rest.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
             let api = api::Client::from_config(cfg, cfg.verbose);
-            match api.fetch_audio_url(rest[0], tone).await {
-                Ok(url) => { println!("{}", url); url }
+            match api.fetch_audio(rest[0], rest[1], tone).await {
+                Ok((url, key)) => {
+                    println!("{}", url);
+                    if !key.is_empty() { eprintln!("  ok CENC 密钥 {}", key); }
+                    url
+                }
                 Err(e) => err(e)
             }
         }

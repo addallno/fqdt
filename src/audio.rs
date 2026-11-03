@@ -9,6 +9,8 @@ use std::time::Instant;
 
 #[derive(Clone)]
 pub struct AudioParams {
+    /// fqapi 音频接口必填；第三方降级路径忽略。
+    pub book_id: String,
     pub tone: usize,
     pub fallbacks: Vec<usize>,
     pub ft: String,
@@ -143,7 +145,7 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams) -> 
         let mut all_tones_force = vec![p.tone];
         all_tones_force.extend(p.fallbacks.iter().filter(|&&t| t != p.tone));
         for &t in &all_tones_force {
-            if let Ok(audio_url) = api.fetch_audio_url(&ch.item_id, t).await {
+            if let Ok((audio_url, _)) = api.fetch_audio(&p.book_id, &ch.item_id, t).await {
                 if let Ok(resp) = api.reqwest_client.get(&audio_url).send().await {
                     let new_size = resp.content_length().unwrap_or(0);
                     if new_size == old_size && new_size > 1000 {
@@ -163,12 +165,16 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams) -> 
 
     let mut last_err = String::new();
     for &t in &all_tones {
-        let audio_url = match api.fetch_audio_url(&ch.item_id, t).await {
-            Ok(u) => u,
+        let (audio_url, key_hex) = match api.fetch_audio(&p.book_id, &ch.item_id, t).await {
+            Ok(v) => v,
             Err(e) => { last_err = e; continue; }
         };
         match download_file(&audio_url, &path, p.verbose) {
             Ok(_) => {
+                if let Err(e) = decrypt_audio_file(&path, &key_hex) {
+                    last_err = format!("tone={} 解密失败: {}", t, e);
+                    continue;
+                }
                 post_process(&path, p.abr, p.speed, p.normalize, &p.post_cmd, p.verbose);
                 let content = api.fetch_content(&ch.item_id).await.ok();
                 handle_lrc(&path, ch, &p.lrc_mode, p.verbose, content.as_deref());
@@ -178,6 +184,22 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams) -> 
         }
     }
     Err(last_err)
+}
+
+/// CENC 加密音频就地解密（密钥来自 fqapi playinfo 的 `key_hex`）。
+///
+/// 明文流（`key_hex` 空）或非 mp4 容器直接返回 Ok。
+fn decrypt_audio_file(path: &Path, key_hex: &str) -> Result<(), String> {
+    if key_hex.is_empty() {
+        return Ok(());
+    }
+    let mut data = fs::read(path).map_err(|e| format!("读取文件失败: {}", e))?;
+    if !fqapi_core::endpoints::video::needs_cenc_decrypt(&data) {
+        return Ok(());
+    }
+    let key = crate::fqapi::decode_hex(key_hex)?;
+    fqapi_core::endpoints::video::decrypt_cenc_content(&mut data, &key)?;
+    fs::write(path, &data).map_err(|e| format!("写回解密文件失败: {}", e))
 }
 
 fn download_file(url: &str, path: &PathBuf, verbose: bool) -> Result<(), String> {

@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.4.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.8.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **编译**: GitHub Actions `cross` → `aarch64-unknown-linux-gnu` (glibc)
@@ -35,7 +35,7 @@
 | **API** | `search_books()` | keyword, page | `Vec<Book>` | search |
 |  | `fetch_catalog()` | book_id | `Vec<Chapter>` | download, update, info |
 |  | `fetch_content()` | item_id | `String` | download_text, info --show |
-|  | `fetch_audio_url()` | item_id, tone | `String` (URL) | download_audio |
+|  | `fetch_audio()` | book_id, item_id, tone | `(String, String)` (URL, key_hex) | download_audio |
 |  | `http_get()` | url | `String` | 以上所有 |
 | **正文** | `download_text_chapter()` | Chapter, dir, fmt | `PathBuf` | download, update |
 |  | `generate_epub()` | title, chapters, path | `()` | download (epub模式) |
@@ -65,6 +65,9 @@
 |  | `strip_html()` | html_str | `String` | fetch_content 后处理 |
 |  | `chapter_heading()` | Chapter | `String` | dl_file, gen_lrc |
 |  | `bar_style()` | — | `ProgressStyle` | 全局 |
+| **透传** | `api_call()` | method, path, query, body | `ApiReply` | api |
+| **提取** | `jq_extract()` | Value, 路径 | `Option<Value>` | api, discover |
+|  | `jq_display()` | Value | `String` | api, discover |
 
 ### 1.3 高阶函数（Wrappers）
 
@@ -151,6 +154,10 @@ pub fn workflow_download(api: &Client, book_id: &str, out: PathBuf, range: Optio
 | `workflow_embed` | `function embed` | 嵌入 LRC/封面 |
 | `workflow_process` | `function process` | 后处理（压缩/变速/归一化） |
 | `workflow_shelf` | `shelf` | 书架管理 |
+| `discover::recommend` | `recommend` | 首页推荐流 |
+| `discover::category` | `category` | 分类列表 |
+| `discover::comments` | `comments` | 书评 |
+| `discover::author` | `author` | 作者资料 + 书单 |
 
 ### 1.5 `function` 子命令
 
@@ -159,7 +166,7 @@ pub fn workflow_download(api: &Client, book_id: &str, out: PathBuf, range: Optio
 ```sh
 fqdt function fetch-catalog <book_id>          # 获取目录并打印
 fqdt function fetch-content <item_id>           # 获取正文并打印
-fqdt function fetch-audio-url <item_id> <tone>  # 获取音频 URL
+fqdt function fetch-audio-url <book_id> <item_id> [tone]  # 获取音频 URL（+ CENC 密钥）
 fqdt function compress <input.mp3> --abr 32     # 压缩 MP3
 fqdt function gen-lrc <chapter.json>            # 生成 LRC 文本
 fqdt function embed-lrc <file.mp3>              # 嵌入 LRC 到 ID3
@@ -170,6 +177,39 @@ fqdt function read-info <dir>                   # 读取 info.list 并打印
 ```
 
 **实现方式**：`function` 子命令是 clap 的 `#[command(subcommand)]`，每个基本函数映射到一个 `FunctionCmd` 变体。函数实现本身在各自的模块中（`api.rs`/`audio.rs`/`download.rs`），`main.rs` 只做分发。
+
+#### 1.5.1 `api` 子命令（端点透传）
+
+`api` 将路径原样交给 `fqapi_core::dispatch`，**不含任何端点特定逻辑**——核心新增端点后 CLI 自动可用，无需改 fqdt 代码。
+
+```sh
+fqdt api --list                                  # 列出常用端点（fqapi.rs ENDPOINTS 单点定义）
+fqdt api /api/v1/books/123 --jq data.book_name   # 默认 GET，响应体原样输出
+fqdt api /api/v1/search -q query=诡秘 -q tab_type=3   # -q 追加 query（值需 URL 编码）
+fqdt api /api/v1/books/123/directory --jq 'data.item_data_list[0].title'
+fqdt api /api/v1/videos/1 -X POST -d '{"a":1}' --status
+```
+
+- `--jq`：内置 jq 子集（`a.b[0].c`、`a[].b[]` 展开），字符串去引号输出；`util::jq_extract`
+- 输出约定：body 原样走 stdout（管道友好），日志/状态走 stderr；EPIPE 静默退出
+- 业务错误（HTTP 200 + `code≠0`）按原文透传；HTTP ≥400 退出码 1
+
+#### 1.5.2 封装子命令（发现/查询）
+
+四个高阶工作流（`src/workflow/discover.rs`），默认彩色表格，`--json` 输出机器可读原文：
+
+```sh
+fqdt recommend                          # 首页推荐流（16 本书）
+fqdt recommend --tab-type 25 --tab-index 0   # 2 推荐 / 25 小说 / 11 经典 / 5 听书
+fqdt category --tab 1                   # 1 男频 / 2 女频 / 3 出版 / 4 听书
+fqdt comments 7143038691944959011 -n 20 # 书评（书名+评分+用户+正文+点赞）
+fqdt author 123456 -n 20                # 作者资料 + 推荐书单
+fqdt recommend --json | jq .            # 机器可读
+```
+
+- 结构约定：`取 JSON → 字段提取 → 渲染管线`；新封装只需复用 `get/clip/pad/book_line` 辅助
+- `rank` 端点只返回区块模板配置、无实体书单，故不封装，用 `fqdt api /api/v1/rank/<id>` 透传
+- `author` 的 bookshelf 是作者**推荐书单**，非全部作品
 
 ### 1.6 配置驱动的扩展
 
@@ -204,9 +244,12 @@ echo = "echo hello"
 ## 2. 目录结构（目标状态）
 
 ```
+crates/
+└── fqapi-core/      ← vendor 自 Maicy0609/fanqie-lite-api（签名/设备池/端点）
 src/
 ├── main.rs          CLI 入口 + 静态命令解析 + 配置命令注入
-├── api.rs           Client 结构体 + 所有 HTTP 基本函数
+├── fqapi.rs         fqapi-core 运行时单例（数据目录/pool.key/init_core/dispatch 直调）
+├── api.rs           Client 结构体 + 所有 HTTP 基本函数（fqapi 主通道 + 第三方降级）
 ├── audio.rs         AudioDownloader + 音频/封面/LRC 基本函数
 ├── download.rs      Downloader + 正文基本函数
 ├── config.rs        Config 解析 + 书架 + 配置驱动扩展
@@ -386,7 +429,7 @@ enum FunctionCmd {
     Search { keyword: String, page: Option<usize> },
     FetchCatalog { book_id: String },
     FetchContent { item_id: String },
-    FetchAudioUrl { item_id: String, tone: usize },
+    FetchAudioUrl { book_id: String, item_id: String, tone: Option<usize> },
     Compress { input: String, abr: u32 },
     EmbedLrc { input: String },
     EmbedCover { input: String, cover: String },
@@ -463,7 +506,8 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 
 | 模块 | 功能 | 状态 |
 |------|------|------|
-| **API 层** | 搜索/目录/正文/音频 API 调用 + URL 轮换 | ✅ |
+| **API 层** | fqapi-core 进程内直调（search/catalog/content/audio/detail，签名+设备池） | ✅ v0.6.0 |
+|  | 搜索/目录/正文/音频 API 调用 + URL 轮换（第三方，降级备选） | ✅ |
 |  | HTTP 三模式（auto/minreq/curl） | ✅ |
 |  | 文件缓存（TTL 控制） | ✅ |
 |  | HTML 标签剥离 | ✅ |
@@ -473,6 +517,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 |  | 目录模式增量更新 | ✅ |
 |  | `--force` 覆盖控制 | ✅ |
 | **音频下载** | 并发音频下载 + 音色回退 | ✅ |
+|  | CENC (cenc-aes-ctr) 解密（fqapi 返回 key_hex 时自动解密） | ✅ v0.6.0 |
 |  | ABR 流式压缩（lame pipe） | ✅ |
 |  | 后处理命令模板 | ✅ |
 |  | LRC 生成 + ID3v2 USLT 嵌入 | ✅ |
@@ -481,6 +526,8 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 | **TTS** | edge-tts 文件/目录转换 | ✅ |
 |  | 参数化（rate/volume/pitch） | ✅ |
 | **CLI** | 6 个子命令 + function 子命令 | ✅ |
+|  | `api` 端点透传（--list/--jq/-X/--data，46 端点直通） | ✅ v0.7.0 |
+|  | 封装子命令（recommend/category/comments/author，`--json`） | ✅ v0.8.0 |
 |  | 简体中文帮助 | ✅ |
 |  | 彩色终端 + 进度条 | ✅ |
 | **配置** | INI 解析 + 书架 | ✅ |
@@ -498,10 +545,18 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 8. **💡 智能 `--force`** — 内容哈希比对，相同则跳过
 9. **💡 Rust 原生 lame** — 用 `lame-rs` 消除外部依赖
 10. **🧹 clippy 清理** — 解决 31 个 warnings
+11. **⚡ vendor fqapi-core** — 从 fanqie-lite-api 复制 `crates/fqapi-core/` 入仓，fqdt 改 workspace，reqwest 对齐 0.13 ✅
+12. **⚡ 运行时单例** — `src/fqapi.rs` 提供 `ensure_runtime()`，数据目录 `~/.local/share/fqdt/`（pool.key/设备池/媒体缓存） ✅
+13. **⚡ 主通道切换** — search/info/catalog/download/audio 改走 fqapi 进程内直调；第三方 URL 源降级为备选（fqapi 失败时 fallback），源轮换逻辑保留给降级路径 ✅
+14. **⚡ `fqdt api` 透传** — gh api 式：46 端点全覆盖，`-X`/`--data`/`--jq`，默认 JSON 管道友好 ✅ v0.7.0
+15. **📦 封装子命令扩展** — recommend/category/comments/author 表格+`--json`（`src/workflow/discover.rs`）；rank 响应无实体书单，改走 `fqdt api` 透传；**不做漫画/短剧封装** ✅ v0.8.0
+16. **📦 `fqdt serve`** — 对外 HTTP 服务模式（复用 `runtime::server`），平时不开端口
+17. **🧹 LICENSE** — 添加 GPL-3.0，注明核心部分源自 Maicy0609/fanqie-lite-api
 
 ### 7.3 已知问题
 
-- 第三方 API 不稳定（偶发 5xx）
+- 第三方 API 不稳定（偶发 5xx）→ **已解决（v0.6.0）**：vendor fqapi-core（签名+设备池直连官方）为主通道，第三方源降级备选
+- 音频流实际是 MP4/AAC 容器（上游 mime_type=video_mp4），文件后缀仍为 .mp3；CENC 解密后有效，但 ID3 嵌 LRC 对 MP4 无效（默认 external 模式无碍）
 - edge-tts 需要 Python 环境
 - 编译只能用 rustls（Termux 无 libssl-dev）
 - 本地 `cargo build` 为 debug 模式（release 需 cross，耗时长）
@@ -597,16 +652,36 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 ```
 /root/build/fqdt/
 ├── AGENTS.md              ← 本文件（AI agent 主文档）
-├── Cargo.toml             ← 版本号 + 依赖
+├── Cargo.toml             ← 版本号 + 依赖（workspace）
 ├── Cargo.lock
 ├── .github/workflows/
 │   └── build.yml          ← CI: cross aarch64-unknown-linux-gnu
+├── crates/
+│   └── fqapi-core/        ← vendor 自 Maicy0609/fanqie-lite-api（GPL-3.0）
 └── src/
     ├── main.rs            ← CLI + 分发 + 配置注入（待拆分）
-    ├── api.rs             ← HTTP 客户端 + API 调用
-    ├── audio.rs           ← 音频/TTS/LRC/封面/后处理
+    ├── fqapi.rs           ← fqapi-core 运行时单例 + dispatch 直调封装
+    ├── api.rs             ← HTTP 客户端 + API 调用（fqapi 主通道/第三方降级）
+    ├── audio.rs           ← 音频/TTS/LRC/封面/后处理 + CENC 解密
     ├── download.rs        ← 正文下载 + info.list
     ├── config.rs          ← 配置解析 + 书架
     ├── types.rs           ← 数据结构
+    ├── workflow/          ← 工作流（download/update/audio/embed/process/discover）
+    ├── workflow/discover.rs ← 发现/查询封装（recommend/category/comments/author）
     └── epub.rs            ← EPUB 生成
 ```
+
+---
+
+## 11. 长期规划（可维护性设计）
+
+扩展原则（新功能按此落地，避免散落硬编码）：
+
+1. **端点单点定义** — 常用端点集中在 `src/fqapi.rs::ENDPOINTS`（方法/路径/必填/说明）。`fqdt api --list`、封装子命令、`fqdt serve` 共用同一索引；新增端点先加索引项。
+2. **透传零业务逻辑** — `fqdt api` 不加端点特定分支，core 新增端点后自动可用；只有需要友好输出时才另写封装。
+3. **封装 = 提取 + 渲染管线** — 新封装子命令（todo15）统一为「取 JSON → 路径提取 → 表格/JSON 渲染」，参数与输出（`--json`）保持一致，不重复 HTTP 代码。
+4. **解析辅助集中** — `api.rs` 的 `find_items`/`find_str`/`parse_*` 与 `util::jq_extract` 是唯一 JSON 提取入口，禁止各处手写路径遍历。
+5. **运行时单一入口** — 对 core 的调用一律经 `src/fqapi.rs`（`ensure_runtime`/`call`/`get`/`get_json_timeout`），不直接依赖 `fqapi_core::runtime` 细节。
+6. **re-vendor 流程** — 上游 fanqie-lite-api 更新时，替换 `crates/fqapi-core` 后跑 `cargo test` 与冒烟（search/catalog/content/audio），并在本节记录本地改动。目前本地改动两处：`core_log.rs` 日志改走 stderr（防污染 JSON 管道）；`endpoints/video.rs` 导出 `needs_cenc_decrypt`/`decrypt_cenc_content` 包装。
+7. **新增功能落地顺序** — 更新 7.2 待办 → 加 ENDPOINTS 索引 → 实现提取/渲染 → 单测 → 手测 → 同步本文件。
+8. **版本节奏** — 新增 CLI 能力升 MINOR，重构/修复升 PATCH；`Cargo.toml` 与本文件版本号同步。

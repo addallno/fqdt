@@ -135,4 +135,93 @@ where
     (ok, fail)
 }
 
+/// 按 `.a.b[0].c` 形式提取 JSON 字段（jq 子集，供 `fqdt api --jq` 与封装子命令共用）
+///
+/// 段语法：`键名`、`键名[n]`（取下标）、`键名[]`（数组展开，多结果合并为数组）。
+/// 前导点可省略。
+///
+/// # 返回
+/// - 命中返回对应值（展开产生多个结果时为数组），任一段无匹配返回 `None`
+pub fn jq_extract(v: &serde_json::Value, filter: &str) -> Option<serde_json::Value> {
+    let mut cur = vec![v.clone()];
+    for seg in filter.split('.').filter(|s| !s.trim().is_empty()) {
+        let mut next = Vec::new();
+        for item in &cur {
+            jq_step(item, seg.trim(), &mut next)?;
+        }
+        if next.is_empty() {
+            return None;
+        }
+        cur = next;
+    }
+    if cur.len() == 1 {
+        cur.pop()
+    } else {
+        Some(serde_json::Value::Array(cur))
+    }
+}
 
+/// 单段前进：处理 `键名` / `键名[n]` / `键名[]`，结果追加到 `out`
+fn jq_step(item: &serde_json::Value, seg: &str, out: &mut Vec<serde_json::Value>) -> Option<()> {
+    if let Some(key) = seg.strip_suffix("[]") {
+        let base = if key.is_empty() { Some(item) } else { item.get(key) };
+        for x in base?.as_array()? {
+            out.push(x.clone());
+        }
+    } else if let Some(i) = seg.find('[') {
+        let key = &seg[..i];
+        let idx = seg[i..]
+            .trim_start_matches('[')
+            .split(']')
+            .next()?
+            .parse::<usize>()
+            .ok()?;
+        let base = if key.is_empty() { item } else { item.get(key)? };
+        out.push(base.get(idx)?.clone());
+    } else {
+        out.push(item.get(seg)?.clone());
+    }
+    Some(())
+}
+
+/// jq 提取结果的展示形式：字符串去引号直出，Null 空行，其余紧凑 JSON
+pub fn jq_display(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::jq_extract;
+    use serde_json::json;
+
+    #[test]
+    fn test_jq_simple_key() {
+        let v = json!({"data": {"book_name": "十日终焉"}});
+        assert_eq!(jq_extract(&v, "data.book_name"), Some(json!("十日终焉")));
+    }
+
+    #[test]
+    fn test_jq_index() {
+        let v = json!({"list": [{"t": "甲"}, {"t": "乙"}]});
+        assert_eq!(jq_extract(&v, "list[1].t"), Some(json!("乙")));
+    }
+
+    #[test]
+    fn test_jq_spread() {
+        let v = json!({"cells": [{"books": [{"n": 1}, {"n": 2}]}, {"books": [{"n": 3}]}]});
+        assert_eq!(
+            jq_extract(&v, "cells[].books[].n"),
+            Some(json!([1, 2, 3]))
+        );
+    }
+
+    #[test]
+    fn test_jq_miss() {
+        let v = json!({"a": 1});
+        assert_eq!(jq_extract(&v, "a.b"), None);
+    }
+}

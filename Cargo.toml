@@ -1,14 +1,24 @@
+[workspace]
+members = [".", "crates/fqapi-core"]
+resolver = "2"
+
 [package]
 name = "fqdt"
-version = "0.5.1"
+version = "0.8.0"
 edition = "2021"
+license = "GPL-3.0-only"
+description = "番茄小说 CLI 下载器（基于 fanqie-lite-api 核心）"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 indicatif = "0.17"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 id3 = { version = "1", default-features = false }
+fqapi_core = { path = "crates/fqapi-core" }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rand = "0.8"
+base64 = "0.22"

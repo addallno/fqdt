@@ -45,7 +45,7 @@ pub async fn run(book_id: Option<&str>, output: Option<&str>, concurrent: Option
     let r = range.and_then(ChapterRange::parse);
 
     if audio {
-        update_audio(&all, &out_dir, r.as_ref(), force, vb, cfg).await;
+        update_audio(bid, &all, &out_dir, r.as_ref(), force, vb, cfg).await;
         return;
     }
 
@@ -124,6 +124,7 @@ async fn update_dir(path: &std::path::Path, range: Option<&str>, force: bool, au
             cfg.audio_tone_fallbacks.clone()
         };
         let dler = audio::AudioDownloader::new(api, audio_dir, audio::AudioParams {
+            book_id: bid.clone(),
             tone: cfg.audio_tone, fallbacks,
             ft: cfg.filename_template.clone(), force, verbose: vb,
             abr: cfg.abr, speed: None, normalize: false,
@@ -171,7 +172,7 @@ async fn update_dir(path: &std::path::Path, range: Option<&str>, force: bool, au
     dler.run(&new_chs, concurrent.unwrap_or(cfg.concurrent)).await;
 }
 
-async fn update_audio(all: &[crate::types::Chapter], out_dir: &std::path::Path,
+async fn update_audio(book_id: &str, all: &[crate::types::Chapter], out_dir: &std::path::Path,
                 range: Option<&ChapterRange>, force: bool, vb: bool, cfg: &Config) {
     let audio_dir = out_dir.join("Audio");
     let mut max_existing = 0usize;
@@ -209,6 +210,7 @@ async fn update_audio(all: &[crate::types::Chapter], out_dir: &std::path::Path,
     let dler = audio::AudioDownloader::new(
         Client::from_config(cfg, vb), audio_dir,
         audio::AudioParams {
+            book_id: book_id.to_string(),
             tone: cfg.audio_tone, fallbacks,
             ft: cfg.filename_template.clone(), force, verbose: vb,
             abr: cfg.abr, speed: None, normalize: false,
