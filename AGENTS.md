@@ -3,7 +3,7 @@
 - **版本**: v0.8.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
-- **编译**: GitHub Actions `cross` → `aarch64-unknown-linux-gnu` (glibc)
+- **编译**: GitHub Actions musl 静态构建（x86_64 + aarch64 `x86_64/aarch64-unknown-linux-musl`，static-pie/静态链接 + strip）
 - **核心原则**: 基本函数原子化 → 高阶函数组合 → 预编译工作流 → 配置文件可扩展
 
 ---
@@ -655,7 +655,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 ├── Cargo.toml             ← 版本号 + 依赖（workspace）
 ├── Cargo.lock
 ├── .github/workflows/
-│   └── build.yml          ← CI: cross aarch64-unknown-linux-gnu
+│   └── build.yml          ← CI: musl 静态双矩阵（x86_64 + aarch64，cross 交叉 aarch64）
 ├── crates/
 │   └── fqapi-core/        ← vendor 自 Maicy0609/fanqie-lite-api（GPL-3.0）
 └── src/

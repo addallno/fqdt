@@ -25,7 +25,7 @@ v0.5.1（GitHub Actions CI 自动构建）
 ### 架构
 - **CLI**: 6 个子命令 + function 子命令
 - **配置**: INI 解析 + 书架持久化
-- **CI**: GitHub Actions cross 编译（aarch64-unknown-linux-gnu）
+- **CI**: GitHub Actions musl 静态编译（x86_64 + aarch64-unknown-linux-musl，静态链接）
 - **智能源切换**: URL 按成功率+延迟排序，失败自动降级
 
 ## API 现状（2026-08-30 验证）
