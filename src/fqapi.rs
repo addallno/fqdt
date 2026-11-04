@@ -144,8 +144,9 @@ fn load_or_create_pool_key(data: &std::path::Path, pool_path: &std::path::Path) 
     Ok(key)
 }
 
-/// 确保运行时已初始化。幂等；重复调用直接返回。
-pub async fn ensure_runtime() -> Result<(), String> {
+/// 准备数据目录、默认配置与设备池密钥（ensure_runtime / serve_at 共用）。
+/// 返回 (config_path, pool_path, filter_path, data_dir) 字符串。
+fn prep_runtime() -> Result<(String, String, String, String), String> {
     install_crypto();
     let data = data_dir();
     let config_dir = data.join("config");
@@ -165,17 +166,28 @@ pub async fn ensure_runtime() -> Result<(), String> {
     runtime::set_device_pool_key(key)?;
 
     let s = |p: &PathBuf| p.to_string_lossy().into_owned();
-    runtime::init_core(
+    Ok((
         s(&config_path),
         s(&pool_path),
         s(&filter_path),
         s(&data),
-        0,
-        ListenMode::Disabled,
-        None,
-    )
-    .await?;
+    ))
+}
+
+/// 确保运行时已初始化（不监听端口）。幂等；重复调用直接返回。
+pub async fn ensure_runtime() -> Result<(), String> {
+    let (config, pool, filter, data) = prep_runtime()?;
+    runtime::init_core(config, pool, filter, data, 0, ListenMode::Disabled, None).await?;
     Ok(())
+}
+
+/// 以监听模式启动运行时（`fqdt serve` 用），返回对外 base_url。
+/// `lan=true` 监听局域网地址，否则仅本机回环；进程内仅允许一份运行时。
+pub async fn serve_at(port: u16, lan: bool) -> Result<String, String> {
+    // init 幂等且成功/复用均返回 "running"，无法据此判重，直接取 base_url。
+    let (config, pool, filter, data) = prep_runtime()?;
+    runtime::init(config, pool, filter, data, port, lan, String::new()).await?;
+    Ok(runtime::base_url().await)
 }
 
 /// hex 字符串解码为字节数组（音频 CENC 密钥等复用）。

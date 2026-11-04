@@ -1,8 +1,9 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.8.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.9.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
+- **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
 - **编译**: GitHub Actions musl 静态构建（x86_64 + aarch64 `x86_64/aarch64-unknown-linux-musl`，static-pie/静态链接 + strip）
 - **核心原则**: 基本函数原子化 → 高阶函数组合 → 预编译工作流 → 配置文件可扩展
 
@@ -210,6 +211,19 @@ fqdt recommend --json | jq .            # 机器可读
 - 结构约定：`取 JSON → 字段提取 → 渲染管线`；新封装只需复用 `get/clip/pad/book_line` 辅助
 - `rank` 端点只返回区块模板配置、无实体书单，故不封装，用 `fqdt api /api/v1/rank/<id>` 透传
 - `author` 的 bookshelf 是作者**推荐书单**，非全部作品
+
+#### 1.5.3 `serve` 子命令（HTTP 服务）
+
+进程内启动 `fqapi_core` HTTP 运行时，直接暴露全部 API 端点：
+
+```sh
+fqdt serve                    # 默认 127.0.0.1:18921（回环）
+fqdt serve --port 18999 --lan # 指定端口 + 监听局域网
+```
+
+- 实现在 `src/fqapi.rs::serve_at`（与 `ensure_runtime` 共用 `prep_runtime`：数据目录/默认 config.json/pool 密钥）
+- `runtime::init` 幂等，成功与复用均返回 `"running"`，不可据此判重
+- Ctrl-C 退出前调用 `fqapi::shutdown()` 刷盘设备池
 
 ### 1.6 配置驱动的扩展
 
@@ -528,6 +542,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 | **CLI** | 6 个子命令 + function 子命令 | ✅ |
 |  | `api` 端点透传（--list/--jq/-X/--data，46 端点直通） | ✅ v0.7.0 |
 |  | 封装子命令（recommend/category/comments/author，`--json`） | ✅ v0.8.0 |
+|  | `serve` HTTP 服务模式（--port/--lan） | ✅ v0.9.0 |
 |  | 简体中文帮助 | ✅ |
 |  | 彩色终端 + 进度条 | ✅ |
 | **配置** | INI 解析 + 书架 | ✅ |
@@ -550,8 +565,8 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 13. **⚡ 主通道切换** — search/info/catalog/download/audio 改走 fqapi 进程内直调；第三方 URL 源降级为备选（fqapi 失败时 fallback），源轮换逻辑保留给降级路径 ✅
 14. **⚡ `fqdt api` 透传** — gh api 式：46 端点全覆盖，`-X`/`--data`/`--jq`，默认 JSON 管道友好 ✅ v0.7.0
 15. **📦 封装子命令扩展** — recommend/category/comments/author 表格+`--json`（`src/workflow/discover.rs`）；rank 响应无实体书单，改走 `fqdt api` 透传；**不做漫画/短剧封装** ✅ v0.8.0
-16. **📦 `fqdt serve`** — 对外 HTTP 服务模式（复用 `runtime::server`），平时不开端口
-17. **🧹 LICENSE** — 添加 GPL-3.0，注明核心部分源自 Maicy0609/fanqie-lite-api
+16. **📦 `fqdt serve`** — 对外 HTTP 服务模式（复用 `runtime::server` + `ListenMode`），默认端口 18921，`--lan` 监听局域网，Ctrl-C 退出刷盘 ✅ v0.9.0
+17. **🧹 LICENSE** — 添加 GPL-3.0 全文 + AGENTS 注明核心 fqapi-core 源自 Maicy0609/fanqie-lite-api ✅ v0.9.0
 18. **📦 部署自动化** — 每次版本更新（tag v*）将 aarch64 musl 二进制推送到 47.95.13.125:48022 的 `~/cmd/fqdt`（CI release job ssh/scp，deploy key 走 GH secret） ✅ v0.8.0（run 41776280009）
 
 ### 7.3 已知问题

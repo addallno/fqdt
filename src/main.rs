@@ -212,6 +212,13 @@ enum Cmd {
         #[arg(long, help = "输出原始 JSON")]
         json: bool,
     },
+    /// 对外 HTTP 服务（复用 fqapi-core server，Ctrl-C 退出）
+    Serve {
+        #[arg(long, default_value = "18921", help = "监听端口")]
+        port: u16,
+        #[arg(long, help = "监听局域网地址（默认仅本机回环）")]
+        lan: bool,
+    },
     /// [兼容] 统一下载命令
     #[command(hide = true)]
     Get {
@@ -277,6 +284,7 @@ async fn main() {
             workflow::discover::comments(&book_id, count, offset, json, &cfg).await,
         Cmd::Author { author_id, count, json } =>
             workflow::discover::author(&author_id, count, json, &cfg).await,
+        Cmd::Serve { port, lan } => run_serve(port, lan).await,
         Cmd::Custom(args) => dispatch_custom(args, &cfg),
     }
 }
@@ -407,6 +415,23 @@ fn emit_line(s: &str) {
     let mut out = std::io::stdout().lock();
     if writeln!(out, "{s}").is_err() {
         std::process::exit(0);
+    }
+}
+
+/// `fqdt serve`：前台运行 HTTP 服务，Ctrl-C 退出并刷盘
+async fn run_serve(port: u16, lan: bool) {
+    match fqapi::serve_at(port, lan).await {
+        Ok(url) => {
+            println!("  ok 监听 {url}{}", if lan { "（局域网）" } else { "" });
+            println!("  \x1b[2mCtrl-C 退出\x1b[0m");
+            tokio::signal::ctrl_c().await.ok();
+            fqapi::shutdown().await;
+            println!("  ok 已退出（设备池已刷盘）");
+        }
+        Err(e) => {
+            eprintln!("  err {e}");
+            std::process::exit(1);
+        }
     }
 }
 
