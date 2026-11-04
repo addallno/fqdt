@@ -552,7 +552,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 15. **📦 封装子命令扩展** — recommend/category/comments/author 表格+`--json`（`src/workflow/discover.rs`）；rank 响应无实体书单，改走 `fqdt api` 透传；**不做漫画/短剧封装** ✅ v0.8.0
 16. **📦 `fqdt serve`** — 对外 HTTP 服务模式（复用 `runtime::server`），平时不开端口
 17. **🧹 LICENSE** — 添加 GPL-3.0，注明核心部分源自 Maicy0609/fanqie-lite-api
-18. **📦 部署自动化** — 每次版本更新（tag v*）将 aarch64 musl 二进制推送到 47.95.13.125:48022 的 `~/cmd/fqdt`（CI release job ssh/scp，deploy key 走 GH secret） [-]
+18. **📦 部署自动化** — 每次版本更新（tag v*）将 aarch64 musl 二进制推送到 47.95.13.125:48022 的 `~/cmd/fqdt`（CI release job ssh/scp，deploy key 走 GH secret） ✅ v0.8.0（run 41776280009）
 
 ### 7.3 已知问题
 
