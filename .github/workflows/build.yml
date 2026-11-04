@@ -81,6 +81,7 @@ jobs:
 
       - name: Stage binaries
         run: |
+          mkdir -p dist
           cp bin_aarch64/fqdt dist/fqdt-aarch64-linux-musl
           cp bin_x86/fqdt dist/fqdt-x86_64-linux-musl
           find dist -type f | sort
