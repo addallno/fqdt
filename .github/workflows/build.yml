@@ -78,6 +78,20 @@ jobs:
           mv dist/fqdt-x86_64-linux-musl/fqdt dist/fqdt-x86_64-linux-musl
           mv dist/fqdt-aarch64-linux-musl/fqdt dist/fqdt-aarch64-linux-musl
 
+      - name: Deploy（aarch64 → 远端 ~/cmd/fqdt）
+        env:
+          SSH_KEY: ${{ secrets.FQDT_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          SSH_OPTS="-i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -p 48022"
+          R=u0_a207@47.95.13.125
+          ssh $SSH_OPTS $R 'mkdir -p ~/cmd && chmod 700 ~/cmd'
+          scp -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -P 48022 \
+            dist/fqdt-aarch64-linux-musl $R:~/cmd/fqdt
+          ssh $SSH_OPTS $R 'chmod 755 ~/cmd/fqdt && ~/cmd/fqdt --version'
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
