@@ -71,17 +71,18 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: dist
+          name: fqdt-aarch64-linux-musl
+          path: bin_aarch64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: fqdt-x86_64-linux-musl
+          path: bin_x86
 
       - name: Stage binaries
         run: |
-          rm -rf dist/fqdt-*
-          for f in dist/*/fqdt; do
-            name=$(basename "$(dirname "$f")")
-            if [ "$name" = "fqdt-x86_64-linux-musl" ] || [ "$name" = "fqdt-aarch64-linux-musl" ]; then
-              cp "$f" "dist/$name"
-            fi
-          done
+          cp bin_aarch64/fqdt dist/fqdt-aarch64-linux-musl
+          cp bin_x86/fqdt dist/fqdt-x86_64-linux-musl
           find dist -type f | sort
 
       - name: Deploy（aarch64 → 远端 ~/cmd/fqdt）
