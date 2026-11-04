@@ -75,7 +75,7 @@ jobs:
 
       - name: Stage binaries
         run: |
-          rm -f dist/fqdt-*
+          rm -rf dist/fqdt-*
           for f in dist/*/fqdt; do
             name=$(basename "$(dirname "$f")")
             if [ "$name" = "fqdt-x86_64-linux-musl" ] || [ "$name" = "fqdt-aarch64-linux-musl" ]; then
