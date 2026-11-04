@@ -73,12 +73,19 @@ jobs:
         with:
           path: dist
 
-      - name: Rename binaries
+      - name: Stage binaries
         run: |
-          mv dist/fqdt-x86_64-linux-musl/fqdt dist/fqdt-x86_64-linux-musl
-          mv dist/fqdt-aarch64-linux-musl/fqdt dist/fqdt-aarch64-linux-musl
+          rm -f dist/fqdt-*
+          for f in dist/*/fqdt; do
+            name=$(basename "$(dirname "$f")")
+            if [ "$name" = "fqdt-x86_64-linux-musl" ] || [ "$name" = "fqdt-aarch64-linux-musl" ]; then
+              cp "$f" "dist/$name"
+            fi
+          done
+          find dist -type f | sort
 
       - name: Deploy（aarch64 → 远端 ~/cmd/fqdt）
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           SSH_KEY: ${{ secrets.FQDT_DEPLOY_KEY }}
         run: |
@@ -95,5 +102,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/fqdt-*
+          files: |
+            dist/fqdt-x86_64-linux-musl
+            dist/fqdt-aarch64-linux-musl
           generate_release_notes: true
