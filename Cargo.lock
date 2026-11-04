@@ -491,6 +491,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "webpki-roots",
  "zip",
 ]
 

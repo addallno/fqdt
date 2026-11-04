@@ -394,6 +394,20 @@ fn model_stream(raw: &str) -> Option<(String, String)> {
 }
 
 impl Client {
+    /// 静态 musl 构建无系统 CA，用内置 webpki 根证书预配置 TLS（同 core build_tls_config），
+    /// 否则 reqwest 默认走 native-certs 在 Android 上加载不到证书直接 panic。
+    fn tls_builder() -> reqwest::ClientBuilder {
+        let mut roots = rustls::RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+        let tls = rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .expect("tls 协议版本")
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        reqwest::Client::builder().tls_backend_preconfigured(tls)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(cache_dir: PathBuf, cache_enabled: bool, cache_ttl: u64,
                search_urls: Vec<String>, catalog_urls: Vec<String>, content_urls: Vec<String>,
@@ -404,7 +418,7 @@ impl Client {
             cache_dir, cache_enabled, cache_ttl, search_urls, catalog_urls,
             content_urls, batch_urls, detail_url, audio_content_urls,
             verbose,
-            reqwest_client: reqwest::Client::builder()
+            reqwest_client: Self::tls_builder()
                 .user_agent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
                 .timeout(std::time::Duration::from_secs(15))
                 .build().unwrap(),

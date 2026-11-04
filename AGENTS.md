@@ -568,6 +568,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 16. **📦 `fqdt serve`** — 对外 HTTP 服务模式（复用 `runtime::server` + `ListenMode`），默认端口 18921，`--lan` 监听局域网，Ctrl-C 退出刷盘 ✅ v0.9.0
 17. **🧹 LICENSE** — 添加 GPL-3.0 全文 + AGENTS 注明核心 fqapi-core 源自 Maicy0609/fanqie-lite-api ✅ v0.9.0
 18. **📦 部署自动化** — 每次版本更新（tag v*）将 aarch64 musl 二进制推送到 47.95.13.125:48022 的 `~/cmd/fqdt`（CI release job ssh/scp，deploy key 走 GH secret） ✅ v0.8.0（run 41776280009）
+19. **🐛 静态构建系统 CA 修复** — 静态 musl 二进制无系统证书，reqwest 默认 native-certs 在 Android panic（`No CA certificates were loaded`）；`src/api.rs::tls_builder` 用内置 webpki 根证书预配置 TLS（同 core `build_tls_config`）✅ v0.9.0。已知限制：core `video.rs::streaming_client` 同源问题未修（构建失败返 None，自动降级 unsigned_get 路径）
 
 ### 7.3 已知问题
 

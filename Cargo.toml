@@ -20,5 +20,6 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 id3 = { version = "1", default-features = false }
 fqapi_core = { path = "crates/fqapi-core" }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1"
 rand = "0.8"
 base64 = "0.22"
