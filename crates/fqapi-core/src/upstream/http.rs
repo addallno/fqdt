@@ -157,7 +157,8 @@ impl HttpTransport {
         let resp = builder
             .send()
             .await
-            .map_err(|e| TransportError::Network(e.to_string()))?;
+            // Debug 展开 source 链（connect/TLS/超时底层原因），线上排障必需
+            .map_err(|e| TransportError::Network(format!("{e:?}")))?;
         let status = resp.status().as_u16();
         let headers: Vec<(String, String)> = resp
             .headers()
@@ -174,7 +175,7 @@ impl HttpTransport {
         let mut body = Vec::new();
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| TransportError::Network(e.to_string()))?;
+            let chunk = chunk.map_err(|e| TransportError::Network(format!("{e:?}")))?;
             body.extend_from_slice(&chunk);
             if let Some(limit) = body_limit {
                 if body.len() > limit {
