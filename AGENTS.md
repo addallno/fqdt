@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.9.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.9.1（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -568,7 +568,8 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 16. **📦 `fqdt serve`** — 对外 HTTP 服务模式（复用 `runtime::server` + `ListenMode`），默认端口 18921，`--lan` 监听局域网，Ctrl-C 退出刷盘 ✅ v0.9.0
 17. **🧹 LICENSE** — 添加 GPL-3.0 全文 + AGENTS 注明核心 fqapi-core 源自 Maicy0609/fanqie-lite-api ✅ v0.9.0
 18. **📦 部署自动化** — 每次版本更新（tag v*）将 aarch64 musl 二进制推送到 47.95.13.125:48022 的 `~/cmd/fqdt`（CI release job ssh/scp，deploy key 走 GH secret） ✅ v0.8.0（run 41776280009）
-19. **🐛 静态构建系统 CA 修复** — 静态 musl 二进制无系统证书，reqwest 默认 native-certs 在 Android panic（`No CA certificates were loaded`）；`src/api.rs::tls_builder` 用内置 webpki 根证书预配置 TLS（同 core `build_tls_config`）✅ v0.9.0。已知限制：core `video.rs::streaming_client` 同源问题未修（构建失败返 None，自动降级 unsigned_get 路径）
+19. **🐛 静态构建系统 CA 修复** — 静态 musl 二进制无系统证书，reqwest 默认 native-certs 在 Android panic（`No CA certificates were loaded`）；`src/api.rs::tls_builder` 用内置 webpki 根证书预配置 TLS（同 core `build_tls_config`）✅ v0.9.0
+20. **🐛 静态构建系统 DNS 修复** — 静态 musl 的 getaddrinfo 只读 `/etc/resolv.conf`，Android 上不存在 → 所有域名解析失败（`dns error: Try again`，device_register 等全部走不通）；新增 `upstream/dns.rs` 进程内解析（`FQDT_DNS` env → `getprop net.dns1/2` → `/proc/net/route` 网关 → 223.5.5.5/119.29.29.29 兜底，手写 UDP A 查询零依赖），挂到 core HttpTransport、`streaming_client`、fqdt `tls_builder` 三处 client ✅ v0.9.1
 
 ### 7.3 已知问题
 
@@ -699,6 +700,6 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 3. **封装 = 提取 + 渲染管线** — 新封装子命令（todo15）统一为「取 JSON → 路径提取 → 表格/JSON 渲染」，参数与输出（`--json`）保持一致，不重复 HTTP 代码。
 4. **解析辅助集中** — `api.rs` 的 `find_items`/`find_str`/`parse_*` 与 `util::jq_extract` 是唯一 JSON 提取入口，禁止各处手写路径遍历。
 5. **运行时单一入口** — 对 core 的调用一律经 `src/fqapi.rs`（`ensure_runtime`/`call`/`get`/`get_json_timeout`），不直接依赖 `fqapi_core::runtime` 细节。
-6. **re-vendor 流程** — 上游 fanqie-lite-api 更新时，替换 `crates/fqapi-core` 后跑 `cargo test` 与冒烟（search/catalog/content/audio），并在本节记录本地改动。目前本地改动两处：`core_log.rs` 日志改走 stderr（防污染 JSON 管道）；`endpoints/video.rs` 导出 `needs_cenc_decrypt`/`decrypt_cenc_content` 包装。
+6. **re-vendor 流程** — 上游 fanqie-lite-api 更新时，替换 `crates/fqapi-core` 后跑 `cargo test --workspace` 与冒烟（search/catalog/content/audio），并在本节记录本地改动。目前本地改动四处：① `core_log.rs` 日志改走 stderr（防污染 JSON 管道）；② `endpoints/video.rs` 导出 `needs_cenc_decrypt`/`decrypt_cenc_content` 包装、`streaming_client` 挂 `DnsResolver`；③ 新增 `upstream/dns.rs`（进程内 DNS：探测 nameserver + 手写 UDP A 查询，静态 musl Android 无 /etc/resolv.conf）并在 `upstream/http.rs` 挂 `DnsResolver`、网络错误改 `format!("{e:?}")` 展开 source 链；④ （fqdt 侧非 vendor）`src/api.rs::tls_builder` webpki 根证书 + `DnsResolver`。
 7. **新增功能落地顺序** — 更新 7.2 待办 → 加 ENDPOINTS 索引 → 实现提取/渲染 → 单测 → 手测 → 同步本文件。
 8. **版本节奏** — 新增 CLI 能力升 MINOR，重构/修复升 PATCH；`Cargo.toml` 与本文件版本号同步。

@@ -1188,6 +1188,8 @@ fn streaming_client() -> Option<&'static reqwest::Client> {
         .get_or_init(|| {
             reqwest::Client::builder()
                 .timeout(VIDEO_DOWNLOAD_TIMEOUT)
+                // 与 HttpTransport 一致：静态 musl 无系统 DNS
+                .dns_resolver(crate::upstream::dns::DnsResolver)
                 .build()
                 .ok()
         })

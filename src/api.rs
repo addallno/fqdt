@@ -405,7 +405,10 @@ impl Client {
             .expect("tls 协议版本")
             .with_root_certificates(roots)
             .with_no_client_auth();
-        reqwest::Client::builder().tls_backend_preconfigured(tls)
+        reqwest::Client::builder()
+            .tls_backend_preconfigured(tls)
+            // 静态 musl 无系统 DNS（/etc/resolv.conf），复用 core 进程内解析
+            .dns_resolver(fqapi_core::upstream::dns::DnsResolver)
     }
 
     #[allow(clippy::too_many_arguments)]

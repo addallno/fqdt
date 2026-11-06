@@ -62,7 +62,10 @@ impl HttpTransport {
     fn build(timeout_secs: u64, no_redirects: bool) -> Result<Self, String> {
         ensure_crypto_provider();
         let tls = build_tls_config()?;
-        let mut builder = reqwest::Client::builder().tls_backend_preconfigured(tls);
+        let mut builder = reqwest::Client::builder()
+            .tls_backend_preconfigured(tls)
+            // 静态 musl 在 Android 上系统 DNS 不可用，走进程内探测+手写查询
+            .dns_resolver(crate::upstream::dns::DnsResolver);
         if no_redirects {
             builder = builder.redirect(reqwest::redirect::Policy::none());
         }

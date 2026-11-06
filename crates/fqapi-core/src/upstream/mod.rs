@@ -3,6 +3,7 @@
 pub mod client;
 pub mod cm;
 pub mod dh;
+pub mod dns;
 pub mod http;
 
 pub use client::{ClientError, PinnedDevice, UpstreamClient, UpstreamRequest};
