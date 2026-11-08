@@ -76,7 +76,7 @@ impl Downloader {
             }
         }).await;
 
-        println!("  ok {} 章, 跳过 {} 章{}", ok, skipped, if fail > 0 { format!(", 失败 {} 章", fail) } else { String::new() });
+        println!("  ok {ok} 章 · 跳过 {skipped} 章{}", if fail > 0 { format!(" · 失败 {fail} 章") } else { String::new() });
     }
 
     async fn do_epub(&self, chapters: &[&Chapter], concurrent: usize) {

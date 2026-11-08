@@ -5,10 +5,8 @@ use crate::types::{ChapterRange, Config, DownloadParams};
 use crate::util;
 use std::io::Write;
 use std::path::Path;
-use std::time::Instant;
 
 pub async fn run(book_id: &str, p: &DownloadParams, cfg: &Config) {
-    let start = Instant::now();
     let vb = p.verbose || cfg.verbose;
     let path = Path::new(book_id);
 
@@ -57,8 +55,6 @@ pub async fn run(book_id: &str, p: &DownloadParams, cfg: &Config) {
         };
         fetch_and_dl_audio(book_id, &out.join("Audio"), &p.range, p.tone, p.abr, &p.lrc, p.force, &fallbacks, vb, cfg).await;
     }
-    let secs = start.elapsed().as_secs();
-    if secs > 0 { println!("  \x1b[2m已用时 {}s\x1b[0m", secs); }
 }
 
 pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {

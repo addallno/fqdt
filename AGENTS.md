@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.9.1（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.10.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -380,7 +380,13 @@ pub fn compress_mp3(input: &Path, output: &Path) -> Result<(), String> {
 }
 ```
 
-### 4.4 高阶函数模式
+### 4.4 日志开关
+
+- 全局 flag：`fqdt -v <子命令>`（clamp `global=true`，可置于任意位置）开启详细日志
+- core 日志默认**不打印**（仍落盘 `rust.log`）；`-v` 时 stderr 镜像（`core_log::set_console`）
+- stdout 永远只放数据，stderr 放日志与诊断（详见 TUI.md）
+
+### 4.5 高阶函数模式
 
 高阶函数的基本模式是接收闭包，包装行为：
 
@@ -415,7 +421,7 @@ pub fn with_progress<T, U>(items: &[T], f: impl Fn(&T) -> Result<U, String>,
                            label: &str) -> Vec<Result<U, String>> { ... }
 ```
 
-### 4.5 导入顺序
+### 4.6 导入顺序
 
 ```rust
 // 标准库
@@ -570,6 +576,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 18. **📦 部署自动化** — 每次版本更新（tag v*）将 aarch64 musl 二进制推送到 47.95.13.125:48022 的 `~/cmd/fqdt`（CI release job ssh/scp，deploy key 走 GH secret） ✅ v0.8.0（run 41776280009）
 19. **🐛 静态构建系统 CA 修复** — 静态 musl 二进制无系统证书，reqwest 默认 native-certs 在 Android panic（`No CA certificates were loaded`）；`src/api.rs::tls_builder` 用内置 webpki 根证书预配置 TLS（同 core `build_tls_config`）✅ v0.9.0
 20. **🐛 静态构建系统 DNS 修复** — 静态 musl 的 getaddrinfo 只读 `/etc/resolv.conf`，Android 上不存在 → 所有域名解析失败（`dns error: Try again`，device_register 等全部走不通）；新增 `upstream/dns.rs` 进程内解析（`FQDT_DNS` env → `getprop net.dns1/2` → `/proc/net/route` 网关 → 223.5.5.5/119.29.29.29 兜底，手写 UDP A 查询零依赖），挂到 core HttpTransport、`streaming_client`、fqdt `tls_builder` 三处 client ✅ v0.9.1
+21. **🎨 输出精简 + 日志开关** — core 日志（`[I] core: ...`）默认不打印（仍落盘 rust.log），全局 `-v/--verbose` 才开 console 镜像（子命令级 -v 改为全局 flag）；search 列表 4 行/本 → 1 行/本（去简介/空行），下载总结合并单行，ANSI 样式常量集中到 util（TUI.md 设计规范落地） ✅ v0.10.0
 
 ### 7.3 已知问题
 
@@ -582,6 +589,11 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 ---
 
 ## 8. 工作规范
+
+### 8.0 终端输出设计规范（强制）
+
+- **任何涉及 CLI 输出/日志/颜色/进度的改动，必须先读项目根 `TUI.md` 并遵守**（流分工、三色分层、一行一记录、日志默认静默、四问检查清单）
+- 颜色常量只能来自 `src/util.rs`（RST/DIM/CYAN/YELLOW/MAGENTA），禁止裸写 ANSI
 
 ### 8.1 To-Do 管理
 

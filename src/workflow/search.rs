@@ -1,6 +1,7 @@
 use crate::api::Client;
 use crate::config;
 use crate::types::{Config, DownloadParams};
+use crate::util::{CYAN, DIM, MAGENTA, RST, YELLOW};
 use std::io::Write;
 use std::time::Instant;
 
@@ -12,7 +13,7 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
     let vb = verbose || cfg.verbose;
     let api = Client::from_config(cfg, vb);
 
-    print!("  搜索 \"{}\" (第{}页)... ", keyword, page);
+    print!("  {DIM}搜索 \"{keyword}\" · 第{page}页 …{RST}");
     std::io::stdout().flush().unwrap();
     let books = match api.search(keyword, page).await {
         Ok(b) => b,
@@ -26,41 +27,26 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
         return;
     }
     let elapsed = start.elapsed().as_secs();
-    println!("{} 本 ({}s)", books.len(), elapsed);
+    println!(" {CYAN}{} 本{RST} · {elapsed}s", books.len());
     println!();
 
     let mut list_lines = 2;
     for (i, b) in books.iter().enumerate() {
-        let status = b.status_text();
-        let abs: String = b.abstract_.chars().take(60).collect();
-        let abs = if b.abstract_.chars().count() > 60 {
-            format!("{}...", abs)
-        } else {
-            b.abstract_.clone()
-        };
-        println!("  \x1b[1;36m{:>2}.\x1b[0m {}", i + 1, b.title);
         println!(
-            "      {} \x1b[33m{}\x1b[0m | {} | \x1b[35m{}\x1b[0m \x1b[2m#{}\x1b[0m",
-            b.author, b.category, status, b.score, b.book_id
+            "  {CYAN}{:>2}.{RST} {}  {YELLOW}{}{RST} · {} · {MAGENTA}{}{RST} · {} {DIM}#{}{RST}",
+            i + 1, b.title, b.author, b.category, b.score, b.status_text(), b.book_id
         );
-        list_lines += 2;
-        if !abs.is_empty() {
-            println!("      {}", abs);
-            list_lines += 1;
-        }
-        println!();
         list_lines += 1;
     }
 
     if no_download {
-        println!("\n  \x1b[2m使用 info <book_id> 查看目录, download <book_id> 下载\x1b[0m");
-        println!("  \x1b[2m翻页: fqdt search \"{}\" -p {}\x1b[0m", keyword, page + 1);
+        println!("\n  {DIM}info <book_id> 看目录 · download <book_id> 下载 · search -p {} 下一页{RST}", page + 1);
         return;
     }
 
     let idx = auto.map_or_else(
         || {
-            print!("  \x1b[2m输入序号 (1-{}, 0=取消): \x1b[0m", books.len());
+            print!("  {DIM}输入序号 (1-{}, 0=取消): {RST}", books.len());
             std::io::stdout().flush().unwrap();
             list_lines += 1;
             let mut inp = String::new();
@@ -68,7 +54,7 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
             match inp.trim().parse::<usize>() {
                 Ok(n) if n >= 1 && n <= books.len() => n - 1,
                 _ => {
-                    println!("  \x1b[2m取消\x1b[0m");
+                    println!("  {DIM}取消{RST}");
                     books.len()
                 }
             }
@@ -92,12 +78,12 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
         print!("\x1b[{}F\x1b[J", list_lines);
     }
     println!(
-        "  \x1b[1;36m{}\x1b[0m  {} \x1b[33m{}\x1b[0m | {} | \x1b[35m{}\x1b[0m",
-        book.title,
-        book.author,
-        book.category,
-        book.status_text(),
-        book.score
+        "  {CYAN}{title}{RST}  {YELLOW}{author}{RST} · {category} · {MAGENTA}{score}{RST} · {status}",
+        title = book.title,
+        author = book.author,
+        category = book.category,
+        score = book.score,
+        status = book.status_text(),
     );
     config::add_bookmark(&book.book_id, &book.title).ok();
     super::download::run(

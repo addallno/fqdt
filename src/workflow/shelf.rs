@@ -1,6 +1,7 @@
 use crate::config;
 use crate::types;
 use crate::types::Config;
+use crate::util::{CYAN, RST};
 
 pub async fn run(add: Option<String>, delete: Option<usize>, dl: Option<usize>, update: bool, cfg: &Config) {
     if update {
@@ -11,7 +12,7 @@ pub async fn run(add: Option<String>, delete: Option<usize>, dl: Option<usize>, 
         }
         println!("  更新书架 ({} 本):\n", books.len());
         for (i, (id, title)) in books.iter().enumerate() {
-            println!("  [{}/{}] \x1b[1;36m{}\x1b[0m", i + 1, books.len(), title);
+            println!("  [{}/{}] {CYAN}{}{RST}", i + 1, books.len(), title);
             super::download::run(id, &types::DownloadParams {
                 output: None, range: None, format: None, concurrent: None,
                 audio: false, tone: 1, abr: 0,
@@ -62,7 +63,7 @@ pub async fn run(add: Option<String>, delete: Option<usize>, dl: Option<usize>, 
     }
     println!("  书架 ({}):\n", books.len());
     for (i, (id, t)) in books.iter().enumerate() {
-        println!("  {:>2}. \x1b[1;36m{}\x1b[0m  (ID:{})", i + 1, t, id);
+        println!("  {:>2}. {CYAN}{}{RST}  (ID:{})", i + 1, t, id);
     }
     println!("\n  添加: fqdt shelf -a <ID>:<标题>");
     println!("  删除: fqdt shelf -d <编号>");

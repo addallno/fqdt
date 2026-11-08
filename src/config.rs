@@ -1,4 +1,5 @@
 use crate::types::{Config, get_home};
+use crate::util::{RST, YELLOW};
 use std::fs;
 use std::path::PathBuf;
 
@@ -128,7 +129,7 @@ post_process =
             }
         }
         if !issues.is_empty() {
-            eprintln!("  \x1b[33m配置警告:\x1b[0m");
+            eprintln!("  {YELLOW}配置警告:{RST}");
             for i in &issues { eprintln!("    - {}", i); }
         }
     }

@@ -4,6 +4,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+// 终端样式常量：所有 CLI 输出的统一配色入口
+pub const RST: &str = "\x1b[0m";
+pub const DIM: &str = "\x1b[2m";
+pub const CYAN: &str = "\x1b[1;36m";
+pub const YELLOW: &str = "\x1b[33m";
+pub const MAGENTA: &str = "\x1b[35m";
+
 pub fn has_chapter_prefix(title: &str) -> bool {
     title.starts_with('第') || title.starts_with(|c: char| c.is_ascii_digit())
 }

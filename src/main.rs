@@ -10,6 +10,7 @@ mod workflow;
 
 use clap::{Parser, Subcommand};
 use types::Config;
+use crate::util::{DIM, RST};
 use std::path::Path;
 
 #[derive(Parser)]
@@ -23,6 +24,8 @@ struct Cli {
     content_url: Option<String>,
     #[arg(long, global = true, help = "超时秒")]
     timeout: Option<u64>,
+    #[arg(short = 'v', long, global = true, help = "详细日志（core 日志 stderr 镜像 + 请求详情）")]
+    verbose: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -48,8 +51,6 @@ enum Cmd {
         format: Option<String>,
         #[arg(short='i', long, default_value = "0", help = "请求间隔(ms)")]
         interval: u64,
-        #[arg(short='v', long, help = "详细输出")]
-        verbose: bool,
     },
     /// 查看目录或内容（简写 i）
     #[command(alias = "i")]
@@ -59,8 +60,6 @@ enum Cmd {
         range: Option<String>,
         #[arg(short='s', long, help = "显示正文内容")]
         show: bool,
-        #[arg(short='v', long, help = "详细输出")]
-        verbose: bool,
     },
     /// 下载正文（简写 d）
     #[command(alias = "d")]
@@ -76,8 +75,6 @@ enum Cmd {
         jobs: Option<usize>,
         #[arg(short='f', long, help = "强制覆盖已存在文件")]
         force: bool,
-        #[arg(short='v', long, help = "详细输出")]
-        verbose: bool,
         #[arg(short='i', long, default_value = "0", help = "请求间隔(ms)")]
         interval: u64,
     },
@@ -97,8 +94,6 @@ enum Cmd {
         jobs: Option<usize>,
         #[arg(short='f', long, help = "强制覆盖已存在文件")]
         force: bool,
-        #[arg(short='v', long, help = "详细输出")]
-        verbose: bool,
         #[arg(short='i', long, default_value = "0", help = "请求间隔(ms)")]
         interval: u64,
     },
@@ -112,8 +107,6 @@ enum Cmd {
         jobs: Option<usize>,
         #[arg(short='f', long, help = "强制覆盖已存在文件")]
         force: bool,
-        #[arg(short='v', long, help = "详细输出")]
-        verbose: bool,
         #[arg(short='i', long, default_value = "0", help = "请求间隔(ms)")]
         interval: u64,
     },
@@ -125,8 +118,6 @@ enum Cmd {
         voice: String,
         #[arg(short='j', long, help = "并发数")]
         jobs: Option<usize>,
-        #[arg(short='v', long, help = "详细输出")]
-        verbose: bool,
     },
     /// 书架管理（简写 s）
     #[command(alias = "s")]
@@ -228,7 +219,6 @@ enum Cmd {
         #[arg(short='t', long)] format: Option<String>,
         #[arg(short='j', long)] jobs: Option<usize>,
         #[arg(short='f', long)] force: bool,
-        #[arg(short='v', long)] verbose: bool,
         #[arg(long)] audio: bool,
         #[arg(long)] audio_only: bool,
         #[arg(long, default_value = "1")] tone: usize,
@@ -255,21 +245,25 @@ async fn main() {
     cfg.validate();
     Config::save_default().ok();
 
+    // 全局 -v：core 日志 stderr 镜像 + workflow 请求详情（日志默认静默，仍落盘 rust.log）
+    let verbose = cli.verbose || cfg.verbose;
+    fqapi_core::core_log::set_console(verbose);
+
     match cli.cmd {
-        Cmd::Search { keyword, page, auto, dry_run, output, jobs, range, format, interval, verbose } =>
+        Cmd::Search { keyword, page, auto, dry_run, output, jobs, range, format, interval } =>
             workflow::search::run(&keyword, page, output.as_deref(), jobs, range.as_deref(),
                 format.as_deref(), verbose, auto, dry_run, interval, &cfg).await,
-        Cmd::Info { book_id, range, show, verbose } =>
+        Cmd::Info { book_id, range, show } =>
             workflow::info::run(&book_id, range.as_deref(), show, verbose, &cfg).await,
-        Cmd::Download { book_id, output, range, format, jobs, force, verbose, interval } =>
+        Cmd::Download { book_id, output, range, format, jobs, force, interval } =>
             dispatch_download(book_id, output, range, format, jobs, force, verbose, interval, &cfg).await,
-        Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, verbose, interval } =>
+        Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval } =>
             dispatch_audio(book_id, output, range, tone, lrc, jobs, force, verbose, interval, &cfg).await,
-        Cmd::Update { target, output, jobs, force, verbose, interval } =>
+        Cmd::Update { target, output, jobs, force, interval } =>
             dispatch_update(target, output, jobs, force, verbose, interval, &cfg).await,
-        Cmd::Tts { path, voice, jobs, verbose } =>
+        Cmd::Tts { path, voice, jobs } =>
             dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
-        Cmd::Get { target, output, range, format, jobs, force, verbose, audio, audio_only, tone, lrc, update, interval } =>
+        Cmd::Get { target, output, range, format, jobs, force, audio, audio_only, tone, lrc, update, interval } =>
             dispatch_get(target, output, range, format, jobs, force, verbose, audio, audio_only, tone, lrc, update, interval, &cfg).await,
         Cmd::Shelf { add, delete, dl, update } => workflow::shelf::run(add, delete, dl, update, &cfg).await,
         Cmd::Init => { Config::save_default().ok(); println!("  ok ~/.config/fqdt/config.ini"); }
@@ -423,7 +417,7 @@ async fn run_serve(port: u16, lan: bool) {
     match fqapi::serve_at(port, lan).await {
         Ok(url) => {
             println!("  ok 监听 {url}{}", if lan { "（局域网）" } else { "" });
-            println!("  \x1b[2mCtrl-C 退出\x1b[0m");
+            println!("  {DIM}Ctrl-C 退出{RST}");
             tokio::signal::ctrl_c().await.ok();
             fqapi::shutdown().await;
             println!("  ok 已退出（设备池已刷盘）");

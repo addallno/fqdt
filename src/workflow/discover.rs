@@ -9,10 +9,7 @@ use crate::types::Config;
 use crate::util::{jq_display, jq_extract};
 use serde_json::Value;
 
-const DIM: &str = "\x1b[2m";
-const RST: &str = "\x1b[0m";
-const CYAN: &str = "\x1b[1;36m";
-const YELLOW: &str = "\x1b[33m";
+use crate::util::{CYAN, DIM, RST, YELLOW};
 
 /// 取路径标量；无匹配返回空串
 fn get(v: &Value, path: &str) -> String {

@@ -12,6 +12,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use log::{Log, Metadata, Record};
@@ -148,14 +149,22 @@ impl Log for CoreLogger {
         if let Ok(mut file) = self.file.lock() {
             file.write_line(&line);
         }
-        // Containers read stdout, not a file inside the data volume, so the
-        // same line also goes there. One line, one format, two surfaces - the
-        // Dart log page and `docker logs` share the parser.
-        // 本地改动：CLI 场景 stdout 用于 JSON 管道，日志改走 stderr。
-        eprintln!("{line}");
+        // 控制台镜像默认关闭（CLI 场景日志刷屏），`set_console(true)` 后才输出。
+        // 本地改动：CLI 场景 stdout 用于 JSON 管道，镜像走 stderr。
+        if CONSOLE.load(Ordering::Relaxed) {
+            eprintln!("{line}");
+        }
     }
 
     fn flush(&self) {}
+}
+
+/// 控制台镜像开关：默认关闭（日志仍落盘 rust.log），`fqdt -v` 时开启。
+static CONSOLE: AtomicBool = AtomicBool::new(false);
+
+/// 打开/关闭日志的 stderr 镜像（须在 `install` 后仍生效，进程内单次设置即可）。
+pub fn set_console(on: bool) {
+    CONSOLE.store(on, Ordering::Relaxed);
 }
 
 /// 全局 logger 的持有者：`log::set_logger` 要 `&'static dyn Log`，而本 crate 未开
