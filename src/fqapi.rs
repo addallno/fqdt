@@ -19,7 +19,7 @@ use fqapi_core::runtime;
 use fqapi_core::server::ListenMode;
 
 /// 进程内共用的请求超时（毫秒）。下载类长任务另行放宽。
-const DEFAULT_TIMEOUT_MS: i64 = 30_000;
+pub const DEFAULT_TIMEOUT_MS: i64 = 30_000;
 
 /// 端点索引项（单点定义，供 `fqdt api --list`、封装子命令与 serve 复用）。
 pub struct Endpoint {
@@ -264,31 +264,19 @@ pub async fn get_json(path: &str, query: &str) -> Result<serde_json::Value, Stri
 }
 
 /// 带超时的 GET 请求。
+///
+/// 走 `call()` 进程内 dispatch（已验证稳定），外层 `tokio::time::timeout`
+/// 兜底；此前走 `runtime::request` bridge 路径会无响应挂死（v0.11.0 修复）。
 pub async fn get_json_timeout(
     path: &str,
     query: &str,
     timeout_ms: i64,
 ) -> Result<serde_json::Value, String> {
-    ensure_runtime().await?;
-    let id = format!("fqdt-{}", std::process::id());
-    let r = runtime::request(
-        id,
-        "GET".into(),
-        path.into(),
-        query.trim_start_matches('?').into(),
-        Vec::new(),
-        timeout_ms,
-    )
-    .await?;
-    if !(200..300).contains(&r.status) {
-        return Err(format!("HTTP {}", r.status));
-    }
-    serde_json::from_slice(&r.body).map_err(|e| format!("响应非 JSON: {e}"))
-}
-
-/// 默认超时的便捷包装。
-pub async fn get(path: &str, query: &str) -> Result<serde_json::Value, String> {
-    get_json_timeout(path, query, DEFAULT_TIMEOUT_MS).await
+    let limit = std::time::Duration::from_millis(timeout_ms.max(1) as u64);
+    let resp = tokio::time::timeout(limit, call("GET", path, query, Vec::new()))
+        .await
+        .map_err(|_| "请求超时".to_string())??;
+    resp.ok_json()
 }
 
 /// 退出前释放运行时（刷盘设备池等）（todo16 serve 退出路径用）。

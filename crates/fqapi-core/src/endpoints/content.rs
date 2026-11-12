@@ -127,12 +127,15 @@ pub fn full_item_content(v: &Value, item_id: &str) -> (String, String, bool) {
     (content, title, ok)
 }
 
-async fn handle_batch(ctx: &Ctx, item_ids: &str) -> ApiResult<Value> {
+async fn handle_batch(ctx: &Ctx, item_ids: &str, book_id: &str) -> ApiResult<Value> {
     let up = Upstream::new(ctx.up.clone());
+    // 上游对 book_id=0 返回 content="Invalid"，必须带真实 book_id
+    let raw_url = build_content_url(item_ids, "batch")
+        .replace("book_id=0", &format!("book_id={book_id}"));
     let (raw, dev) = up
         .raw_with_device(&UpstreamRequestSpec {
             mode: UpstreamMode::DeviceSigned,
-            raw_url: Some(build_content_url(item_ids, "batch")),
+            raw_url: Some(raw_url),
             headers: dragon_read_headers(),
             ..Default::default()
         })
@@ -187,7 +190,7 @@ fn handle<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult<Value
 
         let batch = item_ids.contains(',') || api_type == "batch";
         if batch {
-            return handle_batch(ctx, &item_ids).await;
+            return handle_batch(ctx, &item_ids, &params.get_str("book_id")).await;
         }
         if api_type == "novel" {
             return fetch_novel_reader_content(ctx, &item_ids).await;

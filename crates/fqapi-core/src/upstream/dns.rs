@@ -22,9 +22,39 @@ pub fn dns_servers() -> &'static [IpAddr] {
     SERVERS.get_or_init(probe_servers)
 }
 
-/// 探测顺序：`FQDT_DNS` 环境变量（逗号分隔）→ `getprop net.dns1/net.dns2`
+/// 探测顺序：`FQDT_DNS` 环境变量（逗号分隔，显式短路）→ `/etc/resolv.conf`
+/// （Linux/WSL 有系统 DNS 配置；WSL 网关不答 DNS，作 nameserver 会白等
+/// 12s/主机，故 resolv.conf 命中即跳过网关）→ `getprop net.dns1/net.dns2`
 /// （Android ≤7 有效）→ `/proc/net/route` 默认网关 → 公共 DNS 兜底。
 fn probe_servers() -> Vec<IpAddr> {
+    if let Ok(env) = std::env::var("FQDT_DNS") {
+        let mut s: Vec<IpAddr> = Vec::new();
+        for part in env.split([',', ';', ' ']) {
+            if let Ok(ip) = part.trim().parse::<IpAddr>() {
+                if !s.contains(&ip) {
+                    s.push(ip);
+                }
+            }
+        }
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    let conf = resolv_conf_servers();
+    if !conf.is_empty() {
+        let mut s = conf;
+        for fb in FALLBACK_DNS {
+            if let Ok(ip) = fb.parse::<IpAddr>() {
+                s.push(ip);
+            }
+        }
+        return s;
+    }
+    probe_android_or_gateway()
+}
+
+/// 无系统 resolv.conf 的环境（旧 Android）：getprop → 默认网关 → 公共兜底。
+fn probe_android_or_gateway() -> Vec<IpAddr> {
     let mut servers: Vec<IpAddr> = Vec::new();
     let mut push = |s: &str| {
         if let Ok(ip) = s.trim().parse::<IpAddr>() {
@@ -33,11 +63,6 @@ fn probe_servers() -> Vec<IpAddr> {
             }
         }
     };
-    if let Ok(env) = std::env::var("FQDT_DNS") {
-        for part in env.split([',', ';', ' ']) {
-            push(part);
-        }
-    }
     for key in ["net.dns1", "net.dns2"] {
         if let Ok(out) = std::process::Command::new("getprop").arg(key).output() {
             if out.status.success() {
@@ -52,6 +77,17 @@ fn probe_servers() -> Vec<IpAddr> {
         push(fb);
     }
     servers
+}
+
+/// 读 `/etc/resolv.conf` 的 `nameserver` 行（WSL/Linux 系统真实 DNS）。
+fn resolv_conf_servers() -> Vec<IpAddr> {
+    let Ok(text) = std::fs::read_to_string("/etc/resolv.conf") else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|l| l.trim().strip_prefix("nameserver"))
+        .filter_map(|s| s.trim().parse().ok())
+        .collect()
 }
 
 /// 读 `/proc/net/route` 的默认路由网关（目的 `00000000`，网关字段小端十六进制）。
@@ -73,19 +109,15 @@ fn default_gateway() -> Option<IpAddr> {
 }
 
 /// 对 `host` 做 A 记录查询，逐 nameserver 轮询直至拿到非空结果。
+/// （单 server 的超时重试在 `query_server` 内部，这里不再套一层。）
 pub fn lookup_a(host: &str) -> Result<Vec<IpAddr>, String> {
     let query = build_query(host)?;
     let mut last_err = "no nameserver".to_string();
     for server in dns_servers() {
-        for _ in 0..QUERY_RETRIES {
-            match query_server(*server, &query) {
-                Ok(addrs) if !addrs.is_empty() => return Ok(addrs),
-                Ok(_) => {
-                    last_err = format!("{server}: 空 A 记录");
-                    break; // 该 server 正常应答但无记录，换下一个
-                }
-                Err(e) => last_err = e,
-            }
+        match query_server(*server, &query) {
+            Ok(addrs) if !addrs.is_empty() => return Ok(addrs),
+            Ok(_) => last_err = format!("{server}: 空 A 记录"),
+            Err(e) => last_err = e,
         }
     }
     Err(format!("DNS {host}: {last_err}"))

@@ -69,6 +69,12 @@ fn maybe_reset_stats(stats: &Arc<Mutex<HashMap<String, SourceStats>>>, counter: 
     }
 }
 
+/// 源熔断：本会话从未成功且已失败 ≥2 次的模板直接跳过，
+/// 避免每个章节都把死源的超时全部等满（下载慢的主因之一）。
+fn source_dead(stats: &HashMap<String, SourceStats>, tmpl: &str) -> bool {
+    stats.get(tmpl).is_some_and(|e| e.ok_count == 0 && e.fail_count >= 2)
+}
+
 // ---------- fqapi 响应解析辅助 ----------
 
 /// 业务错误检查：`success=false` 或 `code ∉ {0,200}` 视为失败。
@@ -94,7 +100,12 @@ fn check_biz(v: &Value) -> Result<(), String> {
 
 /// fqapi 调用 + 业务错误检查，返回原始 JSON。
 async fn core_json(path: &str, query: &str) -> Result<Value, String> {
-    let v = fqapi::get(path, query).await?;
+    core_json_ms(path, query, fqapi::DEFAULT_TIMEOUT_MS).await
+}
+
+/// 带超时的 fqapi 调用（正文类请求用短超时，避免慢请求拖死下载进度）。
+async fn core_json_ms(path: &str, query: &str, timeout_ms: i64) -> Result<Value, String> {
+    let v = fqapi::get_json_timeout(path, query, timeout_ms).await?;
     check_biz(&v)?;
     Ok(v)
 }
@@ -282,6 +293,18 @@ fn parse_chapters(v: &Value) -> Vec<Chapter> {
 
 /// 解析批量正文响应为 item_id → 正文映射。
 fn parse_batch(v: &Value) -> HashMap<String, String> {
+    // object map 形态：data.{item_id}.content（core batch 实际返回此格式）
+    if let Some(Value::Object(m)) = v.pointer("/data") {
+        let mut out: HashMap<String, String> = HashMap::new();
+        for (id, item) in m {
+            let c = item.get("content").and_then(|x| x.as_str()).unwrap_or("");
+            if !id.is_empty() && !c.is_empty() && c != "Invalid" {
+                out.insert(id.clone(), strip_html(c));
+            }
+        }
+        if !out.is_empty() { return out; }
+    }
+    // 兼容数组形态：data[].item_id + content
     let Some(items) = find_items(v, &["item_id", "itemId"]) else {
         return HashMap::new();
     };
@@ -289,7 +312,7 @@ fn parse_batch(v: &Value) -> HashMap<String, String> {
         let m = it.as_object()?;
         let id = field(m, &["item_id", "itemId"]);
         let content = m.get("content").and_then(|x| x.as_str())?;
-        if id.is_empty() || content.is_empty() {
+        if id.is_empty() || content.is_empty() || content == "Invalid" {
             return None;
         }
         Some((id, strip_html(content)))
@@ -423,7 +446,8 @@ impl Client {
             verbose,
             reqwest_client: Self::tls_builder()
                 .user_agent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-                .timeout(std::time::Duration::from_secs(15))
+                // 第三方源短超时：死源快速放弃，配合熔断避免拖垮整体下载
+                .timeout(std::time::Duration::from_secs(8))
                 .build().unwrap(),
             source_stats: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -461,7 +485,8 @@ impl Client {
     }
 
     async fn core_content(&self, item_id: &str) -> Result<String, String> {
-        let v = core_json(&format!("/api/v1/chapters/{}", item_id), "").await?;
+        // 正文短超时：单章数据量小，10s 不到即视为失败走降级
+        let v = core_json_ms(&format!("/api/v1/chapters/{}", item_id), "", 10_000).await?;
         let content = find_str(&v, &["content"]).ok_or("未获取到正文")?;
         if self.cache_enabled {
             let cp = self.cache_dir.join(format!("c_{}.json", item_id));
@@ -472,7 +497,8 @@ impl Client {
 
     async fn core_content_batch(&self, book_id: &str, item_ids: &[&str]) -> Result<HashMap<String, String>, String> {
         let q = format!("item_ids={}&book_id={}", item_ids.join(","), book_id);
-        let v = core_json("/api/v1/chapters/batch", &q).await?;
+        // 批量响应体大，给 20s
+        let v = core_json_ms("/api/v1/chapters/batch", &q, 20_000).await?;
         let map = parse_batch(&v);
         if map.is_empty() { Err("批量API未返回数据".into()) } else { Ok(map) }
     }
@@ -529,7 +555,35 @@ impl Client {
     }
 
     /// 批量获取正文（fqapi 优先，第三方降级）。
+    ///
+    /// 分块并发（每 100 章一块）：全量单请求体过大易超时；部分块失败只缺
+    /// 对应章节，由逐章路径补齐，不再整批失败。
     pub async fn fetch_content_batch(&self, book_id: &str, item_ids: &[&str]) -> Result<HashMap<String, String>, String> {
+        const CHUNK: usize = 100;
+        if item_ids.len() > CHUNK {
+            let mut set = tokio::task::JoinSet::new();
+            for chunk in item_ids.chunks(CHUNK) {
+                let api = self.clone();
+                let bid = book_id.to_string();
+                let owned: Vec<String> = chunk.iter().map(|s| s.to_string()).collect();
+                set.spawn(async move {
+                    let refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
+                    api.core_content_batch(&bid, &refs).await
+                });
+            }
+            let mut merged: HashMap<String, String> = HashMap::new();
+            let mut last_err = String::new();
+            while let Some(r) = set.join_next().await {
+                match r {
+                    Ok(Ok(m)) => { merged.extend(m); }
+                    Ok(Err(e)) => last_err = e,
+                    Err(e) => last_err = e.to_string(),
+                }
+            }
+            if !merged.is_empty() { return Ok(merged); }
+            self.log_fallback("batch", &last_err);
+            return self.batch_legacy(book_id, item_ids).await;
+        }
         match self.core_content_batch(book_id, item_ids).await {
             Ok(map) => Ok(map),
             Err(e) => {
@@ -577,6 +631,7 @@ impl Client {
             sort_urls(&self.search_urls, &stats)
         };
         for tmpl in &sorted {
+            if source_dead(&self.source_stats.lock().unwrap(), tmpl) { continue; }
             let url = tmpl.replacen("{}", &kw, 1).replacen("{}", &offset.to_string(), 1);
             let start = Instant::now();
             let result = util::with_verbose_async(|| async {
@@ -584,7 +639,7 @@ impl Client {
             }, &format!("search {}", &url[..url.len().min(60)]), self.verbose).await;
             let elapsed = start.elapsed().as_millis() as u64;
             if let Ok(mut stats) = self.source_stats.lock() {
-                let entry = stats.entry(url.clone()).or_default();
+                let entry = stats.entry(tmpl.clone()).or_default();
                 match &result {
                     Ok(_) => { entry.ok_count += 1; entry.total_time_ms += elapsed; }
                     Err(_) => { entry.fail_count += 1; }
@@ -601,7 +656,7 @@ impl Client {
                 Err(e) => { last_err = e; continue; }
             }
         }
-        Err(last_err)
+        Err(if last_err.is_empty() { "所有第三方源均已熔断".into() } else { last_err })
     }
 
     fn parse_search_results(text: &str, verbose: bool) -> Result<Vec<Book>, String> {
@@ -698,12 +753,13 @@ impl Client {
         };
         let mut last_err = String::new();
         for tmpl in &sorted {
+            if source_dead(&self.source_stats.lock().unwrap(), tmpl) { continue; }
             let url = tmpl.replacen("{}", item_id, 1);
             let start = Instant::now();
             let result = self.fetch_content_from(&url, item_id).await;
             let elapsed = start.elapsed().as_millis() as u64;
             if let Ok(mut stats) = self.source_stats.lock() {
-                let entry = stats.entry(url.clone()).or_default();
+                let entry = stats.entry(tmpl.clone()).or_default();
                 match &result {
                     Ok(_) => { entry.ok_count += 1; entry.total_time_ms += elapsed; }
                     Err(_) => { entry.fail_count += 1; }
@@ -712,12 +768,12 @@ impl Client {
             if result.is_ok() { return result; }
             last_err = result.unwrap_err();
         }
-        Err(last_err)
+        Err(if last_err.is_empty() { "所有第三方源均已熔断".into() } else { last_err })
     }
 
     async fn fetch_content_from(&self, url: &str, item_id: &str) -> Result<String, String> {
         let raw = util::with_verbose_async(|| async {
-            util::with_retry_async(|| self.http_get(url), 3).await
+            util::with_retry_async(|| self.http_get(url), 2).await
         }, &format!("content {}", &url[..url.len().min(60)]), self.verbose).await?;
         let root: Value = serde_json::from_str(&raw).map_err(|e| {
             if self.verbose { eprintln!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, raw); }
@@ -753,12 +809,13 @@ impl Client {
         };
         let mut last_err = String::new();
         for tmpl in &sorted {
+            if source_dead(&self.source_stats.lock().unwrap(), tmpl) { continue; }
             let url = tmpl.replacen("{}", item_id, 1).replacen("{}", &tone_id.to_string(), 1);
             let start = Instant::now();
             let result = self.fetch_audio_from(&url, item_id).await;
             let elapsed = start.elapsed().as_millis() as u64;
             if let Ok(mut stats) = self.source_stats.lock() {
-                let entry = stats.entry(url.clone()).or_default();
+                let entry = stats.entry(tmpl.clone()).or_default();
                 match &result {
                     Ok(_) => { entry.ok_count += 1; entry.total_time_ms += elapsed; }
                     Err(_) => { entry.fail_count += 1; }
@@ -767,7 +824,7 @@ impl Client {
             if result.is_ok() { return result; }
             last_err = result.unwrap_err();
         }
-        Err(last_err)
+        Err(if last_err.is_empty() { "所有第三方源均已熔断".into() } else { last_err })
     }
 
     async fn fetch_audio_from(&self, url: &str, item_id: &str) -> Result<String, String> {
@@ -809,50 +866,65 @@ impl Client {
     async fn batch_legacy(&self, book_id: &str, item_ids: &[&str]) -> Result<HashMap<String, String>, String> {
         static REQ_COUNTER: AtomicU64 = AtomicU64::new(0);
         maybe_reset_stats(&self.source_stats, &REQ_COUNTER);
-        let batch = item_ids.join(",");
         let sorted = {
             let stats = self.source_stats.lock().unwrap();
             sort_urls(&self.batch_urls, &stats)
         };
+        // 分块请求：全量 item_ids 拼 URL 过长易被拒；单块失败只缺该块，
+        // 剩余章节由逐章路径补齐。
+        let mut merged: HashMap<String, String> = HashMap::new();
         let mut last_err = String::new();
-        for tmpl in &sorted {
-            let url = tmpl.replacen("{}", book_id, 1).replacen("{}", &batch, 1);
-            let start = Instant::now();
-            let result = async {
-                let raw = util::with_verbose_async(|| async {
-                    util::with_retry_async(|| self.http_get(&url), 2).await
-                }, &format!("batch {} chapters", item_ids.len()), self.verbose).await?;
-                let root: Value = serde_json::from_str(&raw).map_err(|e| {
-                    if self.verbose { eprintln!("  [verbose] JSON: {}\n  {}", e, raw); }
-                    format!("JSON: {}", e)
-                })?;
-                let mut map = HashMap::new();
-                if let Some(arr) = root.pointer("/data").and_then(|v| v.as_array()) {
-                    for item in arr {
-                        let id = item["item_id"].as_str()
-                            .or_else(|| item["itemId"].as_str())
-                            .unwrap_or("");
-                        let content = item["content"].as_str().unwrap_or("");
-                        if !id.is_empty() && !content.is_empty() {
-                            map.insert(id.to_string(), strip_html(content));
+        for chunk in item_ids.chunks(100) {
+            let batch = chunk.join(",");
+            let mut chunk_ok = false;
+            for tmpl in &sorted {
+                if source_dead(&self.source_stats.lock().unwrap(), tmpl) { continue; }
+                let url = tmpl.replacen("{}", book_id, 1).replacen("{}", &batch, 1);
+                let start = Instant::now();
+                let result = async {
+                    let raw = util::with_verbose_async(|| async {
+                        util::with_retry_async(|| self.http_get(&url), 2).await
+                    }, &format!("batch {} chapters", chunk.len()), self.verbose).await?;
+                    let root: Value = serde_json::from_str(&raw).map_err(|e| {
+                        if self.verbose { eprintln!("  [verbose] JSON: {}\n  {}", e, raw); }
+                        format!("JSON: {}", e)
+                    })?;
+                    let mut map = HashMap::new();
+                    if let Some(arr) = root.pointer("/data").and_then(|v| v.as_array()) {
+                        for item in arr {
+                            let id = item["item_id"].as_str()
+                                .or_else(|| item["itemId"].as_str())
+                                .unwrap_or("");
+                            let content = item["content"].as_str().unwrap_or("");
+                            if !id.is_empty() && !content.is_empty() {
+                                map.insert(id.to_string(), strip_html(content));
+                            }
                         }
                     }
+                    if !map.is_empty() { return Ok(map); }
+                    Err("批量API未返回数据".into())
+                }.await;
+                let elapsed = start.elapsed().as_millis() as u64;
+                if let Ok(mut stats) = self.source_stats.lock() {
+                    let entry = stats.entry(tmpl.clone()).or_default();
+                    match &result {
+                        Ok(_) => { entry.ok_count += 1; entry.total_time_ms += elapsed; }
+                        Err(_) => { entry.fail_count += 1; }
+                    }
                 }
-                if !map.is_empty() { return Ok(map); }
-                Err("批量API未返回数据".into())
-            }.await;
-            let elapsed = start.elapsed().as_millis() as u64;
-            if let Ok(mut stats) = self.source_stats.lock() {
-                let entry = stats.entry(url).or_default();
-                match &result {
-                    Ok(_) => { entry.ok_count += 1; entry.total_time_ms += elapsed; }
-                    Err(_) => { entry.fail_count += 1; }
+                if let Ok(map) = result {
+                    merged.extend(map);
+                    chunk_ok = true;
+                    break;
                 }
+                last_err = result.unwrap_err();
             }
-            if result.is_ok() { return result; }
-            last_err = result.unwrap_err();
+            if !chunk_ok && last_err.is_empty() {
+                last_err = "所有第三方源均已熔断".into();
+            }
         }
-        Err(last_err)
+        if !merged.is_empty() { return Ok(merged); }
+        Err(if last_err.is_empty() { "所有第三方源均已熔断".into() } else { last_err })
     }
 }
 
