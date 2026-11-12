@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.10.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.11.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -577,6 +577,9 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 19. **🐛 静态构建系统 CA 修复** — 静态 musl 二进制无系统证书，reqwest 默认 native-certs 在 Android panic（`No CA certificates were loaded`）；`src/api.rs::tls_builder` 用内置 webpki 根证书预配置 TLS（同 core `build_tls_config`）✅ v0.9.0
 20. **🐛 静态构建系统 DNS 修复** — 静态 musl 的 getaddrinfo 只读 `/etc/resolv.conf`，Android 上不存在 → 所有域名解析失败（`dns error: Try again`，device_register 等全部走不通）；新增 `upstream/dns.rs` 进程内解析（`FQDT_DNS` env → `getprop net.dns1/2` → `/proc/net/route` 网关 → 223.5.5.5/119.29.29.29 兜底，手写 UDP A 查询零依赖），挂到 core HttpTransport、`streaming_client`、fqdt `tls_builder` 三处 client ✅ v0.9.1
 21. **🎨 输出精简 + 日志开关** — core 日志（`[I] core: ...`）默认不打印（仍落盘 rust.log），全局 `-v/--verbose` 才开 console 镜像（子命令级 -v 改为全局 flag）；search 列表 4 行/本 → 1 行/本（去简介/空行），下载总结合并单行，ANSI 样式常量集中到 util（TUI.md 设计规范落地） ✅ v0.10.0
+22. **🐛 下载慢/章节失败修复** — 四个根因：① DNS 探测链把 WSL 网关当 nameserver（双重重试最坏 12s/主机，api 单请求 25s）→ `dns.rs` 改 `FQDT_DNS` 短路 + `/etc/resolv.conf` 优先 + 去 `lookup_a` 外层重试（search 13.7s→1.8s）；② `get_json_timeout` 走 `runtime::request` bridge 挂死 → 改 `call()` dispatch + `tokio::time::timeout`；③ core batch 返回 object map 而 `parse_batch` 只吃数组 → 兼容两形态并跳过 `content="Invalid"`；④ 无熔断+全量 item_ids 拼单 → 100/块 JoinSet 分块、`source_dead` 熔断（ok=0 且 fail≥2）、reqwest 8s/内容 retry 2/单章 10s 超时、stats 按模板记键使 sort_urls 生效、第三方源全灭时给出明确错误。冒烟：10 章 `-j 4` 20.5s 全成功（修复前 3 章 1m52s 全败）。✅ v0.11.0
+23. **🎨 全子命令 UI 重写** — 按新版 tui-design-pro skill（web 调研 clig.dev/TUIkit/Tufte/VT-HIG 等）重写全部子命令输出：过程进度一律 `util::progress/clear_progress`（stderr 仅 TTY）、结果收据单行（`ok N 章 · 跳过 x 章`/`新增 N 章 · 已有 x/y 章`）、失败用 `util::print_failures`（≤3 条+计数+重跑提示）、提示/交互全部 stderr、`Color` 改 Display 静态 + `init_color()`（NO_COLOR/CLICOLOR=0/非 TTY 纯文本）、info show 40 行折叠+`function fetch-content` 逃生口、shelf 尾注单行、discover 书评单行。TUI.md 已同步。✅ v0.11.0
+24. **🐛 batch 端点对匿名设备无效** — `batch_full/v` 对匿名设备恒回 `content="Invalid"`（已试 book_id 注入/`req_type=0`→USER_NO_PERMISSION/去 `novel_text_type` 三变体均无效）；下载靠逐章 `full` 端点兜底已正常。待办：探索登录态或 full 批量端点替代。`handle_batch` 的真实 book_id 注入保留（语义正确）。`[-]` v0.11.0
 
 ### 7.3 已知问题
 
@@ -712,6 +715,6 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 3. **封装 = 提取 + 渲染管线** — 新封装子命令（todo15）统一为「取 JSON → 路径提取 → 表格/JSON 渲染」，参数与输出（`--json`）保持一致，不重复 HTTP 代码。
 4. **解析辅助集中** — `api.rs` 的 `find_items`/`find_str`/`parse_*` 与 `util::jq_extract` 是唯一 JSON 提取入口，禁止各处手写路径遍历。
 5. **运行时单一入口** — 对 core 的调用一律经 `src/fqapi.rs`（`ensure_runtime`/`call`/`get`/`get_json_timeout`），不直接依赖 `fqapi_core::runtime` 细节。
-6. **re-vendor 流程** — 上游 fanqie-lite-api 更新时，替换 `crates/fqapi-core` 后跑 `cargo test --workspace` 与冒烟（search/catalog/content/audio），并在本节记录本地改动。目前本地改动四处：① `core_log.rs` 日志改走 stderr（防污染 JSON 管道）；② `endpoints/video.rs` 导出 `needs_cenc_decrypt`/`decrypt_cenc_content` 包装、`streaming_client` 挂 `DnsResolver`；③ 新增 `upstream/dns.rs`（进程内 DNS：探测 nameserver + 手写 UDP A 查询，静态 musl Android 无 /etc/resolv.conf）并在 `upstream/http.rs` 挂 `DnsResolver`、网络错误改 `format!("{e:?}")` 展开 source 链；④ （fqdt 侧非 vendor）`src/api.rs::tls_builder` webpki 根证书 + `DnsResolver`。
+6. **re-vendor 流程** — 上游 fanqie-lite-api 更新时，替换 `crates/fqapi-core` 后跑 `cargo test --workspace` 与冒烟（search/catalog/content/audio），并在本节记录本地改动。目前本地改动六处：① `core_log.rs` 日志改走 stderr（防污染 JSON 管道）；② `endpoints/video.rs` 导出 `needs_cenc_decrypt`/`decrypt_cenc_content` 包装、`streaming_client` 挂 `DnsResolver`；③ 新增 `upstream/dns.rs`（进程内 DNS：探测 nameserver + 手写 UDP A 查询，静态 musl Android 无 /etc/resolv.conf）并在 `upstream/http.rs` 挂 `DnsResolver`、网络错误改 `format!("{e:?}")` 展开 source 链；④ （fqdt 侧非 vendor）`src/api.rs::tls_builder` webpki 根证书 + `DnsResolver`；⑤ `upstream/dns.rs` 探测顺序改 `FQDT_DNS` 短路 → `/etc/resolv.conf` 优先 → getprop/网关（WSL 网关不答 DNS 白等 12s/主机），`lookup_a` 去外层双重重试（v0.11.0）；⑥ `endpoints/content.rs::handle_batch` 接受真实 `book_id` 替换 URL 中 `book_id=0`（v0.11.0，batch 对匿名仍回元数据 Invalid，逐章 full 兜底）。
 7. **新增功能落地顺序** — 更新 7.2 待办 → 加 ENDPOINTS 索引 → 实现提取/渲染 → 单测 → 手测 → 同步本文件。
 8. **版本节奏** — 新增 CLI 能力升 MINOR，重构/修复升 PATCH；`Cargo.toml` 与本文件版本号同步。
