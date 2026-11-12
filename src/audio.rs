@@ -64,7 +64,7 @@ impl AudioDownloader {
         let skip = total - pending.len();
 
         if pending.is_empty() {
-            println!("  全部已存在 ({}/{})", skip, total);
+            println!("  ok 全部已存在 · {} 章", total);
             self.write_info_list(chapters, book_title);
             return;
         }
@@ -79,7 +79,7 @@ impl AudioDownloader {
             eprintln!("  [verbose] audio: {}章, {}线程, force={}, lrc={}, abr={}",
                 pending_n, max_jobs, self.p.force, self.p.lrc_mode, self.p.abr);
         }
-        let (ok, fail) = util::with_progress_async(pending, total, max_jobs, "green/cyan", move |ch, pb| {
+        let (ok, fail, errs) = util::with_progress_async(pending, total, max_jobs, "green/cyan", move |ch, pb| {
             let api = api.clone();
             let od = od.clone();
             let p = p.clone();
@@ -93,7 +93,8 @@ impl AudioDownloader {
             }
         }).await;
 
-        println!("  ok {ok} 章 · 跳过 {skip} 章{}", if fail > 0 { format!(" · 失败 {fail} 章") } else { String::new() });
+        println!("  ok {ok} 章 · 跳过 {skip} 章");
+        if fail > 0 { util::print_failures(&errs, " · 重跑同一命令可续传"); }
 
         self.write_info_list(chapters, book_title);
     }

@@ -234,6 +234,7 @@ enum Cmd {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    crate::util::init_color();
     let mut cfg = Config::load();
     cfg.apply_cli_overrides(
         cli.search_url.as_deref(),

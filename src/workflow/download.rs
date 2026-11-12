@@ -3,7 +3,6 @@ use crate::audio;
 use crate::download;
 use crate::types::{ChapterRange, Config, DownloadParams};
 use crate::util;
-use std::io::Write;
 use std::path::Path;
 
 pub async fn run(book_id: &str, p: &DownloadParams, cfg: &Config) {
@@ -15,19 +14,20 @@ pub async fn run(book_id: &str, p: &DownloadParams, cfg: &Config) {
     }
 
     let api = Client::from_config(cfg, vb);
-    print!("  获取目录... ");
-    std::io::stdout().flush().unwrap();
+    util::progress("获取目录");
     let all = match api.fetch_catalog(book_id).await {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("\n  err {}", e);
+            util::clear_progress();
+            eprintln!("  err {}", e);
             return;
         }
     };
+    util::clear_progress();
     let r = p.range.as_deref().and_then(ChapterRange::parse);
     let chs = util::filter_by_range(&all, r.as_ref());
     if chs.is_empty() {
-        println!("  err 空范围");
+        eprintln!("  err 空范围");
         return;
     }
 
@@ -68,9 +68,10 @@ pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {
     if has_text {
         if let Ok((bid, btitle, fmt, existing)) = download::read_info_list(path) {
             let api = Client::from_config(cfg, vb);
-            print!("  检查正文更新... ");
-            std::io::stdout().flush().unwrap();
-            if let Ok(all) = api.fetch_catalog(&bid).await {
+            util::progress("检查正文更新");
+            let fetched = api.fetch_catalog(&bid).await;
+            util::clear_progress();
+            if let Ok(all) = fetched {
                 let r = p.range.as_deref().and_then(ChapterRange::parse);
                 let new_chs: Vec<&crate::types::Chapter> = all
                     .iter()
@@ -78,9 +79,9 @@ pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {
                     .filter(|c| r.as_ref().is_none_or(|x| x.contains(c.index)))
                     .collect();
                 if new_chs.is_empty() {
-                    println!("  正文已是最新 (共{}章)", all.len());
+                    println!("  正文已是最新 · 共 {} 章", all.len());
                 } else {
-                    println!("  发现 {} 章新正文 (共{}/{})", new_chs.len(), existing.len(), all.len());
+                    println!("  新增 {} 章正文 · 已有 {}/{} 章", new_chs.len(), existing.len(), all.len());
                     let dler = download::Downloader::new(api, path.to_path_buf(), &fmt,
                                                           &cfg.filename_template, p.force, vb, &bid, &btitle);
                     dler.run(&new_chs, p.concurrent.unwrap_or(cfg.concurrent)).await;
@@ -110,9 +111,10 @@ pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {
             }
         } else {
             let api = Client::from_config(cfg, vb);
-            print!("  检查音频更新... ");
-            std::io::stdout().flush().unwrap();
-            if let Ok(all) = api.fetch_catalog(&bid).await {
+            util::progress("检查音频更新");
+            let fetched = api.fetch_catalog(&bid).await;
+            util::clear_progress();
+            if let Ok(all) = fetched {
                 let r = p.range.as_deref().and_then(ChapterRange::parse);
                 let new_chs: Vec<&crate::types::Chapter> = all
                     .iter()
@@ -120,9 +122,9 @@ pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {
                     .filter(|c| r.as_ref().is_none_or(|x| x.contains(c.index)))
                     .collect();
                 if new_chs.is_empty() {
-                    println!("  音频已是最新 (共{}章)", all.len());
+                    println!("  音频已是最新 · 共 {} 章", all.len());
                 } else {
-                    println!("  发现 {} 章新音频 (共{}/{})", new_chs.len(), existing.len(), all.len());
+                    println!("  新增 {} 章音频 · 已有 {}/{} 章", new_chs.len(), existing.len(), all.len());
                     let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
                         vec![2, 4, 5, 6, 74, 91]
                     } else {
@@ -148,18 +150,19 @@ pub async fn fetch_and_dl_audio(book_id: &str, audio_dir: &Path, range: &Option<
                       verbose: bool, cfg: &Config) {
     let vb = verbose || cfg.verbose;
     let api = Client::from_config(cfg, vb);
-    print!("  获取目录... ");
-    std::io::stdout().flush().unwrap();
-    match api.fetch_catalog(book_id).await {
+    util::progress("获取目录");
+    let fetched = api.fetch_catalog(book_id).await;
+    util::clear_progress();
+    match fetched {
         Ok(all) => {
             if all.is_empty() {
-                println!("  err 空目录");
+                eprintln!("  err 空目录");
                 return;
             }
             let r = range.as_deref().and_then(ChapterRange::parse);
             let chs = util::filter_by_range(&all, r.as_ref());
             if chs.is_empty() {
-                println!("  err 空范围");
+                eprintln!("  err 空范围");
                 return;
             }
             let fb = if fallbacks.is_empty() {

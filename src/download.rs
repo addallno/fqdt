@@ -47,7 +47,7 @@ impl Downloader {
         let skipped = total - pending.len();
 
         if pending.is_empty() {
-            println!("  全部已存在 ({}/{})", skipped, total);
+            println!("  ok 全部已存在 · {} 章", total);
             return;
         }
 
@@ -61,7 +61,7 @@ impl Downloader {
         let item_ids: Vec<&str> = pending.iter().map(|c| c.item_id.as_str()).collect();
         let batch_map = api.fetch_content_batch(&bid, &item_ids).await.ok();
 
-        let (ok, fail) = util::with_progress_async(pending, total, concurrent, "cyan/blue", move |ch, pb| {
+        let (ok, fail, errs) = util::with_progress_async(pending, total, concurrent, "cyan/blue", move |ch, pb| {
             let api = api.clone();
             let out_dir = out_dir.clone();
             let ft = ft.clone();
@@ -76,7 +76,8 @@ impl Downloader {
             }
         }).await;
 
-        println!("  ok {ok} 章 · 跳过 {skipped} 章{}", if fail > 0 { format!(" · 失败 {fail} 章") } else { String::new() });
+        println!("  ok {ok} 章 · 跳过 {skipped} 章");
+        if fail > 0 { util::print_failures(&errs, " · 重跑同一命令可续传"); }
     }
 
     async fn do_epub(&self, chapters: &[&Chapter], concurrent: usize) {
@@ -84,9 +85,11 @@ impl Downloader {
         let epub_path = self.out_dir.join(format!("{}.epub", title));
         let resolved: Vec<Chapter> = chapters.iter().map(|c| (*c).clone()).collect();
 
-        println!("  生成 EPUB...");
-        if let Err(e) = epub::generate(&title, &resolved, &epub_path) {
-            eprintln!("  EPUB 创建失败: {}", e); return;
+        util::progress("生成 EPUB");
+        let gen = epub::generate(&title, &resolved, &epub_path);
+        util::clear_progress();
+        if let Err(e) = gen {
+            eprintln!("  err EPUB 创建失败: {}", e); return;
         }
 
         let total = chapters.len();
@@ -94,7 +97,7 @@ impl Downloader {
         let ep = epub_path.clone();
         let vb = self.verbose;
 
-        let (ok, fail) = util::with_progress_async(resolved, total, concurrent, "cyan/blue", move |ch, pb| {
+        let (ok, fail, errs) = util::with_progress_async(resolved, total, concurrent, "cyan/blue", move |ch, pb| {
             let api = api.clone();
             let ep = ep.clone();
             async move {
@@ -116,8 +119,8 @@ impl Downloader {
                 }
             }
         }).await;
-        println!("  ok {} 章 → {}", ok, epub_path.display());
-        if fail > 0 { println!("  失败 {} 章", fail); }
+        println!("  ok {ok} 章 → {}", epub_path.display());
+        if fail > 0 { util::print_failures(&errs, " · 重跑同一命令可续传"); }
     }
 
     fn fname(&self, ch: &Chapter) -> String {

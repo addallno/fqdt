@@ -1,15 +1,42 @@
 use crate::types::{sanitize_filename, Chapter};
 use indicatif::{ProgressBar, ProgressStyle};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 // 终端样式常量：所有 CLI 输出的统一配色入口
-pub const RST: &str = "\x1b[0m";
-pub const DIM: &str = "\x1b[2m";
-pub const CYAN: &str = "\x1b[1;36m";
-pub const YELLOW: &str = "\x1b[33m";
-pub const MAGENTA: &str = "\x1b[35m";
+/// 颜色总开关：`main()` 启动时由 [`init_color`] 按 NO_COLOR/CLICOLOR/TTY 设置。
+static COLOR_ON: AtomicBool = AtomicBool::new(true);
+
+/// 初始化颜色开关：NO_COLOR / CLICOLOR=0 / stdout 非 TTY → 纯文本（TUI.md §6）。
+pub fn init_color() {
+    use std::io::IsTerminal;
+    let off = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())
+        || std::env::var("CLICOLOR").is_ok_and(|v| v == "0")
+        || !std::io::stdout().is_terminal();
+    COLOR_ON.store(!off, Ordering::Relaxed);
+}
+
+/// 语义色（Display：开关关闭时输出空串），format 里按原写法 `{CYAN}` 使用。
+pub struct Color(&'static str);
+
+impl std::fmt::Display for Color {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if COLOR_ON.load(Ordering::Relaxed) {
+            f.write_str("\x1b[")?;
+            f.write_str(self.0)?;
+            f.write_str("m")
+        } else {
+            Ok(())
+        }
+    }
+}
+
+pub static RST: Color = Color("0");
+pub static DIM: Color = Color("2");
+pub static CYAN: Color = Color("1;36");
+pub static YELLOW: Color = Color("33");
+pub static MAGENTA: Color = Color("35");
 
 pub fn has_chapter_prefix(title: &str) -> bool {
     title.starts_with('第') || title.starts_with(|c: char| c.is_ascii_digit())
@@ -47,6 +74,25 @@ pub fn bar_style(colors: &str, _concurrent: usize) -> ProgressStyle {
         ))
         .unwrap()
         .progress_chars("━▶")
+}
+
+/// stderr 进度行（`  msg …`）。仅 TTY 打印，完成/失败后用 [`clear_progress`] 消除，
+/// 保证 stdout 只剩结果数据、stderr 不留过程残行。
+pub fn progress(msg: &str) {
+    use std::io::IsTerminal;
+    if std::io::stderr().is_terminal() {
+        eprint!("  {DIM}{msg} …{RST}");
+        use std::io::Write;
+        std::io::stderr().flush().ok();
+    }
+}
+
+/// 擦除 [`progress`] 留下的当前行。
+pub fn clear_progress() {
+    use std::io::IsTerminal;
+    if std::io::stderr().is_terminal() {
+        eprint!("\x1b[2K\r");
+    }
 }
 
 pub fn json_esc(s: &str) -> String {
@@ -94,7 +140,7 @@ pub async fn with_progress_async<T, U, F, Fut>(
     concurrent: usize,
     colors: &str,
     work: F,
-) -> (usize, usize)
+) -> (usize, usize, Vec<String>)
 where
     T: Send + 'static,
     U: Send + 'static,
@@ -102,7 +148,7 @@ where
     Fut: std::future::Future<Output = Result<U, String>> + Send,
 {
     if items.is_empty() {
-        return (0, 0);
+        return (0, 0, Vec::new());
     }
 
     let pb = ProgressBar::new(total as u64);
@@ -112,21 +158,23 @@ where
     pb.inc(skipped as u64);
 
     let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrent.max(1)));
-    let failed = Arc::new(AtomicUsize::new(0));
+    let errors = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let work = Arc::new(work);
     let mut handles = Vec::with_capacity(items.len());
 
     for item in items {
         let permit = semaphore.clone().acquire_owned().await.unwrap();
         let pb = pb.clone();
-        let fl = failed.clone();
+        let errs = errors.clone();
         let work = work.clone();
 
         handles.push(tokio::spawn(async move {
             let _permit = permit;
             let result = work(item, pb.clone()).await;
-            if result.is_err() {
-                fl.fetch_add(1, Ordering::SeqCst);
+            if let Err(e) = &result {
+                if let Ok(mut v) = errs.lock() {
+                    v.push(e.clone());
+                }
             }
             pb.inc(1);
         }));
@@ -137,9 +185,18 @@ where
     }
 
     pb.finish_and_clear();
-    let fail = failed.load(Ordering::SeqCst);
+    let errs = errors.lock().map(|v| v.clone()).unwrap_or_default();
+    let fail = errs.len();
     let ok = total - skipped - fail;
-    (ok, fail)
+    (ok, fail, errs)
+}
+
+/// 失败分组收据：同类错误最多展示 3 条 + 计数，其余收敛（TUI.md §6 错误分组）。
+pub fn print_failures(errs: &[String], retry_hint: &str) {
+    if errs.is_empty() { return; }
+    let show: Vec<&str> = errs.iter().take(3).map(|s| s.as_str()).collect();
+    let more = if errs.len() > 3 { " …" } else { "" };
+    eprintln!("  err 失败 {} 项 · {}{}{}", errs.len(), show.join(" · "), more, retry_hint);
 }
 
 /// 按 `.a.b[0].c` 形式提取 JSON 字段（jq 子集，供 `fqdt api --jq` 与封装子命令共用）

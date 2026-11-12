@@ -172,13 +172,11 @@ pub async fn comments(book_id: &str, count: usize, offset: usize, json: bool, _c
             if u.is_empty() { get(c, "common.user_info.user_name") } else { u }
         };
         let digg = get(c, "stat.digg_count");
-        let text = clip(&get(c, "common.content.text"), 100);
+        let text = clip(&get(c, "common.content.text"), 72).replace('\n', " ");
         println!(
-            "  {YELLOW}{}{RST} {DIM}赞 {digg}{RST}",
+            "  {YELLOW}{}{RST} {DIM}· 赞 {digg}{RST}  {text}",
             if user.is_empty() { "匿名" } else { &user }
         );
-        println!("    {text}");
-        println!();
     }
 }
 
@@ -230,7 +228,7 @@ pub async fn author(author_id: &str, count: usize, json: bool, _cfg: &Config) {
     else {
         return;
     };
-    println!("\n  {CYAN}书单{RST}");
+    println!("\n  {CYAN}【书单】{RST}");
     for it in items {
         if let Some(b) = it.get("book") {
             if !get(b, "book_name").is_empty() {

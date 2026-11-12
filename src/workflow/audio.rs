@@ -2,7 +2,6 @@ use crate::api::Client;
 use crate::audio;
 use crate::types::{ChapterRange, Config};
 use crate::util;
-use std::io::Write;
 use std::path::PathBuf;
 
 /// TTS 转换入口（从 get 命令调用）
@@ -70,19 +69,20 @@ pub async fn run(book_id: Option<&str>, output: Option<&str>, range: Option<&str
     }
 
     let api = Client::from_config(cfg, vb);
-    print!("  获取目录... ");
-    std::io::stdout().flush().unwrap();
+    util::progress("获取目录");
     let all = match api.fetch_catalog(bid).await {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("\n  err {}", e);
+            util::clear_progress();
+            eprintln!("  err {}", e);
             return;
         }
     };
+    util::clear_progress();
     let r = range.and_then(ChapterRange::parse);
     let chs = util::filter_by_range(&all, r.as_ref());
     if chs.is_empty() {
-        println!("  err 空范围");
+        eprintln!("  err 空范围");
         return;
     }
 
@@ -120,12 +120,12 @@ async fn run_dir(path: &std::path::Path, range: Option<&str>, tone: usize, abr: 
     };
 
     let api = Client::from_config(cfg, vb);
-    print!("  获取目录... ");
-    std::io::stdout().flush().unwrap();
+    util::progress("获取目录");
     let all = match api.fetch_catalog(&bid).await {
         Ok(c) => c,
-        Err(e) => { eprintln!("\n  err {}", e); return; }
+        Err(e) => { util::clear_progress(); eprintln!("  err {}", e); return; }
     };
+    util::clear_progress();
 
     let r = range.and_then(ChapterRange::parse);
     let new_chs: Vec<&crate::types::Chapter> = all.iter()
@@ -134,10 +134,10 @@ async fn run_dir(path: &std::path::Path, range: Option<&str>, tone: usize, abr: 
         .collect();
 
     if new_chs.is_empty() {
-        println!("  音频已是最新 (共{}章)", all.len());
+        println!("  音频已是最新 · 共 {} 章", all.len());
         return;
     }
-    println!("  发现 {} 章新音频 (共{}/{})", new_chs.len(), existing.len(), all.len());
+    println!("  新增 {} 章音频 · 已有 {}/{} 章", new_chs.len(), existing.len(), all.len());
 
     let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
         vec![2, 4, 5, 6, 74, 91]

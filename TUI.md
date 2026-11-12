@@ -10,9 +10,9 @@
 | 流 | 内容 | fqdt 现状 |
 |----|------|-----------|
 | stdout | 结果数据：搜索列表、章节正文、`--json`、`api` 透传 body | println / json 输出 |
-| stderr | 日志、进度、错误、状态、交互提示 | eprintln + 进度条 |
+| stderr | 日志、进度、错误、状态、交互提示 | eprintln + `util::progress` |
 - core 日志默认**不打印**（仍落盘 `rust.log`），仅 `-v/--verbose` 时镜像到 stderr。
-- 进度条/Spinner 只在 stderr（indicatif 已保证）；绝不让动画混入 stdout。
+- 过程性进度一律走 `util::progress()` / `util::clear_progress()`（stderr、仅 TTY 打印、完成后原地清除再打收据）；绝不让动画混入 stdout。
 - 管道场景（`| grep`、`| jq`）stdout 必须干净：无颜色污染数据行。
 
 ## 2. 信息分层（三级，够用且只有三级）
@@ -21,6 +21,7 @@
 3. **muted**：`DIM`（\x1b[2m）提示、翻页引导、#id
 语义色仅两个：`YELLOW` 作者/书评用户名，`MAGENTA` 评分；错误统一 `err` 前缀（红可留）。
 **颜色常量只能从 `src/util.rs` 引**（RST/DIM/CYAN/YELLOW/MAGENTA），禁止裸写 `\x1b[...]`。
+**开关**：`util::init_color()`（main 里 `Cli::parse()` 后调用）——`NO_COLOR` 非空 / `CLICOLOR=0` / stdout 非 TTY → 纯文本输出。
 
 ## 3. 每个命令的四问（Vercel CLI 四问裁剪）
 任何输出都要回答：
@@ -34,7 +35,7 @@
 - 耗时信息默认不打印（用户需要时用 `time fqdt ...`）；搜索场景的秒数因代表体验可保留在头部行尾。
 - 中文 `  err ...` / `  ok ...` 前缀（两空格缩进），错误信息含**原因 + 建议**（如 `err 无效序号`+重新输入提示）。
 - 噪音禁入 stdout/stderr：`[I] core init` 这类内部日志只在 `-v` 出现。
-- 进度行用 `…` 结尾（`搜索 "x" · 第1页 …`），成功后原地接续结果（print! + 同行续写）。
+- 过程进度用 `util::progress("获取目录")`（stderr TTY），完成后 `util::clear_progress()` 再打结果收据；不要往 stdout 写进度。
 
 ## 5. 列表与表格
 - 一条记录默认**一行**（多行记录会破坏 grep 逐行语义；确需展开时提供 `--json`）。
@@ -44,7 +45,7 @@
 
 ## 6. 符号与进度
 - 状态符号：`✓` 成功 `✗` 失败（进度条消息内已用）；主输出别滥用符号。
-- 进度条（>200ms 的操作必给）：indicatif block 风格，`util::bar_style`。
+- 进程操作（>200ms）必给进度：`util::progress()`；批量失败用 `util::print_failures(errs, hint)`（最多列 3 条 + `失败 N 项` 计数 + 一条重跑提示），不逐条刷屏。
 - 非交互（stdout 非 TTY）时：颜色关闭（NO_COLOR/CLICOLOR≈221）、进度条静默——管道里不产生动画。
 
 ## 7. 美化的边界

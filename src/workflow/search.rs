@@ -1,7 +1,7 @@
 use crate::api::Client;
 use crate::config;
 use crate::types::{Config, DownloadParams};
-use crate::util::{CYAN, DIM, MAGENTA, RST, YELLOW};
+use crate::util::{self, CYAN, DIM, MAGENTA, RST, YELLOW};
 use std::io::Write;
 use std::time::Instant;
 
@@ -13,21 +13,23 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
     let vb = verbose || cfg.verbose;
     let api = Client::from_config(cfg, vb);
 
-    print!("  {DIM}搜索 \"{keyword}\" · 第{page}页 …{RST}");
-    std::io::stdout().flush().unwrap();
+    util::progress(&format!("搜索 \"{keyword}\" · 第{page}页"));
     let books = match api.search(keyword, page).await {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("\n  err {}", e);
+            util::clear_progress();
+            eprintln!("  err {}", e);
             return;
         }
     };
+    util::clear_progress();
     if books.is_empty() {
-        println!("无结果");
+        println!("  无结果");
+        eprintln!("  {DIM}换关键词 · search <kw> -p {} 下一页{RST}", page + 1);
         return;
     }
-    let elapsed = start.elapsed().as_secs();
-    println!(" {CYAN}{} 本{RST} · {elapsed}s", books.len());
+    let elapsed = start.elapsed().as_secs_f64();
+    println!("  {CYAN}{} 本{RST} · {:.1}s", books.len(), elapsed);
     println!();
 
     let mut list_lines = 2;
@@ -40,21 +42,20 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
     }
 
     if no_download {
-        println!("\n  {DIM}info <book_id> 看目录 · download <book_id> 下载 · search -p {} 下一页{RST}", page + 1);
+        eprintln!("\n  {DIM}info <book_id> 看目录 · download <book_id> 下载 · search -p {} 下一页{RST}", page + 1);
         return;
     }
 
     let idx = auto.map_or_else(
         || {
-            print!("  {DIM}输入序号 (1-{}, 0=取消): {RST}", books.len());
-            std::io::stdout().flush().unwrap();
-            list_lines += 1;
+            eprint!("  {DIM}输入序号 (1-{}, 0=取消): {RST}", books.len());
+            std::io::stderr().flush().unwrap();
             let mut inp = String::new();
             std::io::stdin().read_line(&mut inp).unwrap();
             match inp.trim().parse::<usize>() {
                 Ok(n) if n >= 1 && n <= books.len() => n - 1,
                 _ => {
-                    println!("  {DIM}取消{RST}");
+                    eprintln!("  {DIM}取消{RST}");
                     books.len()
                 }
             }
@@ -63,7 +64,7 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
             if n >= 1 && n <= books.len() {
                 n - 1
             } else {
-                println!("  err 无效序号");
+                eprintln!("  err 无效序号 (1-{})", books.len());
                 books.len()
             }
         },
