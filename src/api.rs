@@ -103,6 +103,15 @@ async fn core_json(path: &str, query: &str) -> Result<Value, String> {
     core_json_ms(path, query, fqapi::DEFAULT_TIMEOUT_MS).await
 }
 
+/// 从 audio detail 取 `/data` 下的字段（字符串化数字亦兼容）。
+fn detail_str(v: &Value, key: &str) -> String {
+    match v.pointer(&format!("/data/{key}")) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
 /// 带超时的 fqapi 调用（正文类请求用短超时，避免慢请求拖死下载进度）。
 async fn core_json_ms(path: &str, query: &str, timeout_ms: i64) -> Result<Value, String> {
     let v = fqapi::get_json_timeout(path, query, timeout_ms).await?;
@@ -616,6 +625,61 @@ impl Client {
                 self.audio_legacy(item_id, tone).await.map(|u| (u, String::new()))
             }
         }
+    }
+
+    /// 书籍音频详情（版本关联字段来源）。
+    pub async fn audio_detail(&self, book_id: &str) -> Result<Value, String> {
+        core_json(&format!("/api/v1/audio/books/{book_id}"), "").await
+    }
+
+    /// 解析 `--real`/`--ai` 的目标书 id（真人讲书版 ↔ 文字版互转）。
+    ///
+    /// - `--real`：听书版原样返回；文字版从 `related_audio_bookids`
+    ///   中选 `book_type=1` 且播放量最大的真人讲书版。
+    /// - `--ai`：听书版转 `related_novel_bookid` 文字版（AI 音色所在）；
+    ///   文字版原样返回（配合 `--tone` 选音色）。
+    pub async fn resolve_audio_book(&self, book_id: &str, real: bool, ai: bool) -> Result<String, String> {
+        if !real && !ai {
+            return Ok(book_id.to_string());
+        }
+        let d = self.audio_detail(book_id).await?;
+        let novel = detail_str(&d, "related_novel_bookid");
+        let is_audio = !novel.is_empty() && novel != "0";
+        if ai {
+            return Ok(if is_audio { novel } else { book_id.to_string() });
+        }
+        if is_audio {
+            return Ok(book_id.to_string());
+        }
+        self.pick_real_book(&detail_str(&d, "related_audio_bookids")).await
+    }
+
+    /// 从 `related_audio_bookids`（形如 `"[7387...,7645...]"` 的裸数字数组
+    /// 文本）中选真人讲书版。
+    async fn pick_real_book(&self, related_raw: &str) -> Result<String, String> {
+        let ids: Vec<String> = related_raw
+            .trim()
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let mut best: (i64, String) = (0, String::new());
+        for id in ids {
+            if let Ok(c) = self.audio_detail(&id).await {
+                if detail_str(&c, "book_type") == "1" {
+                    let plays = detail_str(&c, "listen_count").parse::<i64>().unwrap_or(0);
+                    if plays > best.0 {
+                        best = (plays, id);
+                    }
+                }
+            }
+        }
+        if best.1.is_empty() {
+            return Err("未发现真人讲书版本".into());
+        }
+        Ok(best.1)
     }
 
     // ---------- 降级路径（第三方 URL 模板 + 源轮换） ----------

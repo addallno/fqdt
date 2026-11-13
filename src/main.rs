@@ -39,7 +39,7 @@ enum Cmd {
         page: usize,
         #[arg(short='D', long, help = "自动下载第 N 本 (无需交互)")]
         auto: Option<usize>,
-        #[arg(long, help = "仅搜索不下载")]
+        #[arg(long, help = "仅展示搜索结果（默认行为，兼容保留）")]
         dry_run: bool,
         #[arg(short='o', long, help = "输出目录")]
         output: Option<String>,
@@ -64,8 +64,9 @@ enum Cmd {
     /// 下载正文（简写 d）
     #[command(alias = "d")]
     Download {
+        #[arg(help = "book_id 或搜索书名（多结果时交互选择）")]
         book_id: String,
-        #[arg(short='o', long, help = "输出目录")]
+        #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
         #[arg(short='r', long, help = "章节范围 (1-50 / -5 / 10-)")]
         range: Option<String>,
@@ -96,6 +97,14 @@ enum Cmd {
         force: bool,
         #[arg(short='i', long, default_value = "0", help = "请求间隔(ms)")]
         interval: u64,
+        #[arg(long, help = "真人讲书版（自动从关联听书版本发现）", conflicts_with_all = ["ai", "tts"])]
+        real: bool,
+        #[arg(long, help = "智能朗读（AI 音色，配合 --tone）", conflicts_with_all = ["tts"])]
+        ai: bool,
+        #[arg(long, help = "Edge-TTS 本地合成（先下载正文再合成，需 edge-tts）")]
+        tts: bool,
+        #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音")]
+        voice: String,
     },
     /// 增量更新已下载的书籍（简写 u）
     #[command(alias = "u")]
@@ -258,8 +267,9 @@ async fn main() {
             workflow::info::run(&book_id, range.as_deref(), show, verbose, &cfg).await,
         Cmd::Download { book_id, output, range, format, jobs, force, interval } =>
             dispatch_download(book_id, output, range, format, jobs, force, verbose, interval, &cfg).await,
-        Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval } =>
-            dispatch_audio(book_id, output, range, tone, lrc, jobs, force, verbose, interval, &cfg).await,
+        Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval, real, ai, tts, voice } =>
+            dispatch_audio(book_id, output, range, tone, lrc, jobs, force, verbose, interval,
+                real, ai, tts, &voice, &cfg).await,
         Cmd::Update { target, output, jobs, force, interval } =>
             dispatch_update(target, output, jobs, force, verbose, interval, &cfg).await,
         Cmd::Tts { path, voice, jobs } =>
@@ -314,10 +324,22 @@ fn dispatch_custom(args: Vec<String>, cfg: &Config) {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn dispatch_download(book_id: String, output: Option<String>, range: Option<String>,
+async fn dispatch_download(target: String, output: Option<String>, range: Option<String>,
     format: Option<String>, jobs: Option<usize>, force: bool, verbose: bool,
     _interval: u64, cfg: &Config) {
     let vb = verbose || cfg.verbose;
+    // 纯数字（≥10 位）视为 book_id，否则当搜索词：搜索 → 交互选择 → 下载
+    let book_id = if target.chars().all(|c| c.is_ascii_digit()) && target.len() >= 10 {
+        target
+    } else {
+        match workflow::search::pick(&target, cfg, vb).await {
+            Some((id, title)) => {
+                config::add_bookmark(&id, &title).ok();
+                id
+            }
+            None => return,
+        }
+    };
     let p = types::DownloadParams {
         output, range, format, concurrent: jobs,
         audio: false, tone: 1, abr: cfg.abr,
@@ -329,10 +351,25 @@ async fn dispatch_download(book_id: String, output: Option<String>, range: Optio
 #[allow(clippy::too_many_arguments)]
 async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<String>,
     tone: usize, lrc: Option<String>, _jobs: Option<usize>, force: bool, verbose: bool,
-    _interval: u64, cfg: &Config) {
+    _interval: u64, real: bool, ai: bool, tts: bool, voice: &str, cfg: &Config) {
     let vb = verbose || cfg.verbose;
     let lrc_mode = lrc.as_deref().unwrap_or("external");
     let path = Path::new(&book_id);
+
+    // Edge-TTS：先下载正文（txt），再整目录合成 mp3 到 <out>/Audio/
+    if tts {
+        let p = types::DownloadParams {
+            output: output.clone(), range, format: None, concurrent: None,
+            audio: false, tone, abr: cfg.abr, lrc: "external".into(), force,
+            verbose: vb, book_title: None,
+        };
+        workflow::download::run(&book_id, &p, cfg).await;
+        let dir = output.map(std::path::PathBuf::from).unwrap_or_else(|| cfg.output_dir.clone());
+        workflow::audio::run_tts(&dir.to_string_lossy(), None, voice,
+            &cfg.tts_rate, &cfg.tts_volume, &cfg.tts_pitch, cfg.abr, None, false, "",
+            "external", vb).await;
+        return;
+    }
 
     if path.is_dir() {
         let p = types::DownloadParams {
@@ -343,6 +380,27 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
         workflow::download::run_dir(path, &p, vb, cfg).await;
         return;
     }
+
+    // --real/--ai：真人讲书版 ↔ 文字版（AI 音色）自动互转
+    let book_id = if real || ai {
+        util::progress("解析音频版本");
+        let r = api::Client::from_config(cfg, vb).resolve_audio_book(&book_id, real, ai).await;
+        util::clear_progress();
+        match r {
+            Ok(id) => {
+                if id != book_id {
+                    eprintln!("  {DIM}版本 → {id}{RST}");
+                }
+                id
+            }
+            Err(e) => {
+                eprintln!("  err {e}");
+                return;
+            }
+        }
+    } else {
+        book_id
+    };
 
     let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
         vec![2, 4, 5, 6, 74, 91]
