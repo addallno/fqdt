@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.12.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.13.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -197,17 +197,19 @@ fqdt api /api/v1/videos/1 -X POST -d '{"a":1}' --status
 
 #### 1.5.2 封装子命令（发现/查询）
 
-四个高阶工作流（`src/workflow/discover.rs`），默认彩色表格，`--json` 输出机器可读原文：
+高阶工作流（`src/workflow/discover.rs`），默认彩色表格，`--json` 输出机器可读原文：
 
 ```sh
 fqdt recommend                          # 首页推荐流（16 本书）
 fqdt recommend --tab-type 25 --tab-index 0   # 2 推荐 / 25 小说 / 11 经典 / 5 听书
 fqdt category --tab 1                   # 1 男频 / 2 女频 / 3 出版 / 4 听书
-fqdt comments 7143038691944959011 -n 20 # 书评（书名+评分+用户+正文+点赞）
-fqdt author 123456 -n 20                # 作者资料 + 推荐书单
 fqdt recommend --json | jq .            # 机器可读
+fqdt info <book_id> comments            # 书评（原顶层 comments 命令，v0.13.0 迁入 info）
+fqdt info <book_id> author              # 作者资料 + 推荐书单（原顶层 author 命令，v0.13.0 迁入 info）
 ```
 
+- **breaking（v0.13.0）**：顶层 `comments` / `author` 命令删除，只能经 `info <book_id> <section>` 访问（discover.rs 内函数保留，info 调用）
+- info 的 section：`chapters`（目录含 item_id）/ `intro`（完整简介）/ `author` / `comments` / `cover`（封面 URL），无 section = 概览
 - 结构约定：`取 JSON → 字段提取 → 渲染管线`；新封装只需复用 `get/clip/pad/book_line` 辅助
 - `rank` 端点只返回区块模板配置、无实体书单，故不封装，用 `fqdt api /api/v1/rank/<id>` 透传
 - `author` 的 bookshelf 是作者**推荐书单**，非全部作品
@@ -581,6 +583,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 23. **🎨 全子命令 UI 重写** — 按新版 tui-design-pro skill（web 调研 clig.dev/TUIkit/Tufte/VT-HIG 等）重写全部子命令输出：过程进度一律 `util::progress/clear_progress`（stderr 仅 TTY）、结果收据单行（`ok N 章 · 跳过 x 章`/`新增 N 章 · 已有 x/y 章`）、失败用 `util::print_failures`（≤3 条+计数+重跑提示）、提示/交互全部 stderr、`Color` 改 Display 静态 + `init_color()`（NO_COLOR/CLICOLOR=0/非 TTY 纯文本）、info show 40 行折叠+`function fetch-content` 逃生口、shelf 尾注单行、discover 书评单行。TUI.md 已同步。✅ v0.11.0
 24. **🐛 batch 端点对匿名设备无效** — `batch_full/v` 对匿名设备恒回 `content="Invalid"`（已试 book_id 注入/`req_type=0`→USER_NO_PERMISSION/去 `novel_text_type` 三变体均无效）；下载靠逐章 `full` 端点兜底已正常。待办：探索登录态或 full 批量端点替代。`handle_batch` 的真实 book_id 注入保留（语义正确）。`[-]` v0.11.0
 25. **📦 audio 三模式 + search 纯搜索 + download 关键词** — ① `audio` 新增 `--real`（真人讲书，`resolve_audio_book` 经 related_audio_bookids 选 book_type=1 且 listen_count 最大的真人主版）/`--ai`（智能朗读，related_novel_bookid 转回文字版后按 `--tone` 取 AI 音色）/`--tts`（Edge-TTS：先下正文 txt 再 `run_tts` 合成）/`--voice`，real/ai/tts 互斥；② `search` 改纯搜索（`print_list` 一行一本组织化展示 + 尾注指引，不再交互选中，`-D N` 保留自动下载）；③ `download` 接受书名关键词（`workflow::search::pick` 交互选序号，非 TTY 报错指引，选中自动加书架）。edge-tts 需 `pip install --user --break-system-packages edge-tts` 且 PATH 含 ~/.local/bin。✅ v0.12.0
+26. **📦 info section 扩展（breaking）** — `fqdt info <book_id> [SECTION]`：`chapters`（目录含 item_id）、`intro`（完整简介）、`author`（id 取 detail `author_id` **原样含 `N_` 前缀**，裸数字会错拿他人）、`comments`（count=20）、`cover`（thumb_url）；无 section=概览+sections 尾注。**顶层 `comments`/`author` 命令删除**（discover.rs 函数保留由 info 调用）；hots/shelf 用户暂缓。✅ v0.13.0
 
 ### 7.3 已知问题
 

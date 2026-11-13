@@ -56,6 +56,8 @@ enum Cmd {
     #[command(alias = "i")]
     Info {
         book_id: String,
+        #[arg(help = "章节: chapters/intro/author/comments/cover（缺省为概览）")]
+        section: Option<String>,
         #[arg(short='r', long, help = "章节范围")]
         range: Option<String>,
         #[arg(short='s', long, help = "显示正文内容")]
@@ -194,24 +196,6 @@ enum Cmd {
         #[arg(long, help = "输出原始 JSON")]
         json: bool,
     },
-    /// 书评列表
-    Comments {
-        book_id: String,
-        #[arg(short = 'n', long, default_value = "10", help = "条数")]
-        count: usize,
-        #[arg(long, default_value = "0", help = "偏移")]
-        offset: usize,
-        #[arg(long, help = "输出原始 JSON")]
-        json: bool,
-    },
-    /// 作者资料 + 书单
-    Author {
-        author_id: String,
-        #[arg(short = 'n', long, default_value = "20", help = "书单条数")]
-        count: usize,
-        #[arg(long, help = "输出原始 JSON")]
-        json: bool,
-    },
     /// 对外 HTTP 服务（复用 fqapi-core server，Ctrl-C 退出）
     Serve {
         #[arg(long, default_value = "18921", help = "监听端口")]
@@ -263,8 +247,8 @@ async fn main() {
         Cmd::Search { keyword, page, auto, dry_run, output, jobs, range, format, interval } =>
             workflow::search::run(&keyword, page, output.as_deref(), jobs, range.as_deref(),
                 format.as_deref(), verbose, auto, dry_run, interval, &cfg).await,
-        Cmd::Info { book_id, range, show } =>
-            workflow::info::run(&book_id, range.as_deref(), show, verbose, &cfg).await,
+        Cmd::Info { book_id, section, range, show } =>
+            workflow::info::run(&book_id, section.as_deref(), range.as_deref(), show, verbose, &cfg).await,
         Cmd::Download { book_id, output, range, format, jobs, force, interval } =>
             dispatch_download(book_id, output, range, format, jobs, force, verbose, interval, &cfg).await,
         Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval, real, ai, tts, voice } =>
@@ -285,10 +269,6 @@ async fn main() {
             workflow::discover::recommend(tab_type, tab_index, offset, json, &cfg).await,
         Cmd::Category { tab, json } =>
             workflow::discover::category(tab, json, &cfg).await,
-        Cmd::Comments { book_id, count, offset, json } =>
-            workflow::discover::comments(&book_id, count, offset, json, &cfg).await,
-        Cmd::Author { author_id, count, json } =>
-            workflow::discover::author(&author_id, count, json, &cfg).await,
         Cmd::Serve { port, lan } => run_serve(port, lan).await,
         Cmd::Custom(args) => dispatch_custom(args, &cfg),
     }
