@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.13.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.13.1（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -581,7 +581,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 21. **🎨 输出精简 + 日志开关** — core 日志（`[I] core: ...`）默认不打印（仍落盘 rust.log），全局 `-v/--verbose` 才开 console 镜像（子命令级 -v 改为全局 flag）；search 列表 4 行/本 → 1 行/本（去简介/空行），下载总结合并单行，ANSI 样式常量集中到 util（TUI.md 设计规范落地） ✅ v0.10.0
 22. **🐛 下载慢/章节失败修复** — 四个根因：① DNS 探测链把 WSL 网关当 nameserver（双重重试最坏 12s/主机，api 单请求 25s）→ `dns.rs` 改 `FQDT_DNS` 短路 + `/etc/resolv.conf` 优先 + 去 `lookup_a` 外层重试（search 13.7s→1.8s）；② `get_json_timeout` 走 `runtime::request` bridge 挂死 → 改 `call()` dispatch + `tokio::time::timeout`；③ core batch 返回 object map 而 `parse_batch` 只吃数组 → 兼容两形态并跳过 `content="Invalid"`；④ 无熔断+全量 item_ids 拼单 → 100/块 JoinSet 分块、`source_dead` 熔断（ok=0 且 fail≥2）、reqwest 8s/内容 retry 2/单章 10s 超时、stats 按模板记键使 sort_urls 生效、第三方源全灭时给出明确错误。冒烟：10 章 `-j 4` 20.5s 全成功（修复前 3 章 1m52s 全败）。✅ v0.11.0
 23. **🎨 全子命令 UI 重写** — 按新版 tui-design-pro skill（web 调研 clig.dev/TUIkit/Tufte/VT-HIG 等）重写全部子命令输出：过程进度一律 `util::progress/clear_progress`（stderr 仅 TTY）、结果收据单行（`ok N 章 · 跳过 x 章`/`新增 N 章 · 已有 x/y 章`）、失败用 `util::print_failures`（≤3 条+计数+重跑提示）、提示/交互全部 stderr、`Color` 改 Display 静态 + `init_color()`（NO_COLOR/CLICOLOR=0/非 TTY 纯文本）、info show 40 行折叠+`function fetch-content` 逃生口、shelf 尾注单行、discover 书评单行。TUI.md 已同步。✅ v0.11.0
-24. **🐛 batch 端点对匿名设备无效** — `batch_full/v` 对匿名设备恒回 `content="Invalid"`（已试 book_id 注入/`req_type=0`→USER_NO_PERMISSION/去 `novel_text_type` 三变体均无效）；下载靠逐章 `full` 端点兜底已正常。待办：探索登录态或 full 批量端点替代。`handle_batch` 的真实 book_id 注入保留（语义正确）。`[-]` v0.11.0
+24. **🐛 batch 端点对匿名设备无效 → full mget 替代** — `batch_full/v` 对匿名设备恒回 `content="Invalid"`（book_id 注入/`req_type=0`/去 `novel_text_type` 三变体均无效）。**已解决（v0.13.1）**：`core_content_batch` 首选 `/api/v1/chapters/full`（novelfm playerapi mget，匿名可用，`data.item_infos.{id}.content` 已解密明文，单次≤3000章），失败才回退 batch_full；`parse_batch` 兼容 `data.item_infos` 形态。实测 10 章 4.9s（逐章 20.5s，4 倍）。✅ v0.13.1
 25. **📦 audio 三模式 + search 纯搜索 + download 关键词** — ① `audio` 新增 `--real`（真人讲书，`resolve_audio_book` 经 related_audio_bookids 选 book_type=1 且 listen_count 最大的真人主版）/`--ai`（智能朗读，related_novel_bookid 转回文字版后按 `--tone` 取 AI 音色）/`--tts`（Edge-TTS：先下正文 txt 再 `run_tts` 合成）/`--voice`，real/ai/tts 互斥；② `search` 改纯搜索（`print_list` 一行一本组织化展示 + 尾注指引，不再交互选中，`-D N` 保留自动下载）；③ `download` 接受书名关键词（`workflow::search::pick` 交互选序号，非 TTY 报错指引，选中自动加书架）。edge-tts 需 `pip install --user --break-system-packages edge-tts` 且 PATH 含 ~/.local/bin。✅ v0.12.0
 26. **📦 info section 扩展（breaking）** — `fqdt info <book_id> [SECTION]`：`chapters`（目录含 item_id）、`intro`（完整简介）、`author`（id 取 detail `author_id` **原样含 `N_` 前缀**，裸数字会错拿他人）、`comments`（count=20）、`cover`（thumb_url）；无 section=概览+sections 尾注。**顶层 `comments`/`author` 命令删除**（discover.rs 函数保留由 info 调用）；hots/shelf 用户暂缓。✅ v0.13.0
 

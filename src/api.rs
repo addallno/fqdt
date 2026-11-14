@@ -300,17 +300,28 @@ fn parse_chapters(v: &Value) -> Vec<Chapter> {
     chapters
 }
 
+/// object map → item_id → strip_html(content)（跳过空与 "Invalid"）。
+fn content_map(m: &serde_json::Map<String, Value>) -> HashMap<String, String> {
+    let mut out: HashMap<String, String> = HashMap::new();
+    for (id, item) in m {
+        let c = item.get("content").and_then(|x| x.as_str()).unwrap_or("");
+        if !id.is_empty() && !c.is_empty() && c != "Invalid" {
+            out.insert(id.clone(), strip_html(c));
+        }
+    }
+    out
+}
+
 /// 解析批量正文响应为 item_id → 正文映射。
 fn parse_batch(v: &Value) -> HashMap<String, String> {
-    // object map 形态：data.{item_id}.content（core batch 实际返回此格式）
+    // full mget 形态：data.item_infos.{item_id}.content（content 已明文）
+    if let Some(m) = v.pointer("/data/item_infos").and_then(|x| x.as_object()) {
+        let out = content_map(m);
+        if !out.is_empty() { return out; }
+    }
+    // batch_full 形态：data.{item_id}.content
     if let Some(Value::Object(m)) = v.pointer("/data") {
-        let mut out: HashMap<String, String> = HashMap::new();
-        for (id, item) in m {
-            let c = item.get("content").and_then(|x| x.as_str()).unwrap_or("");
-            if !id.is_empty() && !c.is_empty() && c != "Invalid" {
-                out.insert(id.clone(), strip_html(c));
-            }
-        }
+        let out = content_map(m);
         if !out.is_empty() { return out; }
     }
     // 兼容数组形态：data[].item_id + content
@@ -505,8 +516,13 @@ impl Client {
     }
 
     async fn core_content_batch(&self, book_id: &str, item_ids: &[&str]) -> Result<HashMap<String, String>, String> {
-        let q = format!("item_ids={}&book_id={}", item_ids.join(","), book_id);
-        // 批量响应体大，给 20s
+        let q = format!("book_id={}&item_ids={}", book_id, item_ids.join(","));
+        // 首选 full mget（novelfm playerapi，匿名可用，item_infos 已解密明文）
+        if let Ok(v) = core_json_ms("/api/v1/chapters/full", &q, 20_000).await {
+            let map = parse_batch(&v);
+            if !map.is_empty() { return Ok(map); }
+        }
+        // 回退 batch_full（匿名常回 content="Invalid"）
         let v = core_json_ms("/api/v1/chapters/batch", &q, 20_000).await?;
         let map = parse_batch(&v);
         if map.is_empty() { Err("批量API未返回数据".into()) } else { Ok(map) }
