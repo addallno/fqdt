@@ -70,25 +70,51 @@ pub fn filter_by_range<'a>(
 pub fn bar_style(colors: &str, _concurrent: usize) -> ProgressStyle {
     ProgressStyle::default_bar()
         .template(&format!(
-            "[{{elapsed_precise}}] {{bar:24.{colors}}} {{pos}}/{{len}} {{msg}}"
+            "[{{elapsed_precise}}] {{spinner:.cyan}} {{percent}} {{bar:24.{colors}}} {{pos}}/{{len}} {{msg}}"
         ))
         .unwrap()
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ ")
         .progress_chars("━▶")
 }
 
-/// stderr 进度行（`  msg …`）。仅 TTY 打印，完成/失败后用 [`clear_progress`] 消除，
-/// 保证 stdout 只剩结果数据、stderr 不留过程残行。
-pub fn progress(msg: &str) {
-    use std::io::IsTerminal;
-    if std::io::stderr().is_terminal() {
-        eprint!("  {DIM}{msg} …{RST}");
-        use std::io::Write;
-        std::io::stderr().flush().ok();
+// Braille 动画线程：progress() 起、clear_progress() 停
+static SPIN_STOP: AtomicBool = AtomicBool::new(false);
+static SPIN_HANDLE: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
+
+fn stop_spinner() {
+    SPIN_STOP.store(true, Ordering::SeqCst);
+    if let Some(h) = SPIN_HANDLE.lock().unwrap().take() {
+        let _ = h.join();
     }
 }
 
-/// 擦除 [`progress`] 留下的当前行。
+/// stderr 阶段进度（Braille 动画 `  msg ⠋`）。仅 TTY 打印，完成后用
+/// [`clear_progress`] 停动画并擦行，保证 stdout 只剩结果数据。
+pub fn progress(msg: &str) {
+    use std::io::IsTerminal;
+    if !std::io::stderr().is_terminal() {
+        return;
+    }
+    stop_spinner();
+    SPIN_STOP.store(false, Ordering::SeqCst);
+    let m = msg.to_string();
+    let handle = std::thread::spawn(move || {
+        use std::io::Write;
+        const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let mut i = 0usize;
+        while !SPIN_STOP.load(Ordering::SeqCst) {
+            eprint!("\r  {DIM}{m} {}{RST}", FRAMES[i % FRAMES.len()]);
+            std::io::stderr().flush().ok();
+            i += 1;
+            std::thread::sleep(Duration::from_millis(120));
+        }
+    });
+    *SPIN_HANDLE.lock().unwrap() = Some(handle);
+}
+
+/// 停止 [`progress`] 动画并擦除当前行。
 pub fn clear_progress() {
+    stop_spinner();
     use std::io::IsTerminal;
     if std::io::stderr().is_terminal() {
         eprint!("\x1b[2K\r");
@@ -153,6 +179,7 @@ where
 
     let pb = ProgressBar::new(total as u64);
     pb.set_style(bar_style(colors, concurrent));
+    pb.enable_steady_tick(Duration::from_millis(120));
 
     let skipped = total - items.len();
     pb.inc(skipped as u64);

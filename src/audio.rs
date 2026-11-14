@@ -73,6 +73,16 @@ impl AudioDownloader {
         let od = self.out_dir.clone();
         let p = AudioParams { ..self.p.clone() };
 
+        // 批量预取 playinfo（单请求逗号多 id）；失败退化为空表，逐章兜底
+        util::progress(&format!("批量获取音频信息（{} 章）", pending.len()));
+        let ids: Vec<String> = pending.iter().map(|c| c.item_id.clone()).collect();
+        let pre_map = api.fetch_audio_batch(&p.book_id, &ids, p.tone).await.unwrap_or_default();
+        util::clear_progress();
+        if p.verbose {
+            eprintln!("  [verbose] audio: 批量 playinfo 命中 {}/{} 章", pre_map.len(), ids.len());
+        }
+        let pre = std::sync::Arc::new(pre_map);
+
         let max_jobs = default_concurrent();
         let pending_n = pending.len();
         if self.p.verbose {
@@ -83,8 +93,9 @@ impl AudioDownloader {
             let api = api.clone();
             let od = od.clone();
             let p = p.clone();
+            let pre = pre.clone();
             async move {
-                let r = dl_one(&api, &od, &ch, &p).await;
+                let r = dl_one(&api, &od, &ch, &p, &pre).await;
                 match &r {
                     Ok(_) => pb.set_message(format!("✓{:04}", ch.index)),
                     Err(e) => pb.set_message(format!("✗{:04}:{}", ch.index, e)),
@@ -122,7 +133,8 @@ impl AudioDownloader {
 
 // ── Download single chapter ─────────────────────────────────
 
-async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams) -> Result<(), String> {
+async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
+                pre: &std::collections::HashMap<String, (String, String)>) -> Result<(), String> {
     let name = util::format_filename(&p.ft, ch);
     let path = out_dir.join(format!("{}.mp3", name));
 
@@ -162,7 +174,16 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams) -> 
 
     let mut last_err = String::new();
     for &t in &all_tones {
-        let (audio_url, key_hex) = match api.fetch_audio(&p.book_id, &ch.item_id, t).await {
+        // 主音色优先用批量预取结果；回退音色仍逐章获取
+        let res = if t == p.tone {
+            match pre.get(&ch.item_id) {
+                Some(pair) => Ok(pair.clone()),
+                None => api.fetch_audio(&p.book_id, &ch.item_id, t).await,
+            }
+        } else {
+            api.fetch_audio(&p.book_id, &ch.item_id, t).await
+        };
+        let (audio_url, key_hex) = match res {
             Ok(v) => v,
             Err(e) => { last_err = e; continue; }
         };
@@ -430,6 +451,7 @@ pub fn convert_tts_dir(input: &Path, output_dir: Option<PathBuf>, params: &TtsPa
 
     let pb = ProgressBar::new(entries.len() as u64);
     pb.set_style(util::bar_style("magenta/cyan", 1));
+    pb.enable_steady_tick(std::time::Duration::from_millis(120));
 
     let mut failed = 0usize;
     for entry in &entries {

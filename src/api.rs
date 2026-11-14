@@ -381,32 +381,35 @@ fn stream_url(v: Option<&Value>) -> Option<String> {
     (text.starts_with("http://") || text.starts_with("https://")).then_some(text)
 }
 
+/// 单行 playinfo → `(url, key_hex)`；`None` 表示该行无可用流。
+fn parse_audio_row(m: &serde_json::Map<String, Value>) -> Option<(String, String)> {
+    if let Some(code) = m.get("code").and_then(|x| x.as_i64()) {
+        if code != 0 && code != 200 {
+            return None;
+        }
+    }
+    if let Some(raw) = m.get("video_model").and_then(|x| x.as_str()) {
+        return model_stream(raw);
+    }
+    // 旧行内直连形态：main_url/backup_url + encrypt_info 平铺在行上。
+    let key = stream_key(m.get("encrypt_info"))?;
+    let url = stream_url(m.get("main_url")).or_else(|| stream_url(m.get("backup_url")))?;
+    Some((url, key))
+}
+
 /// 从 playinfo/mget 响应提取音频流 `(url, key_hex)`；key_hex 空串为明文流。
 fn parse_audio_source(v: &Value, item_id: &str) -> Result<(String, String), String> {
     check_biz(v)?;
     let rows = find_items(v, &["video_model", "item_id"]).ok_or("未获取到音频地址")?;
     for row in rows {
         let Some(m) = row.as_object() else { continue };
-        if let Some(code) = m.get("code").and_then(|x| x.as_i64()) {
-            if code != 0 && code != 200 {
-                continue;
-            }
-        }
         if let Some(sid) = m.get("item_id").and_then(|x| x.as_str()) {
             if !sid.is_empty() && sid != item_id {
                 continue;
             }
         }
-        if let Some(raw) = m.get("video_model").and_then(|x| x.as_str()) {
-            if let Some(pair) = model_stream(raw) {
-                return Ok(pair);
-            }
-            continue;
-        }
-        // 旧行内直连形态：main_url/backup_url + encrypt_info 平铺在行上。
-        let Some(key) = stream_key(m.get("encrypt_info")) else { continue };
-        if let Some(url) = stream_url(m.get("main_url")).or_else(|| stream_url(m.get("backup_url"))) {
-            return Ok((url, key));
+        if let Some(pair) = parse_audio_row(m) {
+            return Ok(pair);
         }
     }
     Err("未获取到音频地址".into())
@@ -538,6 +541,31 @@ impl Client {
         let path = format!("/api/v1/audio/books/{}/chapters/{}", book_id, item_id);
         let v = core_json(&path, &q).await?;
         parse_audio_source(&v, item_id)
+    }
+
+    /// 批量获取音频播放信息（逗号多 id 单请求）。
+    ///
+    /// 响应行按请求顺序一一对应（上游行内 `item_id` 统一填末 id，不可用于
+    /// 匹配），故用 `zip(item_ids, rows)` 组装。任一章缺失不影响其余章，
+    /// 调用方对缺失章逐章 `fetch_audio` 兜底。
+    pub async fn fetch_audio_batch(&self, book_id: &str, item_ids: &[String], tone: usize)
+        -> Result<HashMap<String, (String, String)>, String>
+    {
+        if item_ids.is_empty() { return Ok(HashMap::new()); }
+        let q = format!("tone_id={}", tone);
+        let path = format!("/api/v1/audio/books/{}/chapters/{}", book_id, item_ids.join(","));
+        let v = core_json(&path, &q).await?;
+        check_biz(&v)?;
+        let rows = find_items(&v, &["video_model", "item_id"]).ok_or("未获取到音频地址")?;
+        let mut out = HashMap::new();
+        for (id, row) in item_ids.iter().zip(rows.iter()) {
+            if let Some(m) = row.as_object() {
+                if let Some(pair) = parse_audio_row(m) {
+                    out.insert(id.clone(), pair);
+                }
+            }
+        }
+        if out.is_empty() { Err("未获取到音频地址".into()) } else { Ok(out) }
     }
 
     // ---------- 公开接口：主通道优先，失败降级 ----------

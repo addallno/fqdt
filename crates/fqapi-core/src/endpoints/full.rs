@@ -130,13 +130,16 @@ fn decrypt_full_item_content(
     if key.is_empty() || content.is_empty() {
         return;
     }
-    match cm.decrypt(&key, &content) {
-        Ok(plain) => {
-            let text = format!(
-                "{}{}",
-                processor.process(&String::from_utf8_lossy(&plain)),
-                zwsm
-            );
+    let dec_res = cm.decrypt(&key, &content);
+    let out_res = dec_res.map(|plain| {
+        format!(
+            "{}{}",
+            processor.process(&String::from_utf8_lossy(&plain)),
+            zwsm
+        )
+    });
+    match out_res {
+        Ok(text) => {
             item_obj.insert("content".to_string(), Value::from(text));
         }
         Err(error) => {

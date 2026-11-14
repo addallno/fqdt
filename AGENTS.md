@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.13.1（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.14.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -584,6 +584,8 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 24. **🐛 batch 端点对匿名设备无效 → full mget 替代** — `batch_full/v` 对匿名设备恒回 `content="Invalid"`（book_id 注入/`req_type=0`/去 `novel_text_type` 三变体均无效）。**已解决（v0.13.1）**：`core_content_batch` 首选 `/api/v1/chapters/full`（novelfm playerapi mget，匿名可用，`data.item_infos.{id}.content` 已解密明文，单次≤3000章），失败才回退 batch_full；`parse_batch` 兼容 `data.item_infos` 形态。实测 10 章 4.9s（逐章 20.5s，4 倍）。✅ v0.13.1
 25. **📦 audio 三模式 + search 纯搜索 + download 关键词** — ① `audio` 新增 `--real`（真人讲书，`resolve_audio_book` 经 related_audio_bookids 选 book_type=1 且 listen_count 最大的真人主版）/`--ai`（智能朗读，related_novel_bookid 转回文字版后按 `--tone` 取 AI 音色）/`--tts`（Edge-TTS：先下正文 txt 再 `run_tts` 合成）/`--voice`，real/ai/tts 互斥；② `search` 改纯搜索（`print_list` 一行一本组织化展示 + 尾注指引，不再交互选中，`-D N` 保留自动下载）；③ `download` 接受书名关键词（`workflow::search::pick` 交互选序号，非 TTY 报错指引，选中自动加书架）。edge-tts 需 `pip install --user --break-system-packages edge-tts` 且 PATH 含 ~/.local/bin。✅ v0.12.0
 26. **📦 info section 扩展（breaking）** — `fqdt info <book_id> [SECTION]`：`chapters`（目录含 item_id）、`intro`（完整简介）、`author`（id 取 detail `author_id` **原样含 `N_` 前缀**，裸数字会错拿他人）、`comments`（count=20）、`cover`（thumb_url）；无 section=概览+sections 尾注。**顶层 `comments`/`author` 命令删除**（discover.rs 函数保留由 info 调用）；hots/shelf 用户暂缓。✅ v0.13.0
+27. **📋 info 概览默认行为改版（待办）** — 默认 `info <id>` 不再全量列章节，改为：前若干章 + 作者、前若干条评论 + 热度（hots）。完整列表仍在各自 section。具体条数与热度数据源执行时确认。`[ ]` 待办
+28. **📦 下载增强批次** — ① EPUB O(n) 重构：删 `generate`+`update_chapter`（旧每章全量重写 zip，1928章≈7GB写放大），新 `epub::write_book(title, &[(Chapter, Option<String>)], path)` 单遍一次落盘；`do_epub` 改批量取正文（fetch_content_batch + Arc<Mutex<HashMap>> 收集，失败章占位"获取失败"）。② 进度系统：`bar_style` 加 `{spinner} {percent}` + braille tick_chars；`progress()` 升级 braille 动画线程（120ms，非TTY静默）；pb `enable_steady_tick(120ms)`；阶段文案（启动 core/批量获取正文/批量获取音频信息/生成 EPUB 等）。③ 音频 playinfo 批量：`fetch_audio_batch`（逗号多 id 单请求，上游行按请求顺序对应、行内 item_id 统一填末 id 不可用→zip 匹配），`dl_one` 主音色查 `pre` 表兜底逐章；实测 3/3 命中。④ 发版清理规范 AGENTS 8.2.1。`[x]` ✅ v0.14.0
 
 ### 7.3 已知问题
 
@@ -617,6 +619,22 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 - PATCH：bug 修复 / 重构（不新加功能）
 - MINOR：新功能（向后兼容）
 - MAJOR：破坏性变更
+
+### 8.2.1 发版清理（每次发版前必做）
+
+磁盘长期紧张（rootfs 常驻 97%），**每次发版（打 tag 前）执行一次清理**：
+
+```sh
+cd ~/openwork/fqdt
+cargo clean                      # 删 target/（~9G，下次 debug build 重编 ~2min）
+rm -rf /tmp/fqdt-prof-* /tmp/ids100 /tmp/full100b.json /tmp/prof*.txt
+rm -f rust.log                   # 本地日志（远端 rust.log 另行处理）
+du -sh ~/.local/share/fqdt       # 检查数据目录（媒体缓存大了才清）
+df -h /                          # 确认释放
+```
+
+- 顺序：**质量门全过 → 提交 push → 清理 → 打 tag**（清理后无需再 build；CI 用干净环境）
+- 若清理后可用 <2G，先查 `du -sh ~/*` 大头再动手，禁止删 `.git` 与源码
 
 ### 8.3 交互规范
 

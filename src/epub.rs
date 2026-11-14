@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zip::write::FileOptions;
-use zip::{CompressionMethod, ZipArchive, ZipWriter};
+use zip::{CompressionMethod, ZipWriter};
 
 fn stored_opts() -> FileOptions<'static, ()> {
     FileOptions::default().compression_method(CompressionMethod::Stored).unix_permissions(0o644)
@@ -15,7 +15,20 @@ fn deflated_opts() -> FileOptions<'static, ()> {
     FileOptions::default().compression_method(CompressionMethod::Deflated).unix_permissions(0o644)
 }
 
-pub fn generate(title: &str, chapters: &[Chapter], path: &Path) -> Result<(), String> {
+/// 一次性写出完整 EPUB（O(n) 单遍）
+///
+/// 取代旧的 generate 骨架 + update_chapter 逐章全量重写（O(n²) 写放大）：
+/// 章节目录、OPF、TOC 与全部章节正文按顺序写入同一个 ZipWriter，一次落盘。
+///
+/// # 参数
+/// - `items`: (章, 正文) 列表；正文为 `None`（获取失败）时写占位段落
+///
+/// # 被工作流调用
+/// - `download::Downloader::do_epub` — EPUB 模式下载
+///
+/// # CLI 调用
+/// - `fqdt download <book_id> -f epub`
+pub fn write_book(title: &str, items: &[(Chapter, Option<String>)], path: &Path) -> Result<(), String> {
     let f = fs::File::create(path).map_err(|e| format!("创建 EPUB: {}", e))?;
     let mut z = ZipWriter::new(f);
 
@@ -42,11 +55,11 @@ pub fn generate(title: &str, chapters: &[Chapter], path: &Path) -> Result<(), St
 </metadata>
 <manifest>
 <item id=\"toc\" href=\"toc.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>");
-    for ch in chapters {
+    for (ch, _) in items {
         opf.push_str(&format!("\n<item id=\"ch{:04}\" href=\"ch{:04}.xhtml\" media-type=\"application/xhtml+xml\"/>", ch.index, ch.index));
     }
     opf.push_str("\n</manifest>\n<spine>\n<itemref idref=\"toc\"/>");
-    for ch in chapters {
+    for (ch, _) in items {
         opf.push_str(&format!("\n<itemref idref=\"ch{:04}\"/>", ch.index));
     }
     opf.push_str("\n</spine>\n</package>");
@@ -59,63 +72,32 @@ pub fn generate(title: &str, chapters: &[Chapter], path: &Path) -> Result<(), St
 <html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">
 <head><title>{ts}</title></head>
 <body><nav epub:type=\"toc\"><h1>{ts}</h1><ol>");
-    for ch in chapters {
+    for (ch, _) in items {
         toc.push_str(&format!("\n<li><a href=\"ch{:04}.xhtml\">{}</a></li>", ch.index, xml_esc(&util::chapter_heading(ch))));
     }
     toc.push_str("\n</ol></nav></body></html>");
     z.start_file("OEBPS/toc.xhtml", deflated_opts()).map_err(|e| e.to_string())?;
     z.write_all(toc.as_bytes()).map_err(|e| e.to_string())?;
 
-    for ch in chapters {
+    for (ch, content) in items {
+        let heading = xml_esc(&util::chapter_heading(ch));
+        let body = match content {
+            Some(text) => content_to_html(text),
+            None => String::from("<p>获取失败</p>\n"),
+        };
         let html = format!(
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <!DOCTYPE html>
 <html xmlns=\"http://www.w3.org/1999/xhtml\">
-<head><title>{}</title></head>
-<body><h1>{}</h1><p>待下载</p></body>
-</html>", xml_esc(&util::chapter_heading(ch)), xml_esc(&util::chapter_heading(ch)));
+<head><title>{h}</title></head>
+<body><h1>{h}</h1>
+{body}</body>
+</html>", h = heading, body = body);
         z.start_file(format!("OEBPS/ch{:04}.xhtml", ch.index), deflated_opts()).map_err(|e| e.to_string())?;
         z.write_all(html.as_bytes()).map_err(|e| e.to_string())?;
     }
 
     z.finish().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-pub fn update_chapter(path: &Path, ch: &Chapter, content: &str) -> Result<(), String> {
-    let tmp = path.with_extension("epub.tmp");
-    let src_f = fs::File::open(path).map_err(|e| format!("打开 EPUB: {}", e))?;
-    let mut src = ZipArchive::new(src_f).map_err(|e| format!("读 EPUB: {}", e))?;
-    let dst_f = fs::File::create(&tmp).map_err(|e| format!("创建临时: {}", e))?;
-    let mut dst = ZipWriter::new(dst_f);
-
-    let html = format!(
-"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE html>
-<html xmlns=\"http://www.w3.org/1999/xhtml\">
-<head><title>{}</title></head>
-<body><h1>{}</h1>
-{}</body>
-</html>", xml_esc(&util::chapter_heading(ch)), xml_esc(&util::chapter_heading(ch)), content_to_html(content));
-
-    let target = format!("OEBPS/ch{:04}.xhtml", ch.index);
-
-    for i in 0..src.len() {
-        let mut entry = src.by_index(i).map_err(|e| e.to_string())?;
-        let name = entry.name().to_string();
-        let opts = if name == "mimetype" { stored_opts() } else { deflated_opts() };
-        dst.start_file(&name, opts).map_err(|e| e.to_string())?;
-        if name == target {
-            dst.write_all(html.as_bytes()).map_err(|e| e.to_string())?;
-        } else {
-            let mut buf = vec![];
-            std::io::copy(&mut entry, &mut buf).map_err(|e| e.to_string())?;
-            dst.write_all(&buf).map_err(|e| e.to_string())?;
-        }
-    }
-    dst.finish().map_err(|e| e.to_string())?;
-    drop(src);
-    fs::rename(&tmp, path).map_err(|e| format!("重命名: {}", e))?;
     Ok(())
 }
 

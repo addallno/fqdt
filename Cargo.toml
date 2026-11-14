@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "fqdt"
-version = "0.13.1"
+version = "0.14.0"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "番茄小说 CLI 下载器（基于 fanqie-lite-api 核心）"

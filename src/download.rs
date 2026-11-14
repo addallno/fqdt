@@ -58,8 +58,10 @@ impl Downloader {
         let bid = self.book_id.clone();
 
         // 尝试批量获取，失败则逐章获取
+        util::progress(&format!("批量获取正文（{} 章）", pending.len()));
         let item_ids: Vec<&str> = pending.iter().map(|c| c.item_id.as_str()).collect();
         let batch_map = api.fetch_content_batch(&bid, &item_ids).await.ok();
+        util::clear_progress();
 
         let (ok, fail, errs) = util::with_progress_async(pending, total, concurrent, "cyan/blue", move |ch, pb| {
             let api = api.clone();
@@ -83,44 +85,52 @@ impl Downloader {
     async fn do_epub(&self, chapters: &[&Chapter], concurrent: usize) {
         let title = sanitize_filename(&self.book_title);
         let epub_path = self.out_dir.join(format!("{}.epub", title));
-        let resolved: Vec<Chapter> = chapters.iter().map(|c| (*c).clone()).collect();
+        let total = chapters.len();
 
-        util::progress("生成 EPUB");
-        let gen = epub::generate(&title, &resolved, &epub_path);
+        // 批量获取正文（缺失的逐章补），避免逐章 O(n) 重写整个 zip
+        util::progress(&format!("批量获取正文（{} 章）", total));
+        let item_ids: Vec<&str> = chapters.iter().map(|c| c.item_id.as_str()).collect();
+        let batch_map = self.api.fetch_content_batch(&self.book_id, &item_ids).await.ok();
+        util::clear_progress();
+
+        let api = self.api.clone();
+        let vb = self.verbose;
+        let texts = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
+        let texts_c = texts.clone();
+
+        let (ok, fail, errs) = util::with_progress_async(
+            chapters.iter().map(|c| (*c).clone()).collect::<Vec<_>>(),
+            total, concurrent, "cyan/blue", move |ch, pb| {
+            let api = api.clone();
+            let batch = batch_map.clone();
+            let texts = texts_c.clone();
+            async move {
+                let text = match batch.as_ref().and_then(|m| m.get(&ch.item_id)) {
+                    Some(t) => t.clone(),
+                    None => api.fetch_content(&ch.item_id).await?,
+                };
+                if vb { eprintln!("  {:04} {} ✓", ch.index, ch.title); }
+                texts.lock().unwrap().insert(ch.item_id.clone(), text);
+                pb.set_message(format!("✓{:04}", ch.index));
+                Ok(())
+            }
+        }).await;
+
+        // 按章节顺序组装，失败章正文为 None（写占位）
+        let texts = texts.lock().unwrap();
+        let items: Vec<(Chapter, Option<String>)> = chapters.iter()
+            .map(|ch| ((*ch).clone(), texts.get(&ch.item_id).cloned()))
+            .collect();
+        drop(texts);
+
+        util::progress(&format!("生成 EPUB（{} 章）", ok));
+        let gen = epub::write_book(&title, &items, &epub_path);
         util::clear_progress();
         if let Err(e) = gen {
             eprintln!("  err EPUB 创建失败: {}", e); return;
         }
-
-        let total = chapters.len();
-        let api = self.api.clone();
-        let ep = epub_path.clone();
-        let vb = self.verbose;
-
-        let (ok, fail, errs) = util::with_progress_async(resolved, total, concurrent, "cyan/blue", move |ch, pb| {
-            let api = api.clone();
-            let ep = ep.clone();
-            async move {
-                match api.fetch_content(&ch.item_id).await {
-                    Ok(text) => {
-                        if let Err(e) = epub::update_chapter(&ep, &ch, &text) {
-                            pb.set_message(format!("✗{:04}:{}", ch.index, e));
-                            Err(e)
-                        } else {
-                            pb.set_message(format!("✓{:04}", ch.index));
-                            if vb { eprintln!("  {:04} {} ✓", ch.index, ch.title); }
-                            Ok(())
-                        }
-                    }
-                    Err(e) => {
-                        pb.set_message(format!("✗{:04}:{}", ch.index, e));
-                        Err(e)
-                    }
-                }
-            }
-        }).await;
         println!("  ok {ok} 章 → {}", epub_path.display());
-        if fail > 0 { util::print_failures(&errs, " · 重跑同一命令可续传"); }
+        if fail > 0 { util::print_failures(&errs, " · 重跑同一命令可补齐失败章"); }
     }
 
     fn fname(&self, ch: &Chapter) -> String {

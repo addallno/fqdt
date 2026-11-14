@@ -177,7 +177,10 @@ fn prep_runtime() -> Result<(String, String, String, String), String> {
 /// 确保运行时已初始化（不监听端口）。幂等；重复调用直接返回。
 pub async fn ensure_runtime() -> Result<(), String> {
     let (config, pool, filter, data) = prep_runtime()?;
-    runtime::init_core(config, pool, filter, data, 0, ListenMode::Disabled, None).await?;
+    crate::util::progress("启动 core");
+    let r = runtime::init_core(config, pool, filter, data, 0, ListenMode::Disabled, None).await;
+    crate::util::clear_progress();
+    r?;
     Ok(())
 }
 

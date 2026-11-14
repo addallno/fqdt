@@ -46,7 +46,9 @@
 ## 6. 符号与进度
 - 状态符号：`✓` 成功 `✗` 失败（进度条消息内已用）；主输出别滥用符号。
 - 进程操作（>200ms）必给进度：`util::progress()`；批量失败用 `util::print_failures(errs, hint)`（最多列 3 条 + `失败 N 项` 计数 + 一条重跑提示），不逐条刷屏。
-- 非交互（stdout 非 TTY）时：颜色关闭（NO_COLOR/CLICOLOR≈221）、进度条静默——管道里不产生动画。
+- **阶段文案**：每个 >200ms 的阶段先 `util::progress("阶段名")` 再干活、完了 `clear_progress()`——阶段名要说清到哪一步了（如 `启动 core`、`获取目录`、`批量获取正文（N 章）`、`批量获取音频信息（N 章）`、`生成 EPUB（N 章）`、`搜索 "kw" · 第N页`）。
+- **动画形态**：`util::progress()` 是 Braille spinner 动画（帧 `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`，120ms，原地 `\\r` 覆盖，完成后 `clear_progress()` 擦行）；带总量的循环用 `with_progress_async` / `ProgressBar`，bar 模板含 `{spinner}` + `{percent}`（百分比）+ `{pos}/{len}` + `{msg}`（章号 `✓0001`/`✗0002`）。
+- 非交互（stdout 非 TTY）时：颜色关闭（NO_COLOR/CLICOLOR≈221）、进度动画静默——管道里不产生动画。
 
 ## 7. 美化的边界
 - 装饰要有目的：一个醒目的签名元素（如 `【推荐】` 分区头）胜过处处点缀。
