@@ -45,6 +45,10 @@ impl Config {
                         "tts_pitch" => cfg.tts_pitch = v.into(),
                         "abr" => cfg.abr = v.parse().unwrap_or(0),
                         "post_process" => cfg.post_process = v.into(),
+                        "info_top_chapters" => cfg.info_top_chapters = v.parse().unwrap_or(10),
+                        "info_top_comments" => cfg.info_top_comments = v.parse().unwrap_or(3),
+                        "info_hot" => cfg.info_hot = v != "false",
+                        "info_intro_len" => cfg.info_intro_len = v.parse().unwrap_or(120),
                         _ => {}
                     }
                 }
@@ -101,6 +105,13 @@ tts_pitch = +0Hz
 abr = 0
 # 后处理命令模板 {input} {output} (如 lame --abr 32 {input} {output})
 post_process =
+
+[info]
+# 概览默认行为: 目录前N章 / 评论前N条 / 热度行 / 简介截断字数 (0=关闭该项)
+info_top_chapters = 10
+info_top_comments = 3
+info_hot = true
+info_intro_len = 120
 ";
         fs::write(&path, ini).map_err(|e| e.to_string())
     }

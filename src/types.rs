@@ -81,6 +81,14 @@ pub struct Config {
     pub abr: u32,
     pub post_process: String,
     pub custom_commands: std::collections::HashMap<String, String>,
+    /// info 概览：目录显示前 N 章（0=不显示）
+    pub info_top_chapters: usize,
+    /// info 概览：评论显示前 N 条（0=不显示）
+    pub info_top_comments: usize,
+    /// info 概览：是否显示热度行（read_cnt_text/评分/收藏）
+    pub info_hot: bool,
+    /// info 概览：简介截断字数（0=不显示简介）
+    pub info_intro_len: usize,
 }
 
 /// 下载工作流参数（来自 CLI 或默认值）
@@ -143,6 +151,10 @@ impl Default for Config {
             abr: 0,
             post_process: String::new(),
             custom_commands: std::collections::HashMap::new(),
+            info_top_chapters: 10,
+            info_top_comments: 3,
+            info_hot: true,
+            info_intro_len: 120,
         }
     }
 }

@@ -8,7 +8,8 @@ const SECTIONS: &str = "chapters · intro · author · comments · cover";
 
 /// # info — 书籍信息（概览 + 可选 section）
 ///
-/// 无 section：标题/作者/简介缩略 + 目录计数与列表（概览）。
+/// 无 section：概览 = 标题/作者/热度/简介 + 前 N 章 + 前 N 条评论
+/// （N 与开关由 config.ini `[info]` 节控制，见 info_top_chapters 等）。
 /// section：
 /// - `chapters`  目录（含 item_id，`-r` 可筛选）
 /// - `intro`     完整简介
@@ -43,25 +44,14 @@ pub async fn run(
             }
         }
     }
-    overview(&api, book_id, range, show).await;
+    overview(&api, book_id, range, show, cfg).await;
 }
 
-/// 概览：标题/作者/简介缩略 + 目录（`-s` 附正文预览）。
-async fn overview(api: &Client, book_id: &str, range: Option<&str>, show: bool) {
-    let detail = api.fetch_detail(book_id).await.ok();
-    if let Some(d) = &detail {
-        let parts: Vec<&str> = d.splitn(3, '|').collect();
-        let title = parts.first().unwrap_or(&"");
-        let author = parts.get(1).unwrap_or(&"");
-        let intro = parts.get(2).unwrap_or(&"");
-        println!("  {} {YELLOW}{}{RST}", title, author);
-        if !intro.is_empty() {
-            let abbr: String = intro.chars().take(120).collect();
-            let abbr = if intro.chars().count() > 120 { format!("{}…", abbr) } else { abbr };
-            println!("  {DIM}{}{RST}", abbr);
-        }
+/// 概览：头部（标题/热度/简介）+ 前 N 章 + 前 N 条评论（config `[info]` 节控制）。
+async fn overview(api: &Client, book_id: &str, range: Option<&str>, show: bool, cfg: &Config) {
+    if let Some(d) = detail_json(book_id).await {
+        print_head(&d, cfg);
     }
-
     let chs = match fetch_catalog(api, book_id).await {
         Ok(c) => c,
         Err(e) => return eprintln!("  err {}", e),
@@ -69,29 +59,100 @@ async fn overview(api: &Client, book_id: &str, range: Option<&str>, show: bool) 
     let r = range.and_then(ChapterRange::parse);
     let v = crate::util::filter_by_range(&chs, r.as_ref());
     print_count(&v, &chs);
-
-    if show {
-        for c in &v {
-            println!("\n  {CYAN}{:04} {}{RST}", c.index, c.title);
-            match api.fetch_content(&c.item_id).await {
-                Ok(text) => {
-                    let total = text.lines().count();
-                    for line in text.lines().take(40) {
-                        println!("    {}", line);
-                    }
-                    if total > 40 {
-                        println!("  {DIM}… 共 {} 行 · 全文 function fetch-content {}{RST}", total, c.item_id);
-                    }
-                }
-                Err(e) => eprintln!("  err {:04}: {}", c.index, e),
-            }
-        }
-    } else {
-        for c in &v {
-            println!("  {:04}  {}", c.index, c.title);
-        }
+    print_top_chapters(&v, cfg.info_top_chapters, show, api).await;
+    if cfg.info_top_comments > 0 {
+        print_top_comments(book_id, cfg.info_top_comments).await;
     }
     println!("  {DIM}sections: {SECTIONS}{RST}");
+}
+
+/// 概览头部：标题·作者 + 热度行（info_hot）+ 简介截断（info_intro_len，0=关）。
+fn print_head(d: &Value, cfg: &Config) {
+    let s = |p: &str| d.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    println!("  {} {YELLOW}{}{RST}", s("/data/book_name"), s("/data/author"));
+    if cfg.info_hot {
+        let mut hot: Vec<String> = Vec::new();
+        let read = {
+            let t = s("/data/read_cnt_text");
+            if t.is_empty() { s("/data/read_cnt_fallback_text") } else { t }
+        };
+        if !read.is_empty() { hot.push(read); }
+        if let Ok(sc) = s("/data/score").parse::<f64>() {
+            if sc > 0.0 { hot.push(format!("{}分", sc)); }
+        }
+        if let Ok(n) = s("/data/all_bookshelf_count").parse::<u64>() {
+            if n > 0 { hot.push(format!("收藏 {}", fmt_wan(n))); }
+        }
+        if !hot.is_empty() { println!("  {DIM}{}{RST}", hot.join(" · ")); }
+    }
+    if cfg.info_intro_len > 0 {
+        let intro = s("/data/abstract").replace('\n', " ");
+        if !intro.is_empty() {
+            let n = cfg.info_intro_len;
+            let abbr: String = intro.chars().take(n).collect();
+            let tail = if intro.chars().count() > n { "…" } else { "" };
+            println!("  {DIM}{}{tail}{RST}", abbr);
+        }
+    }
+}
+
+/// 目录前 N 章（`-s` 附正文预览），超出部分给跳转尾注；top=0 关闭。
+async fn print_top_chapters(v: &[&crate::types::Chapter], top: usize, show: bool, api: &Client) {
+    if top == 0 { return; }
+    let take = v.len().min(top);
+    for c in v.iter().take(take) {
+        if !show {
+            println!("  {:04}  {}", c.index, c.title);
+            continue;
+        }
+        println!("\n  {CYAN}{:04} {}{RST}", c.index, c.title);
+        match api.fetch_content(&c.item_id).await {
+            Ok(text) => {
+                let total = text.lines().count();
+                for line in text.lines().take(40) { println!("    {}", line); }
+                if total > 40 {
+                    println!("  {DIM}… 共 {} 行 · 全文 function fetch-content {}{RST}", total, c.item_id);
+                }
+            }
+            Err(e) => eprintln!("  err {:04}: {}", c.index, e),
+        }
+    }
+    if v.len() > take {
+        println!("  {DIM}… 共 {} 章，完整列表 info <book_id> chapters{RST}", v.len());
+    }
+}
+
+/// 前 N 条书评（单行式：用户 · 赞 N  文本）。
+async fn print_top_comments(book_id: &str, n: usize) {
+    util::progress("获取书评");
+    let res = crate::fqapi::get_json(
+        &format!("/api/v1/books/{book_id}/reviews"),
+        &format!("count={n}&offset=0"),
+    )
+    .await;
+    util::clear_progress();
+    let Ok(v) = res else { return };
+    let Some(items) = v.pointer("/data/data_list").and_then(|x| x.as_array()) else {
+        println!("  {DIM}（暂无书评）{RST}");
+        return;
+    };
+    for item in items.iter().take(n) {
+        let Some(c) = item.get("comment") else { continue };
+        let user = c.pointer("/common/user_info/base_info/user_name")
+            .or_else(|| c.pointer("/common/user_info/user_name"))
+            .and_then(|x| x.as_str()).filter(|s| !s.is_empty()).unwrap_or("匿名");
+        let digg = c.pointer("/stat/digg_count").and_then(|x| x.as_u64()).unwrap_or(0);
+        let text: String = c.pointer("/common/content/text").and_then(|x| x.as_str())
+            .unwrap_or("").chars().take(72).collect::<String>().replace('\n', " ");
+        println!("  {YELLOW}{user}{RST} {DIM}· 赞 {digg}{RST}  {text}");
+    }
+}
+
+/// 万/亿缩写（收藏数等大数字）。
+fn fmt_wan(n: u64) -> String {
+    if n >= 100_000_000 { format!("{:.1}亿", n as f64 / 100_000_000.0) }
+    else if n >= 10_000 { format!("{:.1}万", n as f64 / 10_000.0) }
+    else { n.to_string() }
 }
 
 /// 目录（含 item_id），`-r` 可筛选。
