@@ -15,13 +15,19 @@
 - 过程性进度一律走 `util::progress()` / `util::clear_progress()`（stderr、仅 TTY 打印、完成后原地清除再打收据）；绝不让动画混入 stdout。
 - 管道场景（`| grep`、`| jq`）stdout 必须干净：无颜色污染数据行。
 
-## 2. 信息分层（三级，够用且只有三级）
-1. **primary**：`CYAN`（\x1b[1;36m）标题、序号
-2. **normal**：正文、书名、作者
-3. **muted**：`DIM`（\x1b[2m）提示、翻页引导、#id
-语义色仅两个：`YELLOW` 作者/书评用户名，`MAGENTA` 评分；错误统一 `err` 前缀（红可留）。
-**颜色常量只能从 `src/util.rs` 引**（RST/DIM/CYAN/YELLOW/MAGENTA），禁止裸写 `\x1b[...]`。
-**开关**：`util::init_color()`（main 里 `Cli::parse()` 后调用）——`NO_COLOR` 非空 / `CLICOLOR=0` / stdout 非 TTY → 纯文本输出。
+## 2. 信息分层（色彩语义，effective info 才上色）
+1. **主体**：`CYAN` 标题/序号/书名，`MAGENTA` 次主体（作者/分类/评论用户）
+2. **强调**：`YELLOW` 热度/评分/赞数（读者最关心的数字）
+3. **状态**：`GREEN` 成功收据 `ok`，`RED` 错误 `err`，`BLUE` #id/链接类标识
+4. **弱化**：`DIM` 提示/尾注/辅助信息；正文用默认色
+**颜色常量只能从 `src/util.rs` 引**（RST/DIM/CYAN/YELLOW/MAGENTA/GREEN/BLUE/RED），禁止裸写 `\x1b[...]`。
+**开关**：`util::init_color()`（main 里 Config 加载、`ui_color` 检查后调用；`ui.color=false` 等价 NO_COLOR）——`NO_COLOR` 非空 / `CLICOLOR=0` / stdout 非 TTY → 纯文本输出。
+
+## 2.1 help 消息规范
+- 简短介绍只写一句用途，**不枚举子项/子 flag**（`--help` 会补全）；flag help 必须可操作（含义、单位、取值范围、默认值、与其他 flag 关系）。
+- 结构：用途 → usage → flags → 底部（gh 式）：**配置对应段恒显示，示例段**受 `ui.help_examples=false` 关闭（`HELP_TAILS` + `apply_help_tails` 单点定义）。
+- **flags 先于 configs**：flag 说明在参数区先出现；顶部注明 `优先级: 命令行 flag > config.ini 同义项`。
+- help 与行为同步：子命令语义变更（如 search 改纯搜索）**当次发版必须改 doc**，不许遗留旧描述。
 
 ## 3. 每个命令的四问（Vercel CLI 四问裁剪）
 任何输出都要回答：
@@ -58,7 +64,7 @@
 ## 8. 检查清单（提交输出相关改动前过一遍）
 - [ ] stdout 里有没有日志/进度/错误混入？
 - [ ] `| grep` 和 `| jq` 跑一遍，数据行是否干净可解析？
-- [ ] 颜色是否全部引自 util 常量？是否三色调（primary/normal/muted + 语义双色）？
+- [ ] 颜色是否全部引自 util 常量？是否按语义分层（主体/强调/状态/弱化）？
 - [ ] 默认输出是否 < 3 行"非数据"文本？
 - [ ] `-v` 是否能看到完整日志？非 `-v` 是否一行日志都看不到？
 - [ ] 错误信息是否包含原因与下一步建议？

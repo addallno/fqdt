@@ -8,23 +8,23 @@ mod types;
 mod util;
 mod workflow;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use types::Config;
-use crate::util::{DIM, RST};
+use crate::util::{DIM, GREEN, RST};
 use std::path::Path;
 
 #[derive(Parser)]
 #[command(name = "fqdt", version, about = "番茄小说下载器")]
 struct Cli {
-    #[arg(long, global = true, help = "搜索 API")]
+    #[arg(long, global = true, help = "搜索 API 源 (逗号分隔；覆盖 config api.search_url)")]
     search_url: Option<String>,
-    #[arg(long, global = true, help = "目录 API")]
+    #[arg(long, global = true, help = "目录 API 源 (覆盖 config api.catalog_url)")]
     catalog_url: Option<String>,
-    #[arg(long, global = true, help = "内容 API")]
+    #[arg(long, global = true, help = "内容 API 源 (覆盖 config api.content_url)")]
     content_url: Option<String>,
-    #[arg(long, global = true, help = "超时秒")]
+    #[arg(long, global = true, help = "请求超时秒 (覆盖 config api.timeout)")]
     timeout: Option<u64>,
-    #[arg(short = 'v', long, global = true, help = "详细日志（core 日志 stderr 镜像 + 请求详情）")]
+    #[arg(short = 'v', long, global = true, help = "详细日志 (core 日志 stderr 镜像 + 请求详情)")]
     verbose: bool,
     #[command(subcommand)]
     cmd: Cmd,
@@ -32,53 +32,53 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// 搜索并下载小说
+    /// 搜索小说（纯列表展示）
     Search {
         keyword: String,
-        #[arg(short='p', long, default_value="1", help = "页码")]
+        #[arg(short='p', long, default_value="1", help = "页码 (每页 10 本)")]
         page: usize,
-        #[arg(short='D', long, help = "自动下载第 N 本 (无需交互)")]
+        #[arg(short='D', long, help = "自动下载第 N 本结果 (1-based，跳过选择)")]
         auto: Option<usize>,
-        #[arg(long, help = "仅展示搜索结果（默认行为，兼容保留）")]
+        #[arg(long, help = "仅展示搜索结果 (默认行为，兼容保留)")]
         dry_run: bool,
-        #[arg(short='o', long, help = "输出目录")]
+        #[arg(short='o', long, help = "输出目录 (配合 -D)")]
         output: Option<String>,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short='j', long, help = "并发数 (默认按 CPU 核数)")]
         jobs: Option<usize>,
         #[arg(short='r', long, help = "章节范围 (1-50 / -5 / 10-)")]
         range: Option<String>,
-        #[arg(short='t', long, help = "输出格式 (txt/epub)")]
+        #[arg(short='t', long, help = "输出格式: txt / epub")]
         format: Option<String>,
-        #[arg(short='i', long, default_value = "0", help = "请求间隔(ms)")]
+        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
     },
-    /// 查看目录或内容（简写 i）
+    /// 查看书籍信息
     #[command(alias = "i")]
     Info {
         book_id: String,
-        #[arg(help = "章节: chapters/intro/author/comments/cover（缺省为概览）")]
+        #[arg(help = "部分: chapters/intro/author/comments/cover/related/audio (缺省=概览)")]
         section: Option<String>,
-        #[arg(short='r', long, help = "章节范围")]
+        #[arg(short='r', long, help = "章节范围 (仅 chapters/概览)")]
         range: Option<String>,
-        #[arg(short='s', long, help = "显示正文内容")]
+        #[arg(short='s', long, help = "显示正文预览 (仅概览前列章节)")]
         show: bool,
     },
     /// 下载正文（简写 d）
     #[command(alias = "d")]
     Download {
-        #[arg(help = "book_id 或搜索书名（多结果时交互选择）")]
+        #[arg(help = "book_id 或书名关键词 (多结果时选择序号)")]
         book_id: String,
         #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
         #[arg(short='r', long, help = "章节范围 (1-50 / -5 / 10-)")]
         range: Option<String>,
-        #[arg(short='t', long, help = "输出格式 (txt/epub)")]
+        #[arg(short='t', long, help = "输出格式: txt / epub")]
         format: Option<String>,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short='j', long, help = "并发数 (默认按 CPU 核数)")]
         jobs: Option<usize>,
         #[arg(short='f', long, help = "强制覆盖已存在文件")]
         force: bool,
-        #[arg(short='i', long, default_value = "0", help = "请求间隔(ms)")]
+        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
     },
     /// 下载语音（简写 a）
@@ -89,23 +89,23 @@ enum Cmd {
         output: Option<String>,
         #[arg(short='r', long, help = "章节范围 (1-50 / -5 / 10-)")]
         range: Option<String>,
-        #[arg(long, default_value = "1", help = "音色编号")]
+        #[arg(long, default_value = "1", help = "AI 音色编号 (1-91，默认 1；`info <id> audio` 查看本书可用)")]
         tone: usize,
-        #[arg(long, help = "歌词模式: external/embed/both/off (默认 external)")]
+        #[arg(long, help = "歌词模式: external / embed / both / off (默认 external)")]
         lrc: Option<String>,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short='j', long, help = "并发数 (默认按 CPU 核数)")]
         jobs: Option<usize>,
         #[arg(short='f', long, help = "强制覆盖已存在文件")]
         force: bool,
-        #[arg(short='i', long, default_value = "0", help = "请求间隔(ms)")]
+        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
-        #[arg(long, help = "真人讲书版（自动从关联听书版本发现）", conflicts_with_all = ["ai", "tts"])]
+        #[arg(long, help = "真人讲书版 (自动发现最热真人版；与 --ai/--tts 互斥)", conflicts_with_all = ["ai", "tts"])]
         real: bool,
-        #[arg(long, help = "智能朗读（AI 音色，配合 --tone）", conflicts_with_all = ["tts"])]
+        #[arg(long, help = "智能朗读 (文字版 AI 音色，配合 --tone；与 --tts 互斥)", conflicts_with_all = ["tts"])]
         ai: bool,
-        #[arg(long, help = "Edge-TTS 本地合成（先下载正文再合成，需 edge-tts）")]
+        #[arg(long, help = "Edge-TTS 本地合成 (先下载正文再合成，需安装 edge-tts)")]
         tts: bool,
-        #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音")]
+        #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音名 (--tts 时生效)")]
         voice: String,
     },
     /// 增量更新已下载的书籍（简写 u）
@@ -114,20 +114,20 @@ enum Cmd {
         target: String,
         #[arg(short='o', long, help = "输出目录")]
         output: Option<String>,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short='j', long, help = "并发数 (默认按 CPU 核数)")]
         jobs: Option<usize>,
         #[arg(short='f', long, help = "强制覆盖已存在文件")]
         force: bool,
-        #[arg(short='i', long, default_value = "0", help = "请求间隔(ms)")]
+        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
     },
     /// 文本转语音（简写 t）
     #[command(alias = "t")]
     Tts {
         path: String,
-        #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "TTS 语音")]
+        #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音名")]
         voice: String,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short='j', long, help = "并发数 (默认按 CPU 核数)")]
         jobs: Option<usize>,
     },
     /// 书架管理（简写 s）
@@ -142,20 +142,30 @@ enum Cmd {
         #[arg(short='U', long)]
         update: bool,
     },
-    /// 生成默认配置
+    /// 生成默认配置文件
     Init,
+    /// 查看/修改配置（git config 式: --list / <key> / <key> <value> / --unset <key>）
+    ///
+    /// 键为点号形式，如 info.top_chapters、audio.abr、ui.clip_len
+    Config {
+        /// 键（点号形式）
+        key: Option<String>,
+        /// 新值（缺省为读取）
+        value: Option<String>,
+        #[arg(long, help = "列出全部键值")]
+        list: bool,
+        #[arg(long, help = "删除该键（恢复默认）")]
+        unset: bool,
+    },
     /// 小工具集 + 函数管道（简写 fn）
     #[command(name = "function", alias = "fn")]
     Function {
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         args: Vec<String>,
     },
-    /// 透传调用 fqapi 端点（gh api 式，46 端点全覆盖）
+    /// 透传调用 fqapi 端点 (gh api 式)
     ///
-    /// 路径如 /api/v1/books/{id}/directory，query 可拼在 ? 后或用 -q 追加。
-    /// 默认 GET，响应体原样输出（管道友好）；--jq 提取字段。
-    /// 示例: fqdt api /api/v1/search -q query=诡秘 -q tab_type=3
-    ///       fqdt api /api/v1/books/123 --jq data.book_name
+    /// 路径如 /api/v1/books/{id}/directory，query 拼在 ? 后或用 -q 追加。
     Api {
         /// 端点路径（含可选 ?query）
         path: Option<String>,
@@ -224,11 +234,60 @@ enum Cmd {
     Custom(Vec<String>),
 }
 
+/// help 底部附加段：(子命令名, 配置对应, 示例)。示例受 config `ui.help_examples` 控制。
+const HELP_TAILS: &[(&str, &str, &str)] = &[
+    ("", "优先级: 命令行 flag > config.ini 同义项", ""),
+    ("search", "", "示例:\n  fqdt search 诡秘之主\n  fqdt search 诡秘 -D 1"),
+    ("info", "配置: [info] top_chapters/top_comments/hot/intro_len/comments_count/author_count  [ui] clip_len",
+     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters"),
+    ("download", "配置: [download] concurrent/format/output_dir/filename_template",
+     "示例:\n  fqdt download <book_id> -r 1-50 -t epub"),
+    ("audio", "配置: [audio] tone/tone_fallbacks/abr/post_process  [tts] rate/volume/pitch",
+     "示例:\n  fqdt audio <book_id> --real\n  fqdt audio <book_id> --tone 6"),
+    ("update", "配置: 同 [download]", ""),
+    ("tts", "配置: [tts] rate/volume/pitch", "示例:\n  fqdt tts book.txt"),
+    ("shelf", "", ""),
+    ("init", "", ""),
+    ("config", "配置: 读写 config.ini 全部键",
+     "示例:\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
+    ("function", "", ""),
+    ("api", "", "示例:\n  fqdt api /api/v1/search -q query=诡秘 -q tab_type=3\n  fqdt api /api/v1/books/123 --jq data.book_name"),
+    ("recommend", "", ""),
+    ("category", "", ""),
+    ("serve", "", ""),
+];
+
+/// 注入 help 底部：配置对应段恒开；示例段受 `ui.help_examples` 控制（false 关闭）。
+fn apply_help_tails(cmd: &mut clap::Command, examples: bool) {
+    let set_tail = |c: &mut clap::Command, name: &str| {
+        if let Some((_, conf, ex)) = HELP_TAILS.iter().find(|e| e.0 == name) {
+            let mut tail = String::new();
+            if !conf.is_empty() { tail.push_str(conf); }
+            if examples && !ex.is_empty() {
+                if !tail.is_empty() { tail.push_str("\n\n"); }
+                tail.push_str(ex);
+            }
+            if !tail.is_empty() {
+                let old = std::mem::replace(c, clap::Command::new("_"));
+                *c = old.after_help(tail);
+            }
+        }
+    };
+    set_tail(cmd, "");
+    for sub in cmd.get_subcommands_mut() {
+        let n = sub.get_name().to_string();
+        set_tail(sub, &n);
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    let cli = Cli::parse();
-    crate::util::init_color();
+    let mut cmd = Cli::command();
     let mut cfg = Config::load();
+    if !cfg.ui_color { std::env::set_var("NO_COLOR", "1"); }
+    apply_help_tails(&mut cmd, cfg.ui_help_examples);
+    crate::util::init_color();
+    let cli = Cli::from_arg_matches(&cmd.get_matches()).unwrap_or_else(|e| e.exit());
     cfg.apply_cli_overrides(
         cli.search_url.as_deref(),
         cli.catalog_url.as_deref(),
@@ -261,7 +320,9 @@ async fn main() {
         Cmd::Get { target, output, range, format, jobs, force, audio, audio_only, tone, lrc, update, interval } =>
             dispatch_get(target, output, range, format, jobs, force, verbose, audio, audio_only, tone, lrc, update, interval, &cfg).await,
         Cmd::Shelf { add, delete, dl, update } => workflow::shelf::run(add, delete, dl, update, &cfg).await,
-        Cmd::Init => { Config::save_default().ok(); println!("  ok ~/.config/fqdt/config.ini"); }
+        Cmd::Init => { Config::save_default().ok(); println!("  {GREEN}ok{RST} ~/.config/fqdt/config.ini"); }
+        Cmd::Config { key, value, list, unset } =>
+            crate::config::run_cmd(key, value, list, unset),
         Cmd::Function { args } => run_function(args, &cfg).await,
         Cmd::Api { path, method, query, data, jq, status, list } =>
             run_api(path, method, query, data, jq, status, list).await,
@@ -443,7 +504,7 @@ async fn dispatch_get(target: Option<String>, output: Option<String>, range: Opt
 }
 
 /// 写一行到 stdout；下游管道已关闭（EPIPE）时静默退出，避免 panic
-fn emit_line(s: &str) {
+pub(crate) fn emit_line(s: &str) {
     use std::io::Write;
     let mut out = std::io::stdout().lock();
     if writeln!(out, "{s}").is_err() {
@@ -455,11 +516,11 @@ fn emit_line(s: &str) {
 async fn run_serve(port: u16, lan: bool) {
     match fqapi::serve_at(port, lan).await {
         Ok(url) => {
-            println!("  ok 监听 {url}{}", if lan { "（局域网）" } else { "" });
+            println!("  {GREEN}ok{RST} 监听 {url}{}", if lan { "（局域网）" } else { "" });
             println!("  {DIM}Ctrl-C 退出{RST}");
             tokio::signal::ctrl_c().await.ok();
             fqapi::shutdown().await;
-            println!("  ok 已退出（设备池已刷盘）");
+            println!("  {GREEN}ok{RST} 已退出（设备池已刷盘）");
         }
         Err(e) => {
             eprintln!("  err {e}");
@@ -518,7 +579,7 @@ async fn run_api(
         }
     };
     if show_status {
-        eprintln!("  ok HTTP {}", reply.status);
+        eprintln!("  {GREEN}ok{RST} HTTP {}", reply.status);
     }
     match jq {
         Some(filter) => match reply.json().ok().as_ref().and_then(|v| util::jq_extract(v, &filter)) {
@@ -652,7 +713,7 @@ async fn dispatch_one(args: &[String], cfg: &Config, piped: &str) -> String {
             match api.fetch_audio(rest[0], rest[1], tone).await {
                 Ok((url, key)) => {
                     println!("{}", url);
-                    if !key.is_empty() { eprintln!("  ok CENC 密钥 {}", key); }
+                    if !key.is_empty() { eprintln!("  {GREEN}ok{RST} CENC 密钥 {}", key); }
                     url
                 }
                 Err(e) => err(e)
@@ -693,7 +754,7 @@ async fn dispatch_one(args: &[String], cfg: &Config, piped: &str) -> String {
                 .and_then(|i| rest.get(i+1).and_then(|s| s.parse().ok())).unwrap_or(32);
             let path = std::path::Path::new(&input);
             audio::post_process(path, abr, None, false, "", cfg.verbose);
-            println!("  ok {}", input);
+            println!("  {GREEN}ok{RST} {}", input);
             input
         }
         "embed-lrc" | "lrc" => {
@@ -706,7 +767,7 @@ async fn dispatch_one(args: &[String], cfg: &Config, piped: &str) -> String {
                 item_id: String::new(),
             };
             audio::embed_lrc(path, &ch, cfg.verbose, None);
-            println!("  ok {}", input);
+            println!("  {GREEN}ok{RST} {}", input);
             input
         }
         "embed-cover" | "cover" => {
@@ -714,7 +775,7 @@ async fn dispatch_one(args: &[String], cfg: &Config, piped: &str) -> String {
             let mp3 = rest[0];
             let cover = rest[1];
             audio::embed_cover(std::path::Path::new(mp3), std::path::Path::new(cover), cfg.verbose);
-            println!("  ok {} ← {}", mp3, cover);
+            println!("  {GREEN}ok{RST} {} ← {}", mp3, cover);
             mp3.to_string()
         }
         "read-info" | "info" => {
@@ -770,7 +831,7 @@ async fn dispatch_one(args: &[String], cfg: &Config, piped: &str) -> String {
             if let Err(e) = std::fs::write(&path, piped) {
                 return err(format!("写入失败: {}", e));
             }
-            println!("  ok 保存 {} ({} 字节)", path, piped.len());
+            println!("  {GREEN}ok{RST} 保存 {} ({} 字节)", path, piped.len());
             piped.to_string()
         }
         _ => err(format!("未知函数: {}", func))

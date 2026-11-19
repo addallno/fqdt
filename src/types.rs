@@ -89,6 +89,16 @@ pub struct Config {
     pub info_hot: bool,
     /// info 概览：简介截断字数（0=不显示简介）
     pub info_intro_len: usize,
+    /// info comments section：书评条数
+    pub info_comments_count: usize,
+    /// info author section：书单条数
+    pub info_author_count: usize,
+    /// UI：评论/摘要文本截断字数
+    pub ui_clip_len: usize,
+    /// UI：彩色输出（false 等价 NO_COLOR）
+    pub ui_color: bool,
+    /// UI：help 底部示例（false 关闭，gh 式示例可配）
+    pub ui_help_examples: bool,
 }
 
 /// 下载工作流参数（来自 CLI 或默认值）
@@ -154,7 +164,12 @@ impl Default for Config {
             info_top_chapters: 10,
             info_top_comments: 3,
             info_hot: true,
-            info_intro_len: 120,
+            info_intro_len: 80,
+            info_comments_count: 20,
+            info_author_count: 20,
+            ui_clip_len: 40,
+            ui_color: true,
+            ui_help_examples: true,
         }
     }
 }

@@ -1,6 +1,7 @@
 use crate::api::Client;
 use crate::types::{default_concurrent, Chapter};
 use crate::util;
+use crate::util::{GREEN, RST};
 use indicatif::ProgressBar;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -64,7 +65,7 @@ impl AudioDownloader {
         let skip = total - pending.len();
 
         if pending.is_empty() {
-            println!("  ok 全部已存在 · {} 章", total);
+            println!("{GREEN}ok{RST} 全部已存在 · {} 章", total);
             self.write_info_list(chapters, book_title);
             return;
         }
@@ -104,7 +105,7 @@ impl AudioDownloader {
             }
         }).await;
 
-        println!("  ok {ok} 章 · 跳过 {skip} 章");
+        println!("{GREEN}ok{RST} {ok} 章 · 跳过 {skip} 章");
         if fail > 0 { util::print_failures(&errs, " · 重跑同一命令可续传"); }
 
         self.write_info_list(chapters, book_title);
@@ -417,7 +418,7 @@ pub fn convert_tts_file(input: &Path, output_dir: Option<PathBuf>, p: &TtsParams
     fs::create_dir_all(&out).expect("创建目录失败");
     let out_path = out.join(format!("{}.mp3", name));
     if out_path.exists() {
-        println!("  ok 已存在: {}", out_path.display());
+        println!("{GREEN}ok{RST} 已存在: {}", out_path.display());
         return;
     }
     let text = match fs::read_to_string(input) {

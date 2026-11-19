@@ -2,9 +2,9 @@ use serde_json::Value;
 
 use crate::api::Client;
 use crate::types::{ChapterRange, Config};
-use crate::util::{self, CYAN, DIM, RST, YELLOW};
+use crate::util::{self, BLUE, CYAN, DIM, GREEN, MAGENTA, RED, RST, YELLOW};
 
-const SECTIONS: &str = "chapters · intro · author · comments · cover";
+const SECTIONS: &str = "chapters · intro · author · comments · cover · related · audio";
 
 /// # info — 书籍信息（概览 + 可选 section）
 ///
@@ -33,12 +33,15 @@ pub async fn run(
             "intro" => return intro(&api, book_id).await,
             "author" => return author(book_id, cfg).await,
             "comments" => {
-                crate::workflow::discover::comments(book_id, 20, 0, false, cfg).await;
+                let n = cfg.info_comments_count;
+                crate::workflow::discover::comments(book_id, n, 0, false, cfg).await;
                 return;
             }
             "cover" => return cover(book_id).await,
+            "related" => return related(book_id, cfg).await,
+            "audio" => return audio_section(book_id, cfg).await,
             other => {
-                eprintln!("  err 未知 section: {other}");
+                eprintln!("  {RED}err{RST} 未知 section: {other}");
                 eprintln!("  可用: {SECTIONS}");
                 return;
             }
@@ -54,16 +57,16 @@ async fn overview(api: &Client, book_id: &str, range: Option<&str>, show: bool, 
     }
     let chs = match fetch_catalog(api, book_id).await {
         Ok(c) => c,
-        Err(e) => return eprintln!("  err {}", e),
+        Err(e) => return eprintln!("  {RED}err{RST} {}", e),
     };
     let r = range.and_then(ChapterRange::parse);
     let v = crate::util::filter_by_range(&chs, r.as_ref());
     print_count(&v, &chs);
     print_top_chapters(&v, cfg.info_top_chapters, show, api).await;
     if cfg.info_top_comments > 0 {
-        print_top_comments(book_id, cfg.info_top_comments).await;
+        print_top_comments(book_id, cfg.info_top_comments, cfg.ui_clip_len).await;
     }
-    println!("  {DIM}sections: {SECTIONS}{RST}");
+    println!("  {DIM}more: intro · author · comments · cover{RST}");
 }
 
 /// 概览头部：标题·作者 + 热度行（info_hot）+ 简介截断（info_intro_len，0=关）。
@@ -114,16 +117,16 @@ async fn print_top_chapters(v: &[&crate::types::Chapter], top: usize, show: bool
                     println!("  {DIM}… 共 {} 行 · 全文 function fetch-content {}{RST}", total, c.item_id);
                 }
             }
-            Err(e) => eprintln!("  err {:04}: {}", c.index, e),
+            Err(e) => eprintln!("  {RED}err{RST} {:04}: {}", c.index, e),
         }
     }
     if v.len() > take {
-        println!("  {DIM}… 共 {} 章，完整列表 info <book_id> chapters{RST}", v.len());
+        println!("  {DIM}… 更多 → info <book_id> chapters{RST}");
     }
 }
 
 /// 前 N 条书评（单行式：用户 · 赞 N  文本）。
-async fn print_top_comments(book_id: &str, n: usize) {
+async fn print_top_comments(book_id: &str, n: usize, clip: usize) {
     util::progress("获取书评");
     let res = crate::fqapi::get_json(
         &format!("/api/v1/books/{book_id}/reviews"),
@@ -143,7 +146,7 @@ async fn print_top_comments(book_id: &str, n: usize) {
             .and_then(|x| x.as_str()).filter(|s| !s.is_empty()).unwrap_or("匿名");
         let digg = c.pointer("/stat/digg_count").and_then(|x| x.as_u64()).unwrap_or(0);
         let text: String = c.pointer("/common/content/text").and_then(|x| x.as_str())
-            .unwrap_or("").chars().take(72).collect::<String>().replace('\n', " ");
+            .unwrap_or("").chars().take(clip).collect::<String>().replace('\n', " ");
         println!("  {YELLOW}{user}{RST} {DIM}· 赞 {digg}{RST}  {text}");
     }
 }
@@ -162,7 +165,7 @@ async fn chapters(api: &Client, book_id: &str, range: Option<&str>) {
         Ok(c) => c,
         Err(e) => {
             util::clear_progress();
-            return eprintln!("  err {}", e);
+            return eprintln!("  {RED}err{RST} {}", e);
         }
     };
     util::clear_progress();
@@ -186,7 +189,7 @@ async fn intro(api: &Client, book_id: &str) {
                 println!("  {DIM}（无简介）{RST}");
             }
         }
-        Err(e) => eprintln!("  err {}", e),
+        Err(e) => eprintln!("  {RED}err{RST} {}", e),
     }
 }
 
@@ -198,7 +201,7 @@ async fn cover(book_id: &str) {
         .find_map(|k| v.pointer(&format!("/data/{k}")).and_then(|x| x.as_str()))
         .unwrap_or("");
     if url.is_empty() {
-        eprintln!("  err 该书无封面字段");
+        eprintln!("  {RED}err{RST} 该书无封面字段");
     } else {
         println!("  {url}");
     }
@@ -209,9 +212,75 @@ async fn author(book_id: &str, cfg: &Config) {
     let Some(v) = detail_json(book_id).await else { return };
     let id = detail_author_id(&v);
     if id.is_empty() {
-        return eprintln!("  err 详情中无作者 id");
+        return eprintln!("  {RED}err{RST} 详情中无作者 id");
     }
-    crate::workflow::discover::author(&id, 20, false, cfg).await;
+    crate::workflow::discover::author(&id, cfg.info_author_count, false, cfg).await;
+}
+
+/// 相关书籍 + 听书/音色 misc（`fqdt info <id> related`）。
+async fn related(book_id: &str, cfg: &Config) {
+    let misc = related_misc(book_id).await;
+    util::progress("获取相关书籍");
+    let res = crate::fqapi::get_json(&format!("/api/v1/books/{book_id}/related"), "").await;
+    util::clear_progress();
+    let Ok(v) = res else { return };
+    let mut n = 0;
+    if let Some(cells) = v.pointer("/data/cell_data").and_then(|x| x.as_array()) {
+        for cell in cells {
+            let Some(books) = cell.get("book_data").and_then(|x| x.as_array()) else { continue };
+            for b in books {
+                let s = |k: &str| b.get(k).and_then(|x| x.as_str()).unwrap_or("");
+                let (id, name, author) = (s("book_id"), s("book_name"), s("author"));
+                if name.is_empty() { continue; }
+                n += 1;
+                let author: String = author.chars().take(cfg.ui_clip_len).collect();
+                crate::emit_line(&format!("  {CYAN}{name}{RST} {MAGENTA}{author}{RST} {BLUE}#{id}{RST}"));
+            }
+        }
+    }
+    if n == 0 { crate::emit_line("  （无相关书籍）"); }
+    if !misc.is_empty() { crate::emit_line(&format!("  {DIM}{misc}{RST}")); }
+}
+
+/// related 的 misc 行：真人听书版数 + AI 音色数（取自 detail）。
+async fn related_misc(book_id: &str) -> String {
+    let Some(d) = detail_json(book_id).await else { return String::new() };
+    let s = |p: &str| d.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let audio_n = s("/data/related_audio_bookids").trim_matches(|c| c == '[' || c == ']')
+        .split(',').filter(|x| !x.trim().is_empty()).count();
+    let tone_n = s("/data/tones").split(',').filter(|x| !x.trim().is_empty()).count();
+    let mut parts = vec![];
+    if audio_n > 0 { parts.push(format!("真人听书版 {audio_n}")); }
+    if tone_n > 0 { parts.push(format!("AI 音色 {tone_n}")); }
+    parts.join(" · ")
+}
+
+/// 听书版本与音色（`fqdt info <id> audio`）：AI 音色 id 列表 + 各听书版主播阵容。
+async fn audio_section(book_id: &str, cfg: &Config) {
+    let Some(d) = detail_json(book_id).await else { return };
+    let s = |p: &str| d.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let tones = s("/data/tones");
+    if !tones.is_empty() {
+        let ids: Vec<&str> = tones.split(',').filter(|x| !x.trim().is_empty()).collect();
+        crate::emit_line(&format!("  {CYAN}AI 音色 {}{RST} ({})  {DIM}{}{RST}",
+            ids.len(), cfg.audio_tone, ids.join(",")));
+    }
+    util::progress("获取听书版本");
+    let res = crate::fqapi::get_json(&format!("/api/v1/books/{book_id}/tones"), "").await;
+    util::clear_progress();
+    let Ok(v) = res else { return };
+    let Some(list) = v.pointer("/data/audio_tones").and_then(|x| x.as_array()) else {
+        crate::emit_line("  （无听书版本）");
+        return;
+    };
+    for t in list {
+        let id = t.get("abook_id").and_then(|x| x.as_str().map(String::from))
+            .or_else(|| t.get("abook_id").and_then(|x| x.as_u64().map(|n| n.to_string())))
+            .unwrap_or_default();
+        let title = t.get("title").and_then(|x| x.as_str()).unwrap_or("");
+        let title: String = title.chars().take(cfg.ui_clip_len.saturating_mul(3)).collect();
+        crate::emit_line(&format!("  {GREEN}{title}{RST} {BLUE}#{id}{RST}"));
+    }
 }
 
 /// 目录（带进度与错误处理的共用包装）。
@@ -236,7 +305,7 @@ async fn detail_json(book_id: &str) -> Option<Value> {
     match crate::fqapi::get_json(&format!("/api/v1/books/{book_id}"), "").await {
         Ok(v) => Some(v),
         Err(e) => {
-            eprintln!("  err 获取详情失败: {e}");
+            eprintln!("  {RED}err{RST} 获取详情失败: {e}");
             None
         }
     }

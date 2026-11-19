@@ -2,6 +2,7 @@ use crate::api::Client;
 use crate::epub;
 use crate::types::{sanitize_filename, Chapter};
 use crate::util;
+use crate::util::{GREEN, RST};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -47,7 +48,7 @@ impl Downloader {
         let skipped = total - pending.len();
 
         if pending.is_empty() {
-            println!("  ok 全部已存在 · {} 章", total);
+            println!("{GREEN}ok{RST} 全部已存在 · {} 章", total);
             return;
         }
 
@@ -78,7 +79,7 @@ impl Downloader {
             }
         }).await;
 
-        println!("  ok {ok} 章 · 跳过 {skipped} 章");
+        println!("{GREEN}ok{RST} {ok} 章 · 跳过 {skipped} 章");
         if fail > 0 { util::print_failures(&errs, " · 重跑同一命令可续传"); }
     }
 
@@ -129,7 +130,7 @@ impl Downloader {
         if let Err(e) = gen {
             eprintln!("  err EPUB 创建失败: {}", e); return;
         }
-        println!("  ok {ok} 章 → {}", epub_path.display());
+        println!("{GREEN}ok{RST} {ok} 章 → {}", epub_path.display());
         if fail > 0 { util::print_failures(&errs, " · 重跑同一命令可补齐失败章"); }
     }
 

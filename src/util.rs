@@ -37,6 +37,9 @@ pub static DIM: Color = Color("2");
 pub static CYAN: Color = Color("1;36");
 pub static YELLOW: Color = Color("33");
 pub static MAGENTA: Color = Color("35");
+pub static GREEN: Color = Color("32");
+pub static BLUE: Color = Color("34");
+pub static RED: Color = Color("31");
 
 pub fn has_chapter_prefix(title: &str) -> bool {
     title.starts_with('第') || title.starts_with(|c: char| c.is_ascii_digit())
@@ -223,7 +226,7 @@ pub fn print_failures(errs: &[String], retry_hint: &str) {
     if errs.is_empty() { return; }
     let show: Vec<&str> = errs.iter().take(3).map(|s| s.as_str()).collect();
     let more = if errs.len() > 3 { " …" } else { "" };
-    eprintln!("  err 失败 {} 项 · {}{}{}", errs.len(), show.join(" · "), more, retry_hint);
+    eprintln!("  {RED}err{RST} 失败 {} 项 · {}{}{}", errs.len(), show.join(" · "), more, retry_hint);
 }
 
 /// 按 `.a.b[0].c` 形式提取 JSON 字段（jq 子集，供 `fqdt api --jq` 与封装子命令共用）

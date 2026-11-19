@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.15.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.16.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -586,6 +586,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 26. **📦 info section 扩展（breaking）** — `fqdt info <book_id> [SECTION]`：`chapters`（目录含 item_id）、`intro`（完整简介）、`author`（id 取 detail `author_id` **原样含 `N_` 前缀**，裸数字会错拿他人）、`comments`（count=20）、`cover`（thumb_url）；无 section=概览+sections 尾注。**顶层 `comments`/`author` 命令删除**（discover.rs 函数保留由 info 调用）；hots/shelf 用户暂缓。✅ v0.13.0
 27. **📋 info 概览默认行为改版** — 默认 `info <id>` 不再全量列章节：标题/作者 + 热度行（`read_cnt_text`·评分·收藏，评分与收藏是 JSON 字符串需 parse）+ 简介截断 + 前 N 章（超出尾注跳 chapters）+ 前 N 条书评；条数与开关由 config.ini `[info]` 节控制（`info_top_chapters=10`/`info_top_comments=3`/`info_hot=true`/`info_intro_len=120`，0=关闭该项），不同 action 全可配。完整列表仍在各自 section。`[x]` ✅ v0.15.0
 28. **📦 下载增强批次** — ① EPUB O(n) 重构：删 `generate`+`update_chapter`（旧每章全量重写 zip，1928章≈7GB写放大），新 `epub::write_book(title, &[(Chapter, Option<String>)], path)` 单遍一次落盘；`do_epub` 改批量取正文（fetch_content_batch + Arc<Mutex<HashMap>> 收集，失败章占位"获取失败"）。② 进度系统：`bar_style` 加 `{spinner} {percent}` + braille tick_chars；`progress()` 升级 braille 动画线程（120ms，非TTY静默）；pb `enable_steady_tick(120ms)`；阶段文案（启动 core/批量获取正文/批量获取音频信息/生成 EPUB 等）。③ 音频 playinfo 批量：`fetch_audio_batch`（逗号多 id 单请求，上游行按请求顺序对应、行内 item_id 统一填末 id 不可用→zip 匹配），`dl_one` 主音色查 `pre` 表兜底逐章；实测 3/3 命中。④ 发版清理规范 AGENTS 8.2.1。`[x]` ✅ v0.14.0
+29. **🎨 help 重整 + info related/audio + 色彩分层 + config 子命令** — ① help：全子命令 doc/flag 重写（search 去"并下载"、--tone 1-91 说明、flag 可操作语义），`HELP_TAILS`+`apply_help_tails` 底部 gh 式（配置段恒开、示例受 `ui.help_examples=false` 关闭），顶部注明 flag>config 优先级，简介绍不枚举子项；行为变更当次同步 help。② info 新增 `related`（相关书 CYAN/MAGENTA/BLUE + misc `真人听书版 N · AI 音色 N`）与 `audio`（AI 音色列表 + 听书版主播阵容）。③ 色彩 8 色语义分层（util 加 GREEN/BLUE/RED；ok 绿/err 红/#id 蓝/热度黄），TUI.md §2/§2.1 已同步。④ git 式 `fqdt config --list/<key>/<key> <value>/--unset`（30 键点号映射表 KEYS、ini_write 保留注释、EPIPE 走 emit_line）；新增 `ui.help_examples` 键。`[x]` ✅ v0.16.0
 
 ### 7.3 已知问题
 

@@ -142,7 +142,7 @@ pub async fn category(tab: u32, json: bool, _cfg: &Config) {
 }
 
 /// 书评列表
-pub async fn comments(book_id: &str, count: usize, offset: usize, json: bool, _cfg: &Config) {
+pub async fn comments(book_id: &str, count: usize, offset: usize, json: bool, cfg: &Config) {
     let q = format!("count={count}&offset={offset}");
     let path = format!("/api/v1/books/{book_id}/reviews");
     let Some(v) = fetch(&path, &q, "书评").await else {
@@ -172,7 +172,7 @@ pub async fn comments(book_id: &str, count: usize, offset: usize, json: bool, _c
             if u.is_empty() { get(c, "common.user_info.user_name") } else { u }
         };
         let digg = get(c, "stat.digg_count");
-        let text = clip(&get(c, "common.content.text"), 72).replace('\n', " ");
+        let text = clip(&get(c, "common.content.text"), cfg.ui_clip_len).replace('\n', " ");
         println!(
             "  {YELLOW}{}{RST} {DIM}· 赞 {digg}{RST}  {text}",
             if user.is_empty() { "匿名" } else { &user }
@@ -181,7 +181,7 @@ pub async fn comments(book_id: &str, count: usize, offset: usize, json: bool, _c
 }
 
 /// 作者资料 + 作者书单
-pub async fn author(author_id: &str, count: usize, json: bool, _cfg: &Config) {
+pub async fn author(author_id: &str, count: usize, json: bool, cfg: &Config) {
     let Some(info) = fetch(
         &format!("/api/v1/authors/{author_id}"),
         "",
@@ -218,7 +218,7 @@ pub async fn author(author_id: &str, count: usize, json: bool, _cfg: &Config) {
         if name.is_empty() { author_id } else { &name }
     );
     if !desc.is_empty() {
-        println!("  {DIM}{}{RST}", clip(&desc, 120));
+        println!("  {DIM}{}{RST}", clip(&desc, cfg.info_intro_len));
     }
     let Some(items) = bookshelf
         .as_ref()
