@@ -1,5 +1,5 @@
 use crate::types::{Config, get_home};
-use crate::util::{GREEN, RST, YELLOW};
+use crate::util::{CYAN, DIM, GREEN, RST, YELLOW};
 use std::fs;
 use std::path::PathBuf;
 
@@ -200,6 +200,120 @@ pub const KEYS: &[KeyEntry] = &[
     ("ui.color", "ui_color", "ui", Kind::Bool, |c| c.ui_color.to_string()),
     ("ui.help_examples", "ui_help_examples", "ui", Kind::Bool, |c| c.ui_help_examples.to_string()),
 ];
+
+// ===== config 键详情（`fqdt config <key> --help`，v0.17.0） =====
+
+/// 键详情：(点号键, 一句话标题, 详细说明)。
+const CONFIG_HELP: &[(&str, &str, &str)] = &[
+    ("download.concurrent", "并发下载线程数", "0=按 CPU 核数自动；上限 32。与 -j 同义，flag 优先"),
+    ("download.format", "默认输出格式", "txt 或 epub；-t/--format 同义覆盖"),
+    ("download.output_dir", "默认输出目录", "相对路径基于当前工作目录；-o 同义覆盖"),
+    ("download.filename_template", "文件名模板", "{idx04} 章序四位、{title} 章标题；占位符按序替换"),
+    ("download.verbose", "默认详细日志", "true 等价全局 -v；stdout 仍只放数据"),
+    ("cache.enabled", "文件缓存开关", "false 关闭目录/详情缓存（每次重新请求）"),
+    ("cache.ttl", "缓存有效期秒", "默认 86400（1 天）；过期条目下次请求时刷新"),
+    ("api.search_url", "第三方搜索降级源", "逗号分隔从前往后尝试；{} 换关键词与页码；fqapi 主通道失败才用"),
+    ("api.catalog_url", "第三方目录降级源", "同上；{} 换 book_id"),
+    ("api.content_url", "第三方正文降级源", "同上；{} 换 item_id；fqapi full 批量优先"),
+    ("api.batch_url", "第三方批量正文源", "已不作首选（batch 对匿名无效），仅历史兼容"),
+    ("api.detail_url", "第三方详情降级源", "{} 换 book_id；主通道为 fqapi /api/v1/books/{id}"),
+    ("api.audio_content_url", "第三方音频内容源", "两个 {}：item_id 与 tone_id；主通道 fqapi audio play"),
+    ("api.timeout", "请求超时秒", "全局默认 15；单章下载另有 10s 内层超时"),
+    ("audio.tone", "默认 AI 音色编号", "1-91；audio --tone 与 info <id> audio 查询本书可用集合"),
+    ("audio.tone_fallbacks", "音色回退列表", "主音色失败时依次尝试的编号（逗号分隔）"),
+    ("audio.abr", "MP3 压缩码率", "0=不重编码；32/64/128 kbps（需 lame 命令）"),
+    ("audio.post_process", "后处理命令模板", "{input} {output} 占位；如 lame --abr 32 {input} {output}"),
+    ("tts.rate", "Edge-TTS 语速", "如 +0% / +10%；audio --tts 时生效"),
+    ("tts.volume", "Edge-TTS 音量", "如 +0% / -20%"),
+    ("tts.pitch", "Edge-TTS 音调", "如 +0Hz / +5Hz"),
+    ("info.top_chapters", "概览前 N 章", "0=关闭该段；完整列表用 info <id> chapters"),
+    ("info.top_comments", "概览前 N 条书评", "0=关闭；完整用 info <id> comments"),
+    ("info.hot", "概览热度行开关", "false 隐藏 read_cnt_text·评分·收藏行"),
+    ("info.intro_len", "简介截断字数", "概览与 discover 描述截断；0=不显示简介"),
+    ("info.comments_count", "书评条数", "info comments 取前 N 条（0=全部）"),
+    ("info.author_count", "书单条数", "info author 推荐书单取前 N 条"),
+    ("ui.clip_len", "UI 文本截断字数", "评论/摘要/相关书作者名截断；0=不截断"),
+    ("ui.color", "彩色输出开关", "false 等价 NO_COLOR=1；非 TTY 本就纯文本"),
+    ("ui.help_examples", "help 示例段开关", "false 关闭子命令 help 底部示例段（配置段恒开）"),
+];
+
+fn kind_label(k: Kind) -> &'static str {
+    match k { Kind::Int => "整数", Kind::Bool => "布尔 true/false", Kind::Str => "字符串" }
+}
+
+/// `fqdt config <key> --help`：命中渲染详情返回 true，未命中返回 false。
+pub fn key_help(part: &str) -> bool {
+    let tail = |e: &KeyEntry| e.0.split('.').next_back().unwrap_or("");
+    let hits: Vec<&KeyEntry> = KEYS.iter()
+        .filter(|e| e.0 == part || tail(e) == part || tail(e).ends_with(part)).collect();
+    match hits.len() {
+        0 => false,
+        1 => { render_key_help(hits[0]); true }
+        _ => {
+            crate::emit_line(&format!("  {YELLOW}多个键匹配 {part}:{RST}"));
+            for e in &hits {
+                let brief = CONFIG_HELP.iter().find(|c| c.0 == e.0).map(|c| c.1).unwrap_or("");
+                crate::emit_line(&format!("    {}  {DIM}{brief}{RST}", e.0));
+            }
+            crate::emit_line(&format!("  {DIM}补全点号键后重试: fqdt config {} --help{RST}", hits[0].0));
+            true
+        }
+    }
+}
+
+/// 渲染单个 config 键的结构化详情。
+fn render_key_help(e: &KeyEntry) {
+    let (dotted, ini, sec, kind, get) = *e;
+    let help = CONFIG_HELP.iter().find(|c| c.0 == dotted);
+    let (brief, desc) = match help { Some(c) => (c.1, c.2), None => ("", "") };
+    crate::emit_line(&format!("  {CYAN}{dotted}{RST}  {YELLOW}{brief}{RST}"));
+    crate::emit_line(&format!("  {DIM}git 式: fqdt config {dotted} <value> · flag 优先于 config{RST}"));
+    crate::emit_line("");
+    crate::emit_line(&format!("    {:<4}  {}", "类型", kind_label(kind)));
+    crate::emit_line(&format!("    {:<4}  config.ini [{sec}] {ini}", "位置"));
+    crate::emit_line(&format!("    {:<4}  {}", "当前", get(&Config::load())));
+    crate::emit_line(&format!("    {:<4}  {}", "默认", get(&Config::default())));
+    if !desc.is_empty() { crate::emit_line(&format!("    {:<4}  {}", "说明", desc)); }
+    let example_val = match kind { Kind::Int => "10", Kind::Bool => "false", Kind::Str => "<值>" };
+    crate::emit_line(&format!("    {:<4}  fqdt config {dotted} {example_val}", "设置"));
+    crate::emit_line(&format!("    {:<4}  fqdt config --unset {dotted}（恢复默认）", "恢复"));
+}
+
+// ===== 登录 cookie 存取（v0.17.0） =====
+
+/// cookie 独立文件路径（不进 config.ini，防 `config --list` 泄露敏感值）。
+fn cookie_path() -> PathBuf { get_home().join(".config/fqdt/cookie") }
+
+pub fn load_cookie() -> Option<String> {
+    fs::read_to_string(cookie_path()).ok()
+        .map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+pub fn save_cookie(raw: &str) -> Result<(), String> {
+    let v = raw.trim();
+    if v.is_empty() { return Err("Cookie 为空".into()); }
+    if v.len() > 12 * 1024 || !v.bytes().all(|b| (0x20..=0x7e).contains(&b)) {
+        return Err("Cookie 只能含可打印 ASCII 且不超过 12KB".into());
+    }
+    let p = cookie_path();
+    fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
+    fs::write(&p, format!("{v}\n")).map_err(|e| e.to_string())
+}
+
+pub fn clear_cookie() -> Result<(), String> {
+    let p = cookie_path();
+    if !p.exists() { return Err("未设置过 Cookie".into()); }
+    fs::remove_file(p).map_err(|e| e.to_string())
+}
+
+/// cookie 是否含有效 session 键（与 core 校验同规则）。
+pub fn cookie_has_session(c: &str) -> bool {
+    c.split(';').any(|part| {
+        part.trim().split_once('=').is_some_and(|(k, v)| {
+            matches!(k, "sessionid" | "sessionid_ss" | "sid_tt") && !v.is_empty()
+        })
+    })
+}
 
 /// `fqdt config --list` | `<key>` | `<key> <value>` | `--unset <key>`（git config 式）。
 pub fn run_cmd(key: Option<String>, value: Option<String>, list: bool, unset: bool) {

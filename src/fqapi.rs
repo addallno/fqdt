@@ -68,6 +68,8 @@ pub const ENDPOINTS: &[Endpoint] = &[
     Endpoint { method: "GET", path: "/api/v1/series/{series_id}/comments", required: "", note: "剧评" },
     Endpoint { method: "GET", path: "/api/v1/comments/{comment_id}/replies", required: "", note: "评论回复" },
     Endpoint { method: "GET", path: "/api/v1/manga/{item_ids}", required: "", note: "漫画章节" },
+    Endpoint { method: "POST", path: "/api/v1/account/fanqie/library", required: "cookie,resource", note: "账号采集 (shelf_list/folder_list/progress_list 等, cookie 鉴权)" },
+    Endpoint { method: "POST", path: "/api/v1/account/fanqie/history", required: "cookie", note: "阅读历史 (cookie 鉴权)" },
 ];
 
 

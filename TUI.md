@@ -28,6 +28,8 @@
 - 结构：用途 → usage → flags → 底部（gh 式）：**配置对应段恒显示，示例段**受 `ui.help_examples=false` 关闭（`HELP_TAILS` + `apply_help_tails` 单点定义）。
 - **flags 先于 configs**：flag 说明在参数区先出现；顶部注明 `优先级: 命令行 flag > config.ini 同义项`。
 - help 与行为同步：子命令语义变更（如 search 改纯搜索）**当次发版必须改 doc**，不许遗留旧描述。
+- **逐 flag 详情**（v0.17.0）：四场景 `fqdt audio --tone --help`、`fqdt help audio --lrc`、`fqdt download -r --help`、`fqdt config tone --help` 由 `FLAG_HELP`（main.rs）/`CONFIG_HELP`（config.rs）单点表拦截，渲染 usage+brief+字段表（类型/取值/默认/说明/互斥）；带值的 `--tone 1 --help` 走 clap 原生子命令 help；`config <键> --help` 支持点号键（多候选列清单）。
+- **短 help 去括号**：`--help` flag 列表一行一句（可操作语义），括号里的补充移详情表；help 底部加详情引导行（`flag 详情: fqdt audio --tone --help`）。
 
 ## 3. 每个命令的四问（Vercel CLI 四问裁剪）
 任何输出都要回答：

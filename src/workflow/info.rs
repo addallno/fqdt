@@ -219,7 +219,7 @@ async fn author(book_id: &str, cfg: &Config) {
 
 /// 相关书籍 + 听书/音色 misc（`fqdt info <id> related`）。
 async fn related(book_id: &str, cfg: &Config) {
-    let misc = related_misc(book_id).await;
+    let misc_lines = related_misc(book_id).await;
     util::progress("获取相关书籍");
     let res = crate::fqapi::get_json(&format!("/api/v1/books/{book_id}/related"), "").await;
     util::clear_progress();
@@ -239,20 +239,35 @@ async fn related(book_id: &str, cfg: &Config) {
         }
     }
     if n == 0 { crate::emit_line("  （无相关书籍）"); }
-    if !misc.is_empty() { crate::emit_line(&format!("  {DIM}{misc}{RST}")); }
+    for m in &misc_lines { crate::emit_line(&format!("  {DIM}{m}{RST}")); }
 }
 
-/// related 的 misc 行：真人听书版数 + AI 音色数（取自 detail）。
-async fn related_misc(book_id: &str) -> String {
-    let Some(d) = detail_json(book_id).await else { return String::new() };
+/// related 杂项（两行）：书目（字数/章数/分类/听书量/起书时间）+ 音频（真人版数/AI 音色数）。
+async fn related_misc(book_id: &str) -> Vec<String> {
+    let Some(d) = detail_json(book_id).await else { return vec![] };
     let s = |p: &str| d.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let num = |p: &str| s(p).parse::<u64>().unwrap_or(0);
+    let mut lines = vec![];
+    let mut book = vec![];
+    let w = num("/data/word_number");
+    if w > 0 { book.push(format!("字数 {}", fmt_wan(w))); }
+    let sc = num("/data/serial_count");
+    if sc > 0 { book.push(format!("{sc}章")); }
+    let cat = s("/data/category");
+    if !cat.is_empty() { book.push(cat); }
+    let lc = num("/data/listen_count");
+    if lc > 0 { book.push(format!("听书 {}", fmt_wan(lc))); }
+    let ct = s("/data/create_time");
+    if ct.len() >= 7 { book.push(format!("{} 起", &ct[..7])); }
+    if !book.is_empty() { lines.push(book.join(" · ")); }
     let audio_n = s("/data/related_audio_bookids").trim_matches(|c| c == '[' || c == ']')
         .split(',').filter(|x| !x.trim().is_empty()).count();
     let tone_n = s("/data/tones").split(',').filter(|x| !x.trim().is_empty()).count();
-    let mut parts = vec![];
-    if audio_n > 0 { parts.push(format!("真人听书版 {audio_n}")); }
-    if tone_n > 0 { parts.push(format!("AI 音色 {tone_n}")); }
-    parts.join(" · ")
+    let mut audio = vec![];
+    if audio_n > 0 { audio.push(format!("真人听书版 {audio_n}")); }
+    if tone_n > 0 { audio.push(format!("AI 音色 {tone_n}")); }
+    if !audio.is_empty() { lines.push(audio.join(" · ")); }
+    lines
 }
 
 /// 听书版本与音色（`fqdt info <id> audio`）：AI 音色 id 列表 + 各听书版主播阵容。

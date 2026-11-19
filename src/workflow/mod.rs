@@ -1,3 +1,4 @@
+pub mod account;
 pub mod audio;
 pub mod discover;
 pub mod download;
