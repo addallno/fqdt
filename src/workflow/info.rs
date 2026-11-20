@@ -6,6 +6,121 @@ use crate::util::{self, BLUE, CYAN, DIM, GREEN, MAGENTA, RED, RST, YELLOW};
 
 const SECTIONS: &str = "chapters · intro · author · comments · cover · related · audio";
 
+/// info 目标 ID 类型（v0.18.0 智能识别，信号均经实测）。
+enum IdKind {
+    Book,
+    Chapter(Value), // items 端点响应（章节+所属书全量字段）
+    Author,
+    User(Value),    // authors 端点响应（读者公开资料）
+    Invalid,        // 三段探测均未命中
+}
+
+/// 识别 ID 类型：`_` 前缀→作者；纯数字依次探测 detail（书）→ items（章节）→ authors（用户/作者）。
+/// 信号：书=detail code0 且有 book_name；章节=items 有 item_id+title；
+/// 作者=authors is_author=true；用户=user_name 非"用户{id前8位}"占位。
+async fn identify_id(raw: &str) -> IdKind {
+    if raw.contains('_') { return IdKind::Author; }
+    if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) { return IdKind::Book; }
+    if detail_silent(raw).await.is_some() { return IdKind::Book; }
+    let items = crate::fqapi::call("GET", &format!("/api/v1/items/{raw}"), "", Vec::new())
+        .await.ok().and_then(|r| r.json().ok());
+    if let Some(v) = &items {
+        let hit = v.pointer("/data/0").map(|r| {
+            r.get("item_id").and_then(|x| x.as_str()).is_some_and(|s| !s.is_empty())
+                && r.get("title").and_then(|x| x.as_str()).is_some_and(|s| !s.is_empty())
+        }).unwrap_or(false);
+        if hit { return IdKind::Chapter(v.clone()); }
+    }
+    if let Ok(v) = crate::fqapi::get_json(&format!("/api/v1/authors/{raw}"), "").await {
+        if v.get("code").and_then(|x| x.as_i64()) == Some(0) {
+            if v.pointer("/data/is_author").and_then(|x| x.as_bool()) == Some(true) {
+                return IdKind::Author;
+            }
+            let name = v.pointer("/data/user_name").and_then(|x| x.as_str()).unwrap_or("");
+            let placeholder = format!("用户{}", &raw[..raw.len().min(8)]);
+            if !name.is_empty() && name != placeholder {
+                return IdKind::User(v);
+            }
+        }
+    }
+    IdKind::Invalid
+}
+
+/// 静默取书籍详情：code==0 且有 book_name 才算书（章节 id 会回 101109 BOOK_REMOVE）。
+async fn detail_silent(book_id: &str) -> Option<Value> {
+    let v = crate::fqapi::get_json(&format!("/api/v1/books/{book_id}"), "").await.ok()?;
+    let named = v.pointer("/data/book_name").and_then(|x| x.as_str()).is_some_and(|s| !s.is_empty());
+    (v.get("code").and_then(|x| x.as_i64()) == Some(0) && named).then_some(v)
+}
+
+/// 章节 id 卡片：章节信息 + 所属书 + 跳转指引（`--show` 附正文预览）。
+async fn chapter_card(item_id: &str, v: &Value, section: Option<&str>, show: bool, cfg: &Config) {
+    let row = v.pointer("/data/0");
+    let s = |k: &str| row.and_then(|r| r.get(k)).and_then(|x| x.as_str()).unwrap_or("");
+    let (title, book_name, author, book_id) = (s("title"), s("book_name"), s("author"), s("book_id"));
+    let volume = s("volume_name");
+    let num = |k: &str| row.and_then(|r| r.get(k))
+        .and_then(|x| x.as_i64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(0);
+    let (order, words) = (num("order"), num("chapter_word_number"));
+    let abstract_: String = s("abstract").chars().take(100).collect();
+    crate::emit_line(&format!(
+        "{GREEN}ok{RST} {CYAN}{title}{RST} · {book_name} · {MAGENTA}{author}{RST}"));
+    let mut meta = format!("  {book_name} {MAGENTA}{author}{RST} {BLUE}#{book_id}{RST}");
+    if !volume.is_empty() { meta += &format!(" · {volume}"); }
+    if order > 0 { meta += &format!(" · 序 {YELLOW}{order}{RST}"); }
+    if words > 0 { meta += &format!(" · {YELLOW}{words}{RST} 字"); }
+    if !s("tones").is_empty() { meta += &format!(" · 音色 {YELLOW}{}{RST}", s("tones")); }
+    crate::emit_line(&meta);
+    if !abstract_.is_empty() { crate::emit_line(&format!("  {DIM}{abstract_}…{RST}")); }
+    if let Some(sec) = section {
+        crate::emit_line(&format!("  {DIM}章节 id 不支持 section（{sec}），先用所属书 id{RST}"));
+    }
+    if show { show_item_text(cfg, item_id).await; }
+    crate::emit_line(&format!(
+        "  {DIM}概览 fqdt info {book_id} · 目录 fqdt info {book_id} chapters · 正文 fqdt function fetch-content {item_id}{RST}"));
+}
+
+/// 章节正文预览（同概览 show：40 行折叠 + 逃生口）。
+async fn show_item_text(cfg: &Config, item_id: &str) {
+    let api = Client::from_config(cfg, cfg.verbose);
+    match api.fetch_content(item_id).await {
+        Ok(text) => {
+            let total = text.lines().count();
+            for line in text.lines().take(40) { println!("    {line}"); }
+            if total > 40 {
+                println!("  {DIM}… 共 {total} 行 · 全文 function fetch-content {item_id}{RST}");
+            }
+        }
+        Err(e) => eprintln!("  {RED}err{RST} 获取正文失败: {e}"),
+    }
+}
+
+/// 作者 id 直达（`info 2_698…` / 裸数字 is_author=true）。
+async fn author_direct(id: &str, cfg: &Config) {
+    crate::workflow::discover::author(id, cfg.info_author_count, false, cfg).await;
+}
+
+/// 读者 uid 公开资料卡（authors 端点返回的非作者用户）。
+fn user_card(uid: &str, v: &Value) {
+    let g = |k: &str| v.pointer(&format!("/data/{k}")).and_then(|x| x.as_i64()).unwrap_or(0);
+    let name = v.pointer("/data/user_name").and_then(|x| x.as_str()).unwrap_or("?");
+    let desc = v.pointer("/data/author_desc").and_then(|x| x.as_str()).unwrap_or("");
+    let mut head = format!("{GREEN}ok{RST} {CYAN}{name}{RST} · {BLUE}#{uid}{RST}");
+    let (fans, follow, read_num) = (g("fans_num"), g("follow_user_num"), g("read_book_num"));
+    if fans + follow > 0 { head += &format!(" · 粉丝 {YELLOW}{fans}{RST} · 关注 {YELLOW}{follow}{RST}"); }
+    if read_num > 0 { head += &format!(" · 已读 {YELLOW}{read_num}{RST} 本"); }
+    if v.pointer("/data/is_author").and_then(|x| x.as_bool()) == Some(true) {
+        head += &format!(" · {MAGENTA}作者{RST}");
+    }
+    crate::emit_line(&head);
+    if !desc.is_empty() {
+        let desc: String = desc.chars().take(60).collect();
+        crate::emit_line(&format!("  {DIM}{desc}{RST}"));
+    }
+    crate::emit_line(&format!("  {DIM}读者公开资料 · 自己的资料 fqdt account user{RST}"));
+}
+
 /// # info — 书籍信息（概览 + 可选 section）
 ///
 /// 无 section：概览 = 标题/作者/热度/简介 + 前 N 章 + 前 N 条评论
@@ -25,6 +140,19 @@ pub async fn run(
     cfg: &Config,
 ) {
     let vb = verbose || cfg.verbose;
+    // ID 形态识别（v0.18.0）：章节/作者/读者 uid 直达卡片，书走原流程
+    match identify_id(book_id).await {
+        IdKind::Author => return author_direct(book_id, cfg).await,
+        IdKind::User(v) => return user_card(book_id, &v),
+        IdKind::Chapter(v) => return chapter_card(book_id, &v, section, show, cfg).await,
+        IdKind::Invalid => {
+            eprintln!("  {RED}err{RST} 无效 id: {book_id}");
+            crate::emit_line(&format!(
+                "  {DIM}支持: 书 id（19位数字）· 章节 item_id · 作者 id（N_/2_ 前缀或真实作者）· 读者 uid{RST}"));
+            return;
+        }
+        IdKind::Book => {}
+    }
     let api = Client::from_config(cfg, vb);
 
     if let Some(s) = section {

@@ -1036,6 +1036,30 @@ impl Client {
     }
 }
 
+// ── 网页端点（fanqienovel.com 带 Cookie 同源请求，account/login 用）────────
+static WEB_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+
+/// 网页端点共享客户端（webpki 根证书 + 进程内 DNS，同 Client 配置）。
+fn web_client() -> &'static reqwest::Client {
+    WEB_CLIENT.get_or_init(|| {
+        Client::tls_builder()
+            .user_agent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+            .timeout(std::time::Duration::from_secs(15))
+            .build().expect("web client 构建失败")
+    })
+}
+
+/// GET 网页端点（带 Cookie），返回响应文本。
+pub async fn http_get_cookie(url: &str, cookie: &str) -> Result<String, String> {
+    let resp = web_client().get(url)
+        .header(reqwest::header::COOKIE, cookie)
+        .send().await.map_err(|e| format!("请求失败: {e}"))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.map_err(|e| format!("读取响应: {e}"))?;
+    if status == 200 { return Ok(text); }
+    Err(format!("HTTP {status}: {}..", &text[..text.len().min(200)]))
+}
+
 fn urlencode(s: &str) -> String {
     let mut r = String::new();
     for b in s.bytes() {

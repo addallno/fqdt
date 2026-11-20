@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.17.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.18.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -588,6 +588,8 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 28. **📦 下载增强批次** — ① EPUB O(n) 重构：删 `generate`+`update_chapter`（旧每章全量重写 zip，1928章≈7GB写放大），新 `epub::write_book(title, &[(Chapter, Option<String>)], path)` 单遍一次落盘；`do_epub` 改批量取正文（fetch_content_batch + Arc<Mutex<HashMap>> 收集，失败章占位"获取失败"）。② 进度系统：`bar_style` 加 `{spinner} {percent}` + braille tick_chars；`progress()` 升级 braille 动画线程（120ms，非TTY静默）；pb `enable_steady_tick(120ms)`；阶段文案（启动 core/批量获取正文/批量获取音频信息/生成 EPUB 等）。③ 音频 playinfo 批量：`fetch_audio_batch`（逗号多 id 单请求，上游行按请求顺序对应、行内 item_id 统一填末 id 不可用→zip 匹配），`dl_one` 主音色查 `pre` 表兜底逐章；实测 3/3 命中。④ 发版清理规范 AGENTS 8.2.1。`[x]` ✅ v0.14.0
 29. **🎨 help 重整 + info related/audio + 色彩分层 + config 子命令** — ① help：全子命令 doc/flag 重写（search 去"并下载"、--tone 1-91 说明、flag 可操作语义），`HELP_TAILS`+`apply_help_tails` 底部 gh 式（配置段恒开、示例受 `ui.help_examples=false` 关闭），顶部注明 flag>config 优先级，简介绍不枚举子项；行为变更当次同步 help。② info 新增 `related`（相关书 CYAN/MAGENTA/BLUE + misc `真人听书版 N · AI 音色 N`）与 `audio`（AI 音色列表 + 听书版主播阵容）。③ 色彩 8 色语义分层（util 加 GREEN/BLUE/RED；ok 绿/err 红/#id 蓝/热度黄），TUI.md §2/§2.1 已同步。④ git 式 `fqdt config --list/<key>/<key> <value>/--unset`（30 键点号映射表 KEYS、ini_write 保留注释、EPIPE 走 emit_line）；新增 `ui.help_examples` 键。`[x]` ✅ v0.16.0
 30. **📖 逐 flag 详情 help + login/account + related 杂项** — ① help 逐 flag 详情：`fqdt audio --tone --help`、`fqdt help audio --lrc`、`fqdt download -r --help`、`fqdt config tone --help` 四场景拦截渲染格式化详情（`FLAG_HELP` 表 main.rs + `CONFIG_HELP` 表 config.rs；flag 短 help 去括号长注释，内容移详情）；`--tone 1 --help` 走 clap 原生子命令 help。② `fqdt login [COOKIE]`（--check/--clear，cookie 存 `~/.config/fqdt/cookie` 独立文件防 --list 泄露；上游无账号密码登录，登录态=浏览器复制 Cookie）。③ `fqdt account [shelf|folders|history|progress|user]`：core account 端点封装（cookie 鉴权只读），info 保持 book 语义不塞个人数据；ENDPOINTS 补两条 account。④ info related misc 行扩展杂项（字数/章数/分类/听书量/起书时间）。`[x]` ✅ v0.17.0
+31. **🔍 网页端点逆向 + account user/highlights 真资料** — 不依赖上游现成端点，自行逆向探索（来源 fysh1010/mcp-server-fanqie、naiyQAQ/fanqie-assistant、hesan1232/fanqie.koplugin）：① `api.rs` 加 `http_get_cookie`（共享 web client：webpki+进程内 DNS，Cookie 走 header）；② `account user` 从"能力说明"升级为真实资料——`/api/user/info/v2`（昵称/id/简介）+ `/reading/user/basic_info/get/v`（粉丝/关注/已读本数/累计分钟/是否作者）；③ `login --check` 只信 user/info/v2（实测假 Cookie 下 core library 也回 code:0，回退会误报成功，已去回退）；④ 新 section `account highlights`——`/reading/reader/bookmark/personal_list` 有划线的书（划线/书签/笔记计数；**遗留：未登录实测回 101003 PARAM_INVALID，盲试参数无解，待真 Cookie 验证**）。`[x]` ✅ v0.18.0
+32. **🔍 info 智能 ID 识别** — `fqdt info <id>` 自动识别四类 ID（信号全部实测）：① `_` 前缀（N_/2_）→ 作者直达 `discover::author`；② 纯数字依次探测 detail（code0+book_name=书，章节 id 回 101109 BOOK_REMOVE）→ items（有 item_id+title=章节，返回章节+所属书全量：title/book_id/order/word_number/tones/abstract）→ authors（is_author=true=作者；user_name 非"用户{id前8位}"占位=读者 uid 公开资料卡；占位=无效）；③ 章节卡片含所属书跳转指引、`--show` 正文预览（40 行折叠）；④ 无效 id 友好报错列支持形态。**遗留：真实读者裸 uid 无样本（占位保护已备），待真机验证**。`[x]` ✅ v0.18.0
 
 ### 7.3 已知问题
 

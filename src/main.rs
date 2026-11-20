@@ -55,8 +55,9 @@ enum Cmd {
     /// 查看书籍信息
     #[command(alias = "i")]
     Info {
+        #[arg(help = "id 自动识别: 书/章节 item_id/作者(N_前缀)/读者 uid")]
         book_id: String,
-        #[arg(help = "部分: chapters/intro/author/comments/cover/related/audio")]
+        #[arg(help = "部分: chapters/intro/author/comments/cover/related/audio（仅书 id）")]
         section: Option<String>,
         #[arg(short='r', long, help = "章节范围")]
         range: Option<String>,
@@ -456,7 +457,7 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("", "优先级: 命令行 flag > config.ini 同义项", ""),
     ("search", "flag 详情: fqdt search -D --help", "示例:\n  fqdt search 诡秘之主\n  fqdt search 诡秘 -D 1"),
     ("info", "配置: [info] top_chapters/top_comments/hot/intro_len/comments_count/author_count  [ui] clip_len\nflag 详情: fqdt info -r --help",
-     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters"),
+     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters\n  fqdt info <item_id>（章节卡）\n  fqdt info 2_698…（作者）"),
     ("download", "配置: [download] concurrent/format/output_dir/filename_template\nflag 详情: fqdt download -r --help",
      "示例:\n  fqdt download <book_id> -r 1-50 -t epub"),
     ("audio", "配置: [audio] tone/tone_fallbacks/abr/post_process  [tts] rate/volume/pitch\nflag 详情: fqdt audio --tone --help · fqdt help audio --lrc",
@@ -467,7 +468,7 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("init", "", ""),
     ("login", "配置: Cookie 独立存 ~/.config/fqdt/cookie（不进 config.ini）",
      "示例:\n  fqdt login '<Cookie>'\n  fqdt login --check"),
-    ("account", "", "示例:\n  fqdt account shelf\n  fqdt account folders --json"),
+    ("account", "", "示例:\n  fqdt account shelf\n  fqdt account user\n  fqdt account highlights\n  fqdt account folders --json"),
     ("config", "配置: 读写 config.ini 全部键\n键详情: fqdt config <key> --help",
      "示例:\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
     ("function", "", ""),
