@@ -11,11 +11,13 @@
 //! # CLI 调用
 //! - `fqdt login [COOKIE] [--check] [--clear]`
 //! - `fqdt account [shelf|folders|history|progress|highlights|user] [--json]`
+//! - `fqdt account --add|--remove|--check <book_id>`（云端书架增删/在架检查）
 
 use crate::config;
 use crate::util::{BLUE, CYAN, DIM, GREEN, MAGENTA, RED, RST, YELLOW};
 use crate::Config;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 /// 番茄网页端点基址（同源 Cookie 鉴权）。
 const FQ_WEB: &str = "https://fanqienovel.com";
@@ -32,8 +34,9 @@ pub async fn login(cookie: Option<String>, check: bool, clear: bool) {
         match config::save_cookie(&raw) {
             Ok(()) => {
                 crate::emit_line(&format!("{GREEN}ok{RST} Cookie 已保存 ~/.config/fqdt/cookie"));
-                if check { return verify_now().await; }
-                crate::emit_line(&format!("  {DIM}验证: fqdt login --check · 查看: fqdt account user{RST}"));
+                // 保存后立即验证，不再让用户对着提示行猜有没有生效
+                verify_now().await;
+                crate::emit_line(&format!("  {DIM}查看: fqdt account user · 清除: fqdt login --clear{RST}"));
             }
             Err(e) => eprintln!("  {RED}err{RST} {e}"),
         }
@@ -55,6 +58,13 @@ pub async fn login(cookie: Option<String>, check: bool, clear: bool) {
     }
 }
 
+/// user/info/v2 的 id 是字符串（"2253353583647107"），兼容数字两种形态。
+fn id_str(d: Option<&serde_json::Value>) -> String {
+    d.and_then(|x| x.get("id"))
+        .and_then(|x| x.as_str().map(String::from).or_else(|| x.as_u64().map(|n| n.to_string())))
+        .unwrap_or_else(|| "0".into())
+}
+
 /// 用已存 Cookie 验证登录态：网页 user/info/v2 是权威（显示昵称）。
 /// 不回退 core library——实测假 Cookie 下 library 也回 code:0，会误报成功。
 async fn verify_now() {
@@ -65,7 +75,7 @@ async fn verify_now() {
         Ok(v) => {
             let d = v.get("data");
             let name = d.and_then(|x| x.get("name")).and_then(|x| x.as_str()).unwrap_or("?");
-            let id = d.and_then(|x| x.get("id")).and_then(|x| x.as_u64()).unwrap_or(0);
+            let id = id_str(d);
             crate::emit_line(&format!("{GREEN}ok{RST} 登录有效（{CYAN}{name}{RST} · {BLUE}#{id}{RST}）"));
         }
         Err(e) => eprintln!("  {RED}err{RST} {e}"),
@@ -76,6 +86,18 @@ async fn verify_now() {
 async fn page_json(url: &str, cookie: &str) -> Result<Value, String> {
     let text = crate::api::http_get_cookie(url, cookie).await?;
     let v: Value = serde_json::from_str(&text).map_err(|_| "上游返回非 JSON".to_string())?;
+    page_check(v)
+}
+
+/// POST 网页端点（JSON body）并做统一响应判定。
+async fn page_post(url: &str, cookie: &str, body: &[u8]) -> Result<Value, String> {
+    let text = crate::api::http_post_cookie(url, cookie, body).await?;
+    let v: Value = serde_json::from_str(&text).map_err(|_| "上游返回非 JSON".to_string())?;
+    page_check(v)
+}
+
+/// 网页响应统一判定：登录失效 / 非 0 code → Err。
+fn page_check(v: Value) -> Result<Value, String> {
     let code = v.get("code").and_then(|x| x.as_i64());
     let msg = v.get("message").and_then(|x| x.as_str()).unwrap_or("");
     if code == Some(-1) || code == Some(101108) || msg.contains("登录") || msg.to_lowercase().contains("login") {
@@ -87,8 +109,20 @@ async fn page_json(url: &str, cookie: &str) -> Result<Value, String> {
     Ok(v)
 }
 
-/// `fqdt account [SECTION] [--json]`：个人数据只读展示。
-pub async fn account(section: Option<String>, json: bool, _cfg: &Config) {
+/// `fqdt account [SECTION] [--json] [--add/--remove/--check <id>]`：个人数据展示与书架增删。
+pub async fn account(section: Option<String>, json: bool,
+    add: Option<String>, remove: Option<String>, check: Option<String>, _cfg: &Config) {
+    let op = add.map(|b| ("add", b))
+        .or_else(|| remove.map(|b| ("remove", b)))
+        .or_else(|| check.map(|b| ("check", b)));
+    let Some(cookie) = config::load_cookie() else {
+        eprintln!("  {RED}err{RST} 未设置登录 Cookie");
+        crate::emit_line(&format!("  {DIM}先 fqdt login '<Cookie>'（浏览器登录 fanqienovel.com 复制）{RST}"));
+        return;
+    };
+    if let Some((op, id)) = op {
+        return shelf_op(&cookie, op, &id).await;
+    }
     let sec = section.as_deref().unwrap_or("shelf");
     match sec {
         "user" => return render_user().await,
@@ -99,11 +133,6 @@ pub async fn account(section: Option<String>, json: bool, _cfg: &Config) {
             return;
         }
     }
-    let Some(cookie) = config::load_cookie() else {
-        eprintln!("  {RED}err{RST} 未设置登录 Cookie");
-        crate::emit_line(&format!("  {DIM}先 fqdt login '<Cookie>'（浏览器登录 fanqienovel.com 复制）{RST}"));
-        return;
-    };
     if sec == "highlights" {
         util_progress("获取 highlights");
         let url = format!(
@@ -115,6 +144,7 @@ pub async fn account(section: Option<String>, json: bool, _cfg: &Config) {
             Err(e) => eprintln!("  {RED}err{RST} {e}"),
         };
     }
+    if sec == "shelf" { return shelf_section(&cookie, json).await; }
     util_progress(&format!("获取 {sec}"));
     let res = fetch_section(&cookie, sec).await;
     util_clear();
@@ -122,6 +152,166 @@ pub async fn account(section: Option<String>, json: bool, _cfg: &Config) {
         Ok(v) => render_section(&v, json, sec),
         Err(e) => eprintln!("  {RED}err{RST} {e}"),
     }
+}
+
+/// 书架展示：网页三端点合并（当前章节/进度），失败回退 core 通道。
+async fn shelf_section(cookie: &str, json: bool) {
+    util_progress("获取书架");
+    let res = fetch_shelf_web(cookie).await;
+    util_clear();
+    match res {
+        Ok(v) => render_shelf(&v, json),
+        Err(e) => {
+            eprintln!("  {DIM}网页通道失败（{e}），回退核心通道{RST}");
+            util_progress("获取书架");
+            let fb = fetch_section(cookie, "shelf").await;
+            util_clear();
+            match fb {
+                Ok(v) => render_section(&v, json, "shelf"),
+                Err(e) => eprintln!("  {RED}err{RST} {e}"),
+            }
+        }
+    }
+}
+
+/// 书架写操作 add/remove（网页 bookshelf 端点，JSON body）。
+async fn shelf_op(cookie: &str, op: &str, book_id: &str) {
+    if op == "check" { return shelf_check(cookie, book_id).await; }
+    let base = format!("{FQ_WEB}/reading/bookapi/bookshelf");
+    let path = if op == "add" { "add" } else { "delete" };
+    let body = if op == "add" {
+        json!({"add_book_source":0,"identify_data":[{"asterisked":false,"book_id":book_id,"book_type":0,"modify_time":0}]})
+    } else {
+        json!({"identify_data":[{"asterisked":false,"book_id":book_id,"book_type":0,"modify_time":ms_now()}]})
+    };
+    let url = format!("{base}/{path}/v?aid=1967");
+    match page_post(&url, cookie, body.to_string().as_bytes()).await {
+        Ok(_) => {
+            let verb = if op == "add" { "已加入书架" } else { "已移出书架" };
+            crate::emit_line(&format!("{GREEN}ok{RST} {verb} {BLUE}#{book_id}{RST}"));
+        }
+        Err(e) => eprintln!("  {RED}err{RST} {e}"),
+    }
+}
+
+/// 在架检查：data=1 在架 / 0 不在架。
+async fn shelf_check(cookie: &str, book_id: &str) {
+    let url = format!("{FQ_WEB}/reading/bookapi/bookshelf/check/v:version/?aid=1967&iid=0&version_code=57700&update_version_code=57700&book_id={book_id}");
+    match page_json(&url, cookie).await {
+        Ok(v) => {
+            let state = if v.get("data").and_then(|x| x.as_i64()) == Some(1) { "在架" } else { "不在架" };
+            crate::emit_line(&format!("{GREEN}ok{RST} {BLUE}#{book_id}{RST} {state}"));
+        }
+        Err(e) => eprintln!("  {RED}err{RST} {e}"),
+    }
+}
+
+/// 毫秒时间戳（delete 端点 modify_time 要求）。
+fn ms_now() -> u128 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis()).unwrap_or(0)
+}
+
+/// 数字字段兼容（JSON 数字或字符串数字，上游两种都有）。
+fn num_u64(v: &Value) -> Option<u64> {
+    v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+}
+
+/// 网页书架三端点合并：info（列表+分组）+ progress（进度）+ multidetail（书名/当前章节）。
+async fn fetch_shelf_web(cookie: &str) -> Result<Value, String> {
+    let ids = shelf_ids(cookie).await?;
+    let prog = shelf_prog_map(cookie).await?;
+    let det = shelf_det_map(cookie, &ids, &prog).await?;
+    let books: Vec<Value> = ids.into_iter().map(|(id, group)| {
+        let hit = prog.get(&id).cloned();
+        let (name, chapter, rc, sc) = det.get(&id).cloned().unwrap_or_default();
+        // 进度：已读章/总章优先，服务端 read_progress（万分比）兜底，都无 = 未读
+        let pct = if rc > 0 && sc > 0 { Some(rc * 100 / sc) }
+            else { hit.as_ref().map(|(_, p)| *p) };
+        json!({"book_id": id, "book_name": name, "chapter": chapter,
+               "pct": pct, "read_item_id": hit.map(|(i, _)| i).unwrap_or_default(),
+               "group": group})
+    }).collect();
+    Ok(json!({"books": books}))
+}
+
+/// 书架列表：book_id + 分组名。
+async fn shelf_ids(cookie: &str) -> Result<Vec<(String, String)>, String> {
+    let url = format!("{FQ_WEB}/reading/bookapi/bookshelf/info/v:version/?aid=1967&iid=0&version_code=57700&update_version_code=57700");
+    let v = page_json(&url, cookie).await?;
+    let arr = v.pointer("/data/book_shelf_info").and_then(|x| x.as_array())
+        .ok_or("书架结构未知")?;
+    Ok(arr.iter().filter_map(|it| {
+        let id = it.get("book_id")?.as_str()?.to_string();
+        let group = it.get("group_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        Some((id, group))
+    }).collect())
+}
+
+/// 阅读进度：book_id → (最后章节 item_id, 百分比)。
+async fn shelf_prog_map(cookie: &str) -> Result<HashMap<String, (String, u64)>, String> {
+    let v = page_json(&format!("{FQ_WEB}/api/reader/book/progress"), cookie).await?;
+    let arr = v.get("data").and_then(|x| x.as_array()).ok_or("进度结构未知")?;
+    Ok(arr.iter().filter_map(|it| {
+        let id = it.get("book_id")?.as_str()?.to_string();
+        let item = it.get("item_id").and_then(|x| x.as_str()).unwrap_or("0").to_string();
+        let pct = it.get("read_progress").and_then(num_u64).unwrap_or(0) / 100;
+        Some((id, (item, pct)))
+    }).collect())
+}
+
+/// 书籍详情批量（multidetail 分批 20，item_id 用进度端点的最后章节）：
+/// book_id → (书名, 当前章节名, 已读章序, 总章数)。
+async fn shelf_det_map(cookie: &str, ids: &[(String, String)],
+    prog: &HashMap<String, (String, u64)>) -> Result<HashMap<String, (String, String, u64, u64)>, String> {
+    let mut map = HashMap::new();
+    for chunk in ids.chunks(20) {
+        let books: Vec<Value> = chunk.iter().map(|(id, _)| {
+            let item = prog.get(id).map(|(i, _)| i.as_str()).unwrap_or("0");
+            json!({"book_id": id, "item_id": item})
+        }).collect();
+        let v = page_post(&format!("{FQ_WEB}/api/bookshelf/multidetail"), cookie,
+            json!({"books": books}).to_string().as_bytes()).await?;
+        let arr = v.pointer("/data/detail_list").and_then(|x| x.as_array()).ok_or("详情结构未知")?;
+        for it in arr {
+            let Some(id) = it.get("book_id").and_then(|x| x.as_str()) else { continue };
+            map.insert(id.to_string(), (
+                it.get("book_name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                it.get("item_show_title").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                it.get("real_chapter_order").and_then(num_u64).unwrap_or(0),
+                it.get("serial_count").and_then(num_u64).unwrap_or(0),
+            ));
+        }
+    }
+    Ok(map)
+}
+
+/// 渲染网页书架：一行一本（书名 · 当前章节 · 进度% · #id · 分组）。
+fn render_shelf(v: &Value, json: bool) {
+    if json { return crate::emit_line(&serde_json::to_string_pretty(v).unwrap_or_default()); }
+    let Some(arr) = v.get("books").and_then(|x| x.as_array()) else {
+        return eprintln!("  {RED}err{RST} 书架结构未知（--json 查看原文）");
+    };
+    if arr.is_empty() {
+        return crate::emit_line(&format!("  {DIM}书架为空（fqdt info <id> 后 account --add <id> 加书）{RST}"));
+    }
+    let mut n = 0;
+    for it in arr {
+        let s = |k: &str| it.get(k).and_then(|x| x.as_str()).unwrap_or("");
+        if s("book_name").is_empty() { continue; }
+        n += 1;
+        let mut line = format!("  {CYAN}{}{RST}", s("book_name"));
+        if !s("chapter").is_empty() { line += &format!(" · {}", s("chapter")); }
+        match it.get("pct").and_then(|x| x.as_u64()) {
+            Some(p) => line += &format!(" · {YELLOW}{p}%{RST}"),
+            None => line += &format!(" · {DIM}未读{RST}"),
+        }
+        if !s("book_id").is_empty() { line += &format!(" {BLUE}#{}{RST}", s("book_id")); }
+        if !s("group").is_empty() { line += &format!(" {DIM}· {}{RST}", s("group")); }
+        crate::emit_line(&line);
+    }
+    crate::emit_line(&format!("{GREEN}ok{RST} 书架 {n} 本"));
+    crate::emit_line(&format!("  {DIM}加: fqdt account --add <id> · 移出: --remove <id> · 检查: --check <id>{RST}"));
 }
 
 /// 按 section 组装请求并调 core 端点，返回响应 JSON。
@@ -236,7 +426,7 @@ async fn render_user() {
     };
     let d = v.get("data");
     let name = d.and_then(|x| x.get("name")).and_then(|x| x.as_str()).unwrap_or("?");
-    let id = d.and_then(|x| x.get("id")).and_then(|x| x.as_u64()).unwrap_or(0);
+    let id = id_str(d);
     let desc = d.and_then(|x| x.get("desc")).and_then(|x| x.as_str()).unwrap_or("");
     let mut head = format!("{GREEN}ok{RST} {CYAN}{name}{RST} · {BLUE}#{id}{RST}");
     if let Ok(b) = &basic {

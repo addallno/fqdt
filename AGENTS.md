@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.18.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.19.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -590,6 +590,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 30. **📖 逐 flag 详情 help + login/account + related 杂项** — ① help 逐 flag 详情：`fqdt audio --tone --help`、`fqdt help audio --lrc`、`fqdt download -r --help`、`fqdt config tone --help` 四场景拦截渲染格式化详情（`FLAG_HELP` 表 main.rs + `CONFIG_HELP` 表 config.rs；flag 短 help 去括号长注释，内容移详情）；`--tone 1 --help` 走 clap 原生子命令 help。② `fqdt login [COOKIE]`（--check/--clear，cookie 存 `~/.config/fqdt/cookie` 独立文件防 --list 泄露；上游无账号密码登录，登录态=浏览器复制 Cookie）。③ `fqdt account [shelf|folders|history|progress|user]`：core account 端点封装（cookie 鉴权只读），info 保持 book 语义不塞个人数据；ENDPOINTS 补两条 account。④ info related misc 行扩展杂项（字数/章数/分类/听书量/起书时间）。`[x]` ✅ v0.17.0
 31. **🔍 网页端点逆向 + account user/highlights 真资料** — 不依赖上游现成端点，自行逆向探索（来源 fysh1010/mcp-server-fanqie、naiyQAQ/fanqie-assistant、hesan1232/fanqie.koplugin）：① `api.rs` 加 `http_get_cookie`（共享 web client：webpki+进程内 DNS，Cookie 走 header）；② `account user` 从"能力说明"升级为真实资料——`/api/user/info/v2`（昵称/id/简介）+ `/reading/user/basic_info/get/v`（粉丝/关注/已读本数/累计分钟/是否作者）；③ `login --check` 只信 user/info/v2（实测假 Cookie 下 core library 也回 code:0，回退会误报成功，已去回退）；④ 新 section `account highlights`——`/reading/reader/bookmark/personal_list` 有划线的书（划线/书签/笔记计数；**遗留：未登录实测回 101003 PARAM_INVALID，盲试参数无解，待真 Cookie 验证**）。`[x]` ✅ v0.18.0
 32. **🔍 info 智能 ID 识别** — `fqdt info <id>` 自动识别四类 ID（信号全部实测）：① `_` 前缀（N_/2_）→ 作者直达 `discover::author`；② 纯数字依次探测 detail（code0+book_name=书，章节 id 回 101109 BOOK_REMOVE）→ items（有 item_id+title=章节，返回章节+所属书全量：title/book_id/order/word_number/tones/abstract）→ authors（is_author=true=作者；user_name 非"用户{id前8位}"占位=读者 uid 公开资料卡；占位=无效）；③ 章节卡片含所属书跳转指引、`--show` 正文预览（40 行折叠）；④ 无效 id 友好报错列支持形态。**遗留：真实读者裸 uid 无样本（占位保护已备），待真机验证**。`[x]` ✅ v0.18.0
+33. **📦 account shelf 网页通道 + 书架增删** — ① `account shelf` 升级网页端点（`/reading/bookapi/bookshelf/info/v` + `/api/reader/book/progress` + `POST /api/bookshelf/multidetail` 合并）：每行显示书名/**当前章节**/进度%（real_chapter_order/serial_count 优先，read_progress 万分比兜底，koplugin 算法），失败回退 core 通道；② 书架写操作：`fqdt account --add <book_id>` / `--remove <book_id>`（`POST /reading/bookapi/bookshelf/add/v|delete/v`，body `identify_data`，毫秒 modify_time）+ `--check <book_id>`（`GET .../check/v`，data=1/0），三 flag clap 互斥；③ api.rs 新增 `http_post_cookie`，account.rs 抽 `page_check`/`page_post` 统一判定。逆向源 naiyQAQ/fanqie-assistant bookshelf.ts + hesan1232/fanqie.koplugin bookshelf.lua；远端真 cookie 实测：info/progress/multidetail/simple-info/check/add/delete 全通、写端点往返（check1→add→check1→delete→check0）。**遗留：作者列**（网页无批量作者端点：simple/info/multidetail 均无 author，`/api/v1/books/{id}` 网页域回 HTML，逐本 core detail N 请求成本高暂不做）。`[x]` ✅ v0.19.0
 
 ### 7.3 已知问题
 

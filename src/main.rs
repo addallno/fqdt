@@ -158,12 +158,21 @@ enum Cmd {
         #[arg(long, help = "清除 Cookie")]
         clear: bool,
     },
-    /// 个人数据只读（书架/书单/阅读历史/进度，cookie 鉴权；需先 fqdt login）
+    /// 个人数据（书架/书单/阅读历史/进度，cookie 鉴权；需先 fqdt login）
     Account {
         /// 部分: shelf(默认)/folders/history/progress/user
         section: Option<String>,
         #[arg(long, help = "输出原始 JSON")]
         json: bool,
+        /// 加书到云端书架
+        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["remove", "check"])]
+        add: Option<String>,
+        /// 从云端书架移出
+        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["add", "check"])]
+        remove: Option<String>,
+        /// 检查是否在云端书架
+        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["add", "remove"])]
+        check: Option<String>,
     },
     /// 查看/修改配置（git config 式: --list / <key> / <key> <value> / --unset <key>）
     ///
@@ -546,8 +555,8 @@ async fn main() {
         Cmd::Init => { Config::save_default().ok(); println!("  {GREEN}ok{RST} ~/.config/fqdt/config.ini"); }
         Cmd::Login { cookie, check, clear } =>
             workflow::account::login(cookie, check, clear).await,
-        Cmd::Account { section, json } =>
-            workflow::account::account(section, json, &cfg).await,
+        Cmd::Account { section, json, add, remove, check } =>
+            workflow::account::account(section, json, add, remove, check, &cfg).await,
         Cmd::Config { key, value, list, unset } =>
             crate::config::run_cmd(key, value, list, unset),
         Cmd::Function { args } => run_function(args, &cfg).await,

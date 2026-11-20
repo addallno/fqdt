@@ -1060,6 +1060,20 @@ pub async fn http_get_cookie(url: &str, cookie: &str) -> Result<String, String> 
     Err(format!("HTTP {status}: {}..", &text[..text.len().min(200)]))
 }
 
+/// POST 网页端点（带 Cookie，JSON body），返回响应文本。
+pub async fn http_post_cookie(url: &str, cookie: &str, body: &[u8]) -> Result<String, String> {
+    let resp = web_client().post(url)
+        .header(reqwest::header::COOKIE, cookie)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(reqwest::header::REFERER, "https://fanqienovel.com/")
+        .body(body.to_vec())
+        .send().await.map_err(|e| format!("请求失败: {e}"))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.map_err(|e| format!("读取响应: {e}"))?;
+    if status == 200 { return Ok(text); }
+    Err(format!("HTTP {status}: {}..", &text[..text.len().min(200)]))
+}
+
 fn urlencode(s: &str) -> String {
     let mut r = String::new();
     for b in s.bytes() {

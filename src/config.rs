@@ -295,9 +295,16 @@ pub fn save_cookie(raw: &str) -> Result<(), String> {
     if v.len() > 12 * 1024 || !v.bytes().all(|b| (0x20..=0x7e).contains(&b)) {
         return Err("Cookie 只能含可打印 ASCII 且不超过 12KB".into());
     }
+    // 规范化：浏览器复制出的 `key = value`（等号带空格）会骗过 session 检测，存盘前压掉
+    let norm = v.split(';').map(str::trim).filter(|p| !p.is_empty())
+        .map(|p| match p.split_once('=') {
+            Some((k, val)) => format!("{}={}", k.trim(), val.trim()),
+            None => p.to_string(),
+        })
+        .collect::<Vec<_>>().join("; ");
     let p = cookie_path();
     fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(&p, format!("{v}\n")).map_err(|e| e.to_string())
+    fs::write(&p, format!("{norm}\n")).map_err(|e| e.to_string())
 }
 
 pub fn clear_cookie() -> Result<(), String> {
@@ -310,7 +317,7 @@ pub fn clear_cookie() -> Result<(), String> {
 pub fn cookie_has_session(c: &str) -> bool {
     c.split(';').any(|part| {
         part.trim().split_once('=').is_some_and(|(k, v)| {
-            matches!(k, "sessionid" | "sessionid_ss" | "sid_tt") && !v.is_empty()
+            matches!(k.trim(), "sessionid" | "sessionid_ss" | "sid_tt") && !v.trim().is_empty()
         })
     })
 }
