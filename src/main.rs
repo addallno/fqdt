@@ -63,6 +63,8 @@ enum Cmd {
         range: Option<String>,
         #[arg(short='s', long, help = "显示正文预览")]
         show: bool,
+        #[arg(long, help = "加入云端书架（仅书 id，展示后执行）")]
+        add: bool,
     },
     /// 下载正文（简写 d）
     #[command(alias = "d")]
@@ -165,14 +167,23 @@ enum Cmd {
         #[arg(long, help = "输出原始 JSON")]
         json: bool,
         /// 加书到云端书架
-        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["remove", "check"])]
+        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["remove", "check", "regroup"])]
         add: Option<String>,
         /// 从云端书架移出
-        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["add", "check"])]
+        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["add", "check", "regroup"])]
         remove: Option<String>,
         /// 检查是否在云端书架
-        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["add", "remove"])]
+        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["add", "remove", "regroup"])]
         check: Option<String>,
+        /// 移动书到分组（需联用 --to，组不存在则自动创建）
+        #[arg(long = "move", value_name = "BOOK_ID", requires = "to", conflicts_with_all = ["add", "remove", "check"])]
+        regroup: Option<String>,
+        /// 目标分组名（与 --move 联用）
+        #[arg(long, value_name = "GROUP", requires = "regroup")]
+        to: Option<String>,
+        /// 按书名过滤（仅 shelf，本地匹配）
+        #[arg(long, value_name = "KEYWORD")]
+        search: Option<String>,
     },
     /// 查看/修改配置（git config 式: --list / <key> / <key> <value> / --unset <key>）
     ///
@@ -466,7 +477,7 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("", "优先级: 命令行 flag > config.ini 同义项", ""),
     ("search", "flag 详情: fqdt search -D --help", "示例:\n  fqdt search 诡秘之主\n  fqdt search 诡秘 -D 1"),
     ("info", "配置: [info] top_chapters/top_comments/hot/intro_len/comments_count/author_count  [ui] clip_len\nflag 详情: fqdt info -r --help",
-     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters\n  fqdt info <item_id>（章节卡）\n  fqdt info 2_698…（作者）"),
+     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters\n  fqdt info <book_id> --add（收藏）\n  fqdt info <item_id>（章节卡）\n  fqdt info 2_698…（作者）"),
     ("download", "配置: [download] concurrent/format/output_dir/filename_template\nflag 详情: fqdt download -r --help",
      "示例:\n  fqdt download <book_id> -r 1-50 -t epub"),
     ("audio", "配置: [audio] tone/tone_fallbacks/abr/post_process  [tts] rate/volume/pitch\nflag 详情: fqdt audio --tone --help · fqdt help audio --lrc",
@@ -477,7 +488,7 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("init", "", ""),
     ("login", "配置: Cookie 独立存 ~/.config/fqdt/cookie（不进 config.ini）",
      "示例:\n  fqdt login '<Cookie>'\n  fqdt login --check"),
-    ("account", "", "示例:\n  fqdt account shelf\n  fqdt account user\n  fqdt account highlights\n  fqdt account folders --json"),
+    ("account", "", "示例:\n  fqdt account shelf\n  fqdt account user\n  fqdt account --add <book_id>\n  fqdt account --move <book_id> --to Done\n  fqdt account shelf --search 词"),
     ("config", "配置: 读写 config.ini 全部键\n键详情: fqdt config <key> --help",
      "示例:\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
     ("function", "", ""),
@@ -538,8 +549,10 @@ async fn main() {
         Cmd::Search { keyword, page, auto, dry_run, output, jobs, range, format, interval } =>
             workflow::search::run(&keyword, page, output.as_deref(), jobs, range.as_deref(),
                 format.as_deref(), verbose, auto, dry_run, interval, &cfg).await,
-        Cmd::Info { book_id, section, range, show } =>
-            workflow::info::run(&book_id, section.as_deref(), range.as_deref(), show, verbose, &cfg).await,
+        Cmd::Info { book_id, section, range, show, add } => {
+            workflow::info::run(&book_id, section.as_deref(), range.as_deref(), show, verbose, &cfg).await;
+            if add { workflow::account::add_book(&book_id).await; }
+        }
         Cmd::Download { book_id, output, range, format, jobs, force, interval } =>
             dispatch_download(book_id, output, range, format, jobs, force, verbose, interval, &cfg).await,
         Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval, real, ai, tts, voice } =>
@@ -555,8 +568,10 @@ async fn main() {
         Cmd::Init => { Config::save_default().ok(); println!("  {GREEN}ok{RST} ~/.config/fqdt/config.ini"); }
         Cmd::Login { cookie, check, clear } =>
             workflow::account::login(cookie, check, clear).await,
-        Cmd::Account { section, json, add, remove, check } =>
-            workflow::account::account(section, json, add, remove, check, &cfg).await,
+        Cmd::Account { section, json, add, remove, check, regroup, to, search } => {
+            let args = workflow::account::AccountArgs { add, remove, check, regroup, to, search };
+            workflow::account::account(section, json, args, &cfg).await;
+        }
         Cmd::Config { key, value, list, unset } =>
             crate::config::run_cmd(key, value, list, unset),
         Cmd::Function { args } => run_function(args, &cfg).await,
