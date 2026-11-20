@@ -284,6 +284,9 @@ fn render_key_help(e: &KeyEntry) {
 /// cookie 独立文件路径（不进 config.ini，防 `config --list` 泄露敏感值）。
 fn cookie_path() -> PathBuf { get_home().join(".config/fqdt/cookie") }
 
+/// 作者缓存路径（与 cookie 同目录，TTL 30 天，防 shelf --author 每次全量拉取）。
+pub fn authors_path() -> PathBuf { get_home().join(".config/fqdt/authors.json") }
+
 pub fn load_cookie() -> Option<String> {
     fs::read_to_string(cookie_path()).ok()
         .map(|s| s.trim().to_string()).filter(|s| !s.is_empty())

@@ -184,6 +184,9 @@ enum Cmd {
         /// 按书名过滤（仅 shelf，本地匹配）
         #[arg(long, value_name = "KEYWORD")]
         search: Option<String>,
+        /// 拉取每本书作者（仅 shelf，本地缓存 30 天，首次较慢）
+        #[arg(long)]
+        author: bool,
     },
     /// 查看/修改配置（git config 式: --list / <key> / <key> <value> / --unset <key>）
     ///
@@ -488,7 +491,7 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("init", "", ""),
     ("login", "配置: Cookie 独立存 ~/.config/fqdt/cookie（不进 config.ini）",
      "示例:\n  fqdt login '<Cookie>'\n  fqdt login --check"),
-    ("account", "", "示例:\n  fqdt account shelf\n  fqdt account user\n  fqdt account --add <book_id>\n  fqdt account --move <book_id> --to Done\n  fqdt account shelf --search 词"),
+    ("account", "", "示例:\n  fqdt account shelf\n  fqdt account user\n  fqdt account --add <book_id>\n  fqdt account --move <book_id> --to Done\n  fqdt account shelf --search 词\n  fqdt account shelf --author"),
     ("config", "配置: 读写 config.ini 全部键\n键详情: fqdt config <key> --help",
      "示例:\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
     ("function", "", ""),
@@ -568,8 +571,8 @@ async fn main() {
         Cmd::Init => { Config::save_default().ok(); println!("  {GREEN}ok{RST} ~/.config/fqdt/config.ini"); }
         Cmd::Login { cookie, check, clear } =>
             workflow::account::login(cookie, check, clear).await,
-        Cmd::Account { section, json, add, remove, check, regroup, to, search } => {
-            let args = workflow::account::AccountArgs { add, remove, check, regroup, to, search };
+        Cmd::Account { section, json, add, remove, check, regroup, to, search, author } => {
+            let args = workflow::account::AccountArgs { add, remove, check, regroup, to, search, author };
             workflow::account::account(section, json, args, &cfg).await;
         }
         Cmd::Config { key, value, list, unset } =>

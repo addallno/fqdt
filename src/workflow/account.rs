@@ -117,10 +117,11 @@ pub struct AccountArgs {
     pub regroup: Option<String>, // --move
     pub to: Option<String>,      // --to
     pub search: Option<String>,
+    pub author: bool,            // --author（逐本拉作者，带缓存）
 }
 
 /// `fqdt account [SECTION] [--json] [写操作 flags]`：个人数据展示与书架增删/分组。
-pub async fn account(section: Option<String>, json: bool, args: AccountArgs, _cfg: &Config) {
+pub async fn account(section: Option<String>, json: bool, args: AccountArgs, cfg: &Config) {
     let to = args.to.as_deref();
     let op = args.add.map(|b| ("add", b, None))
         .or_else(|| args.remove.map(|b| ("remove", b, None)))
@@ -151,7 +152,9 @@ pub async fn account(section: Option<String>, json: bool, args: AccountArgs, _cf
             Err(e) => eprintln!("  {RED}err{RST} {e}"),
         };
     }
-    if sec == "shelf" { return shelf_section(&cookie, json, args.search.as_deref()).await; }
+    if sec == "shelf" {
+        return shelf_section(&cookie, json, args.search.as_deref(), args.author, cfg).await;
+    }
     util_progress(&format!("获取 {sec}"));
     let res = fetch_section(&cookie, sec).await;
     util_clear();
@@ -180,9 +183,9 @@ pub async fn add_book(book_id: &str) {
 }
 
 /// 书架展示：网页三端点合并（当前章节/进度），失败回退 core 通道。
-async fn shelf_section(cookie: &str, json: bool, search: Option<&str>) {
+async fn shelf_section(cookie: &str, json: bool, search: Option<&str>, author: bool, cfg: &Config) {
     util_progress("获取书架");
-    let res = fetch_shelf_web(cookie).await;
+    let res = fetch_shelf_web(cookie, cfg, author).await;
     util_clear();
     match res {
         Ok(v) => render_shelf(&v, json, search),
@@ -258,21 +261,92 @@ fn num_u64(v: &Value) -> Option<u64> {
 }
 
 /// 网页书架三端点合并：info（列表+分组）+ progress（进度）+ multidetail（书名/当前章节）。
-async fn fetch_shelf_web(cookie: &str) -> Result<Value, String> {
+/// `with_author=true` 时逐本拉作者（core detail，本地缓存 30 天，10 并发）。
+async fn fetch_shelf_web(cookie: &str, cfg: &Config, with_author: bool) -> Result<Value, String> {
     let ids = shelf_ids(cookie).await?;
     let prog = shelf_prog_map(cookie).await?;
     let det = shelf_det_map(cookie, &ids, &prog).await?;
+    let authors = if with_author { fetch_authors(cfg, &ids).await } else { HashMap::new() };
     let books: Vec<Value> = ids.into_iter().map(|(id, group)| {
         let hit = prog.get(&id).cloned();
         let (name, chapter, rc, sc) = det.get(&id).cloned().unwrap_or_default();
         // 进度：已读章/总章优先，服务端 read_progress（万分比）兜底，都无 = 未读
         let pct = if rc > 0 && sc > 0 { Some(rc * 100 / sc) }
             else { hit.as_ref().map(|(_, p)| *p) };
-        json!({"book_id": id, "book_name": name, "chapter": chapter,
+        let mut m = json!({"book_id": id, "book_name": name, "chapter": chapter,
                "pct": pct, "read_item_id": hit.map(|(i, _)| i).unwrap_or_default(),
-               "group": group})
+               "group": group});
+        if let Some(a) = authors.get(m["book_id"].as_str().unwrap_or("")) {
+            m["author"] = json!(a);
+        }
+        m
     }).collect();
     Ok(json!({"books": books}))
+}
+
+/// 作者缓存条目（authors.json：book_id → {a: 作者, t: 秒级时间戳}，TTL 30 天）。
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AuthorEntry { a: String, t: u64 }
+
+/// 读作者缓存（缺失/损坏按空处理）。
+fn load_authors() -> HashMap<String, AuthorEntry> {
+    std::fs::read_to_string(config::authors_path()).ok()
+        .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+/// 写作者缓存（尽力而为，失败不影响展示）。
+fn save_authors(m: &HashMap<String, AuthorEntry>) {
+    if let Ok(s) = serde_json::to_string(m) {
+        let _ = std::fs::write(config::authors_path(), s);
+    }
+}
+
+/// 缓存拆分：返回 (命中 book_id→作者, 未命中 id 列表)。
+fn author_split(cache: &HashMap<String, AuthorEntry>, ids: &[String])
+    -> (HashMap<String, String>, Vec<String>) {
+    let now = (ms_now() / 1000) as u64;
+    let mut hit = HashMap::new();
+    let mut miss = Vec::new();
+    for id in ids {
+        match cache.get(id) {
+            Some(e) if now.saturating_sub(e.t) < 30 * 86400 => { hit.insert(id.clone(), e.a.clone()); }
+            _ => miss.push(id.clone()),
+        }
+    }
+    (hit, miss)
+}
+
+/// 并发拉作者：core detail 第二段（`书名|作者|...`），10 并发、8s 超时，失败降级不带作者。
+async fn fetch_authors(cfg: &Config, ids: &[(String, String)]) -> HashMap<String, String> {
+    let mut cache = load_authors();
+    let id_list: Vec<String> = ids.iter().map(|(id, _)| id.clone()).collect();
+    let (mut out, miss) = author_split(&cache, &id_list);
+    if miss.is_empty() { return out; }
+    let now = (ms_now() / 1000) as u64;
+    let api = crate::api::Client::from_config(cfg, false);
+    let mut fresh = 0usize;
+    for chunk in miss.chunks(10) {
+        let mut set = tokio::task::JoinSet::new();
+        for id in chunk {
+            let (api, id) = (api.clone(), id.clone());
+            set.spawn(async move {
+                let r = tokio::time::timeout(
+                    std::time::Duration::from_secs(8), api.fetch_detail(&id)).await;
+                (id, r)
+            });
+        }
+        while let Some(res) = set.join_next().await {
+            let Ok((id, Ok(Ok(detail)))) = res else { continue };
+            let author = detail.split('|').nth(1).unwrap_or("").to_string();
+            if !author.is_empty() {
+                cache.insert(id.clone(), AuthorEntry { a: author.clone(), t: now });
+                out.insert(id, author);
+                fresh += 1;
+            }
+        }
+    }
+    if fresh > 0 { save_authors(&cache); }
+    out
 }
 
 /// 书架列表：book_id + 分组名。
@@ -350,27 +424,52 @@ fn render_shelf(v: &Value, json: bool, search: Option<&str>) {
         let msg = if kw.is_some() { "（无匹配书目）" } else { "书架为空（fqdt info <id> --add 收藏）" };
         return crate::emit_line(&format!("  {DIM}{msg}{RST}"));
     }
+    let groups = group_rows(&items);
     let mut n = 0;
-    for it in items {
-        let s = |k: &str| it.get(k).and_then(|x| x.as_str()).unwrap_or("");
-        if s("book_name").is_empty() { continue; }
-        n += 1;
-        let mut line = format!("  {CYAN}{}{RST}", s("book_name"));
-        if !s("chapter").is_empty() { line += &format!(" · {}", s("chapter")); }
-        match it.get("pct").and_then(|x| x.as_u64()) {
-            Some(p) => line += &format!(" · {YELLOW}{p}%{RST}"),
-            None => line += &format!(" · {DIM}未读{RST}"),
+    let mut multi = 0;
+    for (g, rows) in &groups {
+        if rows.is_empty() { continue; }
+        if !g.is_empty() {
+            multi += 1;
+            crate::emit_line(&format!("  {CYAN}【{g}】{RST}"));
         }
-        if !s("book_id").is_empty() { line += &format!(" {BLUE}#{}{RST}", s("book_id")); }
-        if !s("group").is_empty() { line += &format!(" {DIM}· {}{RST}", s("group")); }
-        crate::emit_line(&line);
+        for line in rows { crate::emit_line(line); n += 1; }
     }
+    let groups_part = if multi > 1 { format!(" · {multi} 组") } else { String::new() };
     let head = match search {
-        Some(k) => format!("{GREEN}ok{RST} 书架 {n}/{} 本（匹配 \"{k}\"）", arr.len()),
-        None => format!("{GREEN}ok{RST} 书架 {n} 本"),
+        Some(k) => format!("{GREEN}ok{RST} 书架 {n}/{} 本（匹配 \"{k}\"）{groups_part}", arr.len()),
+        None => format!("{GREEN}ok{RST} 书架 {n} 本{groups_part}"),
     };
     crate::emit_line(&head);
-    crate::emit_line(&format!("  {DIM}加: fqdt account --add <id> · 移出: --remove <id> · 移组: --move <id> --to <分组>{RST}"));
+    crate::emit_line(&format!("  {DIM}加: fqdt account --add <id> · 移出: --remove <id> · 移组: --move <id> --to <分组> · 作者: --author{RST}"));
+}
+
+/// 单本书渲染行：书名 · 作者(--author 时) · 当前章节 · 进度%/#id；空书名返回 None。
+fn shelf_line(it: &Value) -> Option<String> {
+    let s = |k: &str| it.get(k).and_then(|x| x.as_str()).unwrap_or("");
+    if s("book_name").is_empty() { return None; }
+    let mut line = format!("  {CYAN}{}{RST}", s("book_name"));
+    if !s("author").is_empty() { line += &format!(" {MAGENTA}{}{RST}", s("author")); }
+    if !s("chapter").is_empty() { line += &format!(" · {}", s("chapter")); }
+    match it.get("pct").and_then(|x| x.as_u64()) {
+        Some(p) => line += &format!(" · {YELLOW}{p}%{RST}"),
+        None => line += &format!(" · {DIM}未读{RST}"),
+    }
+    if !s("book_id").is_empty() { line += &format!(" {BLUE}#{}{RST}", s("book_id")); }
+    Some(line)
+}
+
+/// 按 group 分节（保持首次出现顺序）：返回 (组名, 渲染行列表)。
+fn group_rows(items: &[&Value]) -> Vec<(String, Vec<String>)> {
+    let mut order: Vec<String> = Vec::new();
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for it in items {
+        let Some(line) = shelf_line(it) else { continue };
+        let g = it.get("group").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        if !map.contains_key(&g) { order.push(g.clone()); }
+        map.entry(g).or_default().push(line);
+    }
+    order.into_iter().map(|g| (g.clone(), map.remove(&g).unwrap_or_default())).collect()
 }
 
 /// 按 section 组装请求并调 core 端点，返回响应 JSON。
