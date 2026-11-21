@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.21.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.22.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -593,6 +593,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 33. **📦 account shelf 网页通道 + 书架增删** — ① `account shelf` 升级网页端点（`/reading/bookapi/bookshelf/info/v` + `/api/reader/book/progress` + `POST /api/bookshelf/multidetail` 合并）：每行显示书名/**当前章节**/进度%（real_chapter_order/serial_count 优先，read_progress 万分比兜底，koplugin 算法），失败回退 core 通道；② 书架写操作：`fqdt account --add <book_id>` / `--remove <book_id>`（`POST /reading/bookapi/bookshelf/add/v|delete/v`，body `identify_data`，毫秒 modify_time）+ `--check <book_id>`（`GET .../check/v`，data=1/0），三 flag clap 互斥；③ api.rs 新增 `http_post_cookie`，account.rs 抽 `page_check`/`page_post` 统一判定。逆向源 naiyQAQ/fanqie-assistant bookshelf.ts + hesan1232/fanqie.koplugin bookshelf.lua；远端真 cookie 实测：info/progress/multidetail/simple-info/check/add/delete 全通、写端点往返（check1→add→check1→delete→check0）。**遗留：作者列**（网页无批量作者端点：simple/info/multidetail 均无 author，`/api/v1/books/{id}` 网页域回 HTML，逐本 core detail N 请求成本高暂不做）。`[x]` ✅ v0.19.0
 34. **📦 书架整理三连（info 收藏 / shelf 过滤 / 分组移动）** — ① `fqdt info <id> --add`：概览展示后直接收藏（复用 shelf_op add）；② `fqdt account shelf --search <词>`：书名本地模糊过滤（147 本大书架可用性，收据显示 `n/总数`，--json 同步过滤）；③ `fqdt account --move <book_id> --to <group>`：分组移动（`POST /reading/bookapi/bookshelf/update/v?aid=1967`，body `book_data[{asterisked,book_id,book_type,group_name,has_shown,is_pin,modify_time}]`，两 flag clap 互 requires，**实测 group_name 为目标组名、组不存在服务端自动建组**（响应 `new_booklist_name_id_map`），测试书 Reading→Done→Reading 往返通过）；④ help 示例段补 account 写操作与 info --add。**遗留：account 参数改 `AccountArgs` struct 收拢（7 参数签名爆炸）**。`[x]` ✅ v0.20.0
 35. **📦 shelf 分组视图 + 作者列 + highlights 修复** — ① shelf 按 `group` 分节渲染（`【组名】` 分区头，TUI.md §5，保持首次出现顺序，多组时尾行加 `· N 组`）；② 作者列：`fqdt account shelf --author` 才拉——core detail 第二段（`书名|作者|...`）逐本并发（JoinSet 分批 10、8s 超时降级不带作者），本地缓存 `~/.config/fqdt/authors.json`（{id:{a,t}}，TTL 30 天，config.rs `authors_path()`），行内 `CYAN书名 MAGENTA作者`；③ highlights 101003 **结论：非参数问题**——真 cookie 下现有 URL 直接 `code:0`（21 本划线，结构 `{bookmark_num/underline_num/notes_num, data:{book_id,book_name,author}}` 与 render_highlights 已匹配），101003 是未登录态的登录检测，**零代码改动，仅需真机验证**。`[x]` ✅ v0.21.0
+36. **📦 统一存储 store.json** — 运行时状态收进单一 JSON（`~/.config/fqdt/store.json`，0600，原子写 tmp+rename）：① cookie（{value,saved_at}，替代纯文本 cookie 文件）；② 本地书架 bookmarks（替代 `books.txt` 的 `id:title` 行格式）；③ 作者缓存 authors（替代 authors.json）；④ **shelf 快照**（{books,fetched_at}，TTL 600s——离线可看上次书架+秒开，网络成功时刷新）。新模块 `src/store.rs`：`load()/save()` 首启自动迁移旧格式（旧文件改 `.bak` 备份），损坏时回退默认不崩溃。**不收**：config.ini（人手编+git式子命令已成熟）、cache/（性能层）、info.list（跟书目录走）。收益：单点管理、权限统一、后续新状态字段直接加 key。`[x]` ✅ v0.22.0
 
 ### 7.3 已知问题
 

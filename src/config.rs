@@ -281,16 +281,8 @@ fn render_key_help(e: &KeyEntry) {
 
 // ===== 登录 cookie 存取（v0.17.0） =====
 
-/// cookie 独立文件路径（不进 config.ini，防 `config --list` 泄露敏感值）。
-fn cookie_path() -> PathBuf { get_home().join(".config/fqdt/cookie") }
-
-/// 作者缓存路径（与 cookie 同目录，TTL 30 天，防 shelf --author 每次全量拉取）。
-pub fn authors_path() -> PathBuf { get_home().join(".config/fqdt/authors.json") }
-
-pub fn load_cookie() -> Option<String> {
-    fs::read_to_string(cookie_path()).ok()
-        .map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
-}
+/// cookie 存取走统一 store.json（此处只做校验与规范化）。
+pub fn load_cookie() -> Option<String> { crate::store::cookie_get() }
 
 pub fn save_cookie(raw: &str) -> Result<(), String> {
     let v = raw.trim();
@@ -305,16 +297,10 @@ pub fn save_cookie(raw: &str) -> Result<(), String> {
             None => p.to_string(),
         })
         .collect::<Vec<_>>().join("; ");
-    let p = cookie_path();
-    fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(&p, format!("{norm}\n")).map_err(|e| e.to_string())
+    crate::store::cookie_set(norm)
 }
 
-pub fn clear_cookie() -> Result<(), String> {
-    let p = cookie_path();
-    if !p.exists() { return Err("未设置过 Cookie".into()); }
-    fs::remove_file(p).map_err(|e| e.to_string())
-}
+pub fn clear_cookie() -> Result<(), String> { crate::store::cookie_clear() }
 
 /// cookie 是否含有效 session 键（与 core 校验同规则）。
 pub fn cookie_has_session(c: &str) -> bool {
@@ -402,37 +388,12 @@ fn ini_write(path: &std::path::Path, ini_key: &str, section: &str, val: &str) ->
     fs::write(path, out).map_err(|e| e.to_string())
 }
 
-pub fn load_bookmarks() -> Vec<(String, String)> {
-    let path = get_home().join(".config/fqdt/books.txt");
-    let mut books = vec![];
-    if let Ok(text) = fs::read_to_string(&path) {
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() { continue; }
-            if let Some((id, title)) = line.split_once(':') {
-                books.push((id.trim().into(), title.trim().into()));
-            }
-        }
-    }
-    books
-}
+pub fn load_bookmarks() -> Vec<(String, String)> { crate::store::bookmarks() }
 
-pub fn add_bookmark(id: &str, title: &str) -> Result<(), String> {
-    let path = get_home().join(".config/fqdt/books.txt");
-    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    let mut text = String::new();
-    if let Ok(t) = fs::read_to_string(&path) { text = t; }
-    text.push_str(&format!("{}:{}\n", id, title));
-    fs::write(&path, text).map_err(|e| e.to_string())
-}
+pub fn add_bookmark(id: &str, title: &str) -> Result<(), String> { crate::store::bookmark_add(id, title) }
 
+/// 按 1-based 编号移除（shelf --del 语义）。
 pub fn remove_bookmark(idx: usize) -> Result<(), String> {
-    let path = get_home().join(".config/fqdt/books.txt");
-    let books = load_bookmarks();
-    if idx == 0 || idx > books.len() { return Err("无效编号".into()); }
-    let mut out = String::new();
-    for (i, (id, t)) in books.iter().enumerate() {
-        if i + 1 != idx { out.push_str(&format!("{}:{}\n", id, t)); }
-    }
-    fs::write(&path, out).map_err(|e| e.to_string())
+    if idx == 0 { return Err("无效编号".into()); }
+    crate::store::bookmark_remove(idx - 1).map(|_| ()).ok_or_else(|| "无效编号".into())
 }

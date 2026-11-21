@@ -182,15 +182,29 @@ pub async fn add_book(book_id: &str) {
     shelf_op(&cookie, "add", book_id, None).await;
 }
 
-/// 书架展示：网页三端点合并（当前章节/进度），失败回退 core 通道。
+/// 书架展示：快照秒开（store.json TTL 600s，离线兜底）→ 网页三端点合并 → core 回退。
 async fn shelf_section(cookie: &str, json: bool, search: Option<&str>, author: bool, cfg: &Config) {
+    // 快照命中：新鲜（或不要求作者/快照已含作者）→ 直接渲染，零网络
+    if let Some((v, fresh)) = crate::store::shelf_snap() {
+        let has_author = v.get("books").and_then(|x| x.as_array())
+            .is_some_and(|a| a.iter().any(|b| b.get("author").is_some()));
+        if fresh && (!author || has_author) { return render_shelf(&v, json, search); }
+    }
     util_progress("获取书架");
     let res = fetch_shelf_web(cookie, cfg, author).await;
     util_clear();
     match res {
-        Ok(v) => render_shelf(&v, json, search),
+        Ok(v) => {
+            let _ = crate::store::shelf_snap_set(v.clone());
+            render_shelf(&v, json, search);
+        }
         Err(e) => {
             eprintln!("  {DIM}网页通道失败（{e}），回退核心通道{RST}");
+            // 网络不可用时的离线兜底：上次快照（字段比 core 全，优先于 core）
+            if let Some((v, _)) = crate::store::shelf_snap() {
+                eprintln!("  {DIM}显示上次书架快照（store.json）{RST}");
+                return render_shelf(&v, json, search);
+            }
             util_progress("获取书架");
             let fb = fetch_section(cookie, "shelf").await;
             util_clear();
@@ -284,25 +298,8 @@ async fn fetch_shelf_web(cookie: &str, cfg: &Config, with_author: bool) -> Resul
     Ok(json!({"books": books}))
 }
 
-/// 作者缓存条目（authors.json：book_id → {a: 作者, t: 秒级时间戳}，TTL 30 天）。
-#[derive(serde::Serialize, serde::Deserialize)]
-struct AuthorEntry { a: String, t: u64 }
-
-/// 读作者缓存（缺失/损坏按空处理）。
-fn load_authors() -> HashMap<String, AuthorEntry> {
-    std::fs::read_to_string(config::authors_path()).ok()
-        .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
-}
-
-/// 写作者缓存（尽力而为，失败不影响展示）。
-fn save_authors(m: &HashMap<String, AuthorEntry>) {
-    if let Ok(s) = serde_json::to_string(m) {
-        let _ = std::fs::write(config::authors_path(), s);
-    }
-}
-
-/// 缓存拆分：返回 (命中 book_id→作者, 未命中 id 列表)。
-fn author_split(cache: &HashMap<String, AuthorEntry>, ids: &[String])
+/// 缓存拆分：返回 (命中 book_id→作者, 未命中 id 列表)。缓存读写统一走 store.json。
+fn author_split(cache: &HashMap<String, crate::store::AuthorEntry>, ids: &[String])
     -> (HashMap<String, String>, Vec<String>) {
     let now = (ms_now() / 1000) as u64;
     let mut hit = HashMap::new();
@@ -318,7 +315,7 @@ fn author_split(cache: &HashMap<String, AuthorEntry>, ids: &[String])
 
 /// 并发拉作者：core detail 第二段（`书名|作者|...`），10 并发、8s 超时，失败降级不带作者。
 async fn fetch_authors(cfg: &Config, ids: &[(String, String)]) -> HashMap<String, String> {
-    let mut cache = load_authors();
+    let mut cache = crate::store::authors_load();
     let id_list: Vec<String> = ids.iter().map(|(id, _)| id.clone()).collect();
     let (mut out, miss) = author_split(&cache, &id_list);
     if miss.is_empty() { return out; }
@@ -339,13 +336,13 @@ async fn fetch_authors(cfg: &Config, ids: &[(String, String)]) -> HashMap<String
             let Ok((id, Ok(Ok(detail)))) = res else { continue };
             let author = detail.split('|').nth(1).unwrap_or("").to_string();
             if !author.is_empty() {
-                cache.insert(id.clone(), AuthorEntry { a: author.clone(), t: now });
+                cache.insert(id.clone(), crate::store::AuthorEntry { a: author.clone(), t: now });
                 out.insert(id, author);
                 fresh += 1;
             }
         }
     }
-    if fresh > 0 { save_authors(&cache); }
+    if fresh > 0 { let _ = crate::store::authors_save(cache); }
     out
 }
 

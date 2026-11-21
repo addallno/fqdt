@@ -4,6 +4,7 @@ mod config;
 mod download;
 mod epub;
 mod fqapi;
+mod store;
 mod types;
 mod util;
 mod workflow;
