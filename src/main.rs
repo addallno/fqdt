@@ -17,15 +17,15 @@ use std::path::Path;
 #[derive(Parser)]
 #[command(name = "fqdt", version, about = "番茄小说下载器")]
 struct Cli {
-    #[arg(long, global = true, help = "搜索 API 源 (逗号分隔；覆盖 config api.search_url)")]
+    #[arg(long, global = true, help = "搜索 API 源 ")]
     search_url: Option<String>,
-    #[arg(long, global = true, help = "目录 API 源 (覆盖 config api.catalog_url)")]
+    #[arg(long, global = true, help = "目录 API 源 ")]
     catalog_url: Option<String>,
-    #[arg(long, global = true, help = "内容 API 源 (覆盖 config api.content_url)")]
+    #[arg(long, global = true, help = "内容 API 源 ")]
     content_url: Option<String>,
-    #[arg(long, global = true, help = "请求超时秒 (覆盖 config api.timeout)")]
+    #[arg(long, global = true, help = "请求超时秒 ")]
     timeout: Option<u64>,
-    #[arg(short = 'v', long, global = true, help = "详细日志 (core 日志 stderr 镜像 + 请求详情)")]
+    #[arg(short = 'v', long, global = true, help = "详细日志 ")]
     verbose: bool,
     #[command(subcommand)]
     cmd: Cmd,
@@ -33,16 +33,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// 搜索小说（纯列表展示）
+    /// 搜索小说
     Search {
         keyword: String,
         #[arg(short='p', long, default_value="1", help = "页码")]
         page: usize,
         #[arg(short='D', long, help = "自动下载第 N 本结果")]
         auto: Option<usize>,
-        #[arg(long, help = "仅展示搜索结果 (默认)")]
+        #[arg(long, help = "仅展示搜索结果 ")]
         dry_run: bool,
-        #[arg(short='o', long, help = "输出目录 (配合 -D)")]
+        #[arg(short='o', long, help = "输出目录 ")]
         output: Option<String>,
         #[arg(short='j', long, help = "并发数")]
         jobs: Option<usize>,
@@ -56,21 +56,21 @@ enum Cmd {
     /// 查看书籍信息
     #[command(alias = "i")]
     Info {
-        #[arg(help = "id 自动识别: 书/章节 item_id/作者(N_前缀)/读者 uid")]
+        #[arg(help = "id 自动识别: 书/章节 item_id/作者/读者 uid")]
         book_id: String,
-        #[arg(help = "部分: chapters/intro/author/comments/cover/related/audio（仅书 id）")]
+        #[arg(help = "部分: chapters/intro/author/comments/cover/related/audio")]
         section: Option<String>,
         #[arg(short='r', long, help = "章节范围")]
         range: Option<String>,
         #[arg(short='s', long, help = "显示正文预览")]
         show: bool,
-        #[arg(long, help = "加入云端书架（仅书 id，展示后执行）")]
+        #[arg(long, help = "加入云端书架")]
         add: bool,
     },
-    /// 下载正文（简写 d）
+    /// 下载正文
     #[command(alias = "d")]
     Download {
-        #[arg(help = "book_id 或书名关键词 (多结果时选择序号)")]
+        #[arg(help = "book_id 或书名关键词 ")]
         book_id: String,
         #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
@@ -85,7 +85,7 @@ enum Cmd {
         #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
     },
-    /// 下载语音（简写 a）
+    /// 下载语音
     #[command(alias = "a")]
     Audio {
         book_id: String,
@@ -112,7 +112,7 @@ enum Cmd {
         #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音名")]
         voice: String,
     },
-    /// 增量更新已下载的书籍（简写 u）
+    /// 增量更新已下载的书籍
     #[command(alias = "u")]
     Update {
         target: String,
@@ -125,7 +125,7 @@ enum Cmd {
         #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
     },
-    /// 文本转语音（简写 t）
+    /// 文本转语音
     #[command(alias = "t")]
     Tts {
         path: String,
@@ -134,7 +134,7 @@ enum Cmd {
         #[arg(short='j', long, help = "并发数")]
         jobs: Option<usize>,
     },
-    /// 书架管理（简写 s）
+    /// 书架管理
     #[command(alias = "s")]
     Shelf {
         #[arg(short='a', long)]
@@ -148,22 +148,22 @@ enum Cmd {
     },
     /// 生成默认配置文件
     Init,
-    /// 登录态管理（Cookie 来自浏览器登录 fanqienovel.com 复制）
+    /// 登录态管理
     ///
     /// 上游无账号密码登录；Cookie 存 ~/.config/fqdt/cookie 独立文件。
     Login {
-        /// Cookie 字符串（省略则显示当前状态）
+        /// Cookie 字符串
         cookie: Option<String>,
         /// 用当前 Cookie 请求书架验证登录态
-        #[arg(long, help = "验证登录态（请求书架列表）")]
+        #[arg(long, help = "验证登录态")]
         check: bool,
         /// 清除已保存的 Cookie
         #[arg(long, help = "清除 Cookie")]
         clear: bool,
     },
-    /// 个人数据（书架/书单/阅读历史/进度，cookie 鉴权；需先 fqdt login）
+    /// 个人数据
     Account {
-        /// 部分: shelf(默认)/folders/history/progress/user
+        /// 部分: shelf/folders/history/progress/user
         section: Option<String>,
         #[arg(long, help = "输出原始 JSON")]
         json: bool,
@@ -176,54 +176,54 @@ enum Cmd {
         /// 检查是否在云端书架
         #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["add", "remove", "regroup"])]
         check: Option<String>,
-        /// 移动书到分组（需联用 --to，组不存在则自动创建）
+        /// 移动书到分组
         #[arg(long = "move", value_name = "BOOK_ID", requires = "to", conflicts_with_all = ["add", "remove", "check"])]
         regroup: Option<String>,
-        /// 目标分组名（与 --move 联用）
+        /// 目标分组名
         #[arg(long, value_name = "GROUP", requires = "regroup")]
         to: Option<String>,
-        /// 按书名过滤（仅 shelf，本地匹配）
+        /// 关键词过滤，shelf/progress/history/folders 可用
         #[arg(long, value_name = "KEYWORD")]
         search: Option<String>,
-        /// 拉取每本书作者（仅 shelf，本地缓存 30 天，首次较慢）
+        /// 拉取每本书作者
         #[arg(long)]
         author: bool,
     },
-    /// 查看/修改配置（git config 式: --list / <key> / <key> <value> / --unset <key>）
+    /// 查看/修改配置
     ///
     /// 键为点号形式，如 info.top_chapters、audio.abr、ui.clip_len
     Config {
-        /// 键（点号形式）
+        /// 键
         key: Option<String>,
-        /// 新值（缺省为读取）
+        /// 新值
         value: Option<String>,
         #[arg(long, help = "列出全部键值")]
         list: bool,
-        #[arg(long, help = "删除该键（恢复默认）")]
+        #[arg(long, help = "删除该键")]
         unset: bool,
     },
-    /// 小工具集 + 函数管道（简写 fn）
+    /// 小工具集 + 函数管道
     #[command(name = "function", alias = "fn")]
     Function {
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         args: Vec<String>,
     },
-    /// 透传调用 fqapi 端点 (gh api 式)
+    /// 透传调用 fqapi 端点 
     ///
     /// 路径如 /api/v1/books/{id}/directory，query 拼在 ? 后或用 -q 追加。
     Api {
-        /// 端点路径（含可选 ?query）
+        /// 端点路径
         path: Option<String>,
         /// HTTP 方法
         #[arg(short = 'X', long, default_value = "GET", help = "HTTP 方法")]
         method: String,
-        /// 追加查询参数 k=v（可重复）
+        /// 追加查询参数 k=v
         #[arg(short = 'q', long = "query", value_name = "K=V", help = "查询参数")]
         query: Vec<String>,
-        /// 请求体（POST/PUT 用）
+        /// 请求体
         #[arg(short = 'd', long = "data", help = "请求体")]
         data: Option<String>,
-        /// 简易 JSON 提取（.a.b[0].c 形式，字符串无引号输出）
+        /// 简易 JSON 提取
         #[arg(long = "jq", help = "JSON 字段提取路径")]
         jq: Option<String>,
         /// stderr 打印 HTTP 状态码
@@ -235,7 +235,7 @@ enum Cmd {
     },
     /// 首页推荐流
     Recommend {
-        #[arg(long, default_value = "2", help = "区块类型 (2 推荐/25 小说/11 经典/5 听书)")]
+        #[arg(long, default_value = "2", help = "区块类型 ")]
         tab_type: u32,
         #[arg(long, default_value = "0", help = "区块索引")]
         tab_index: u32,
@@ -244,37 +244,21 @@ enum Cmd {
         #[arg(long, help = "输出原始 JSON")]
         json: bool,
     },
-    /// 分类列表（男频/女频/出版/听书）
+    /// 分类列表
     Category {
         #[arg(long, default_value = "1", help = "1 男频 / 2 女频 / 3 出版 / 4 听书")]
         tab: u32,
         #[arg(long, help = "输出原始 JSON")]
         json: bool,
     },
-    /// 对外 HTTP 服务（复用 fqapi-core server，Ctrl-C 退出）
+    /// 对外 HTTP 服务
     Serve {
         #[arg(long, default_value = "18921", help = "监听端口")]
         port: u16,
-        #[arg(long, help = "监听局域网地址（默认仅本机回环）")]
+        #[arg(long, help = "监听局域网地址")]
         lan: bool,
     },
-    /// [兼容] 统一下载命令
-    #[command(hide = true)]
-    Get {
-        target: Option<String>,
-        #[arg(short='o', long)] output: Option<String>,
-        #[arg(short='r', long)] range: Option<String>,
-        #[arg(short='t', long)] format: Option<String>,
-        #[arg(short='j', long)] jobs: Option<usize>,
-        #[arg(short='f', long)] force: bool,
-        #[arg(long)] audio: bool,
-        #[arg(long)] audio_only: bool,
-        #[arg(long, default_value = "1")] tone: usize,
-        #[arg(long)] lrc: Option<String>,
-        #[arg(long)] update: bool,
-        #[arg(short='i', long, default_value = "0")] interval: u64,
-    },
-    /// 自定义命令（来自 config.ini [workflow_cmd]）
+    /// 自定义命令
     #[command(external_subcommand)]
     Custom(Vec<String>),
 }
@@ -296,10 +280,10 @@ const SHORTS: &[(&str, &str)] = &[
 const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
     ("audio", "--tone", FlagDoc { brief: "AI 音色编号", takes_value: true, fields: &[
         ("类型", "整数"),
-        ("取值", "1-91，默认 1（可被 config audio.tone 覆盖）"),
+        ("取值", "默认 1；常见 1 甜美少女 · 2 清亮青叔 · 4 成熟大叔 · 5 开朗青年 · 6 温柔淑女 · 74 大叔升级 · 51 多人发音"),
         ("说明", "文字版 AI 朗读音色；各书可用集合不同"),
         ("查询", "fqdt info <book_id> audio 查看本书可用编号"),
-        ("配置", "config.ini [audio] audio_tone（fqdt config audio.tone）"),
+        ("配置", "config.ini [audio] audio_tone"),
         ("示例", "fqdt audio <book_id> --tone 6"),
         ("相关", "--ai --real --tts"),
     ]}),
@@ -312,7 +296,7 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("相关", "--tts"),
     ]}),
     ("audio", "--real", FlagDoc { brief: "真人讲书版", takes_value: false, fields: &[
-        ("说明", "自动发现最热真人听书版（related_audio_bookids 中听书量最大的 book_type=1）"),
+        ("说明", "自动发现最热真人听书版"),
         ("互斥", "--ai --tts"),
         ("示例", "fqdt audio <book_id> --real"),
         ("查询", "fqdt info <book_id> related 查看该书真人版"),
@@ -324,7 +308,7 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("相关", "--tone --real"),
     ]}),
     ("audio", "--tts", FlagDoc { brief: "Edge-TTS 本地合成", takes_value: false, fields: &[
-        ("说明", "先下载正文 txt 再本地合成 MP3；需安装 edge-tts（pip install --user --break-system-packages edge-tts）"),
+        ("说明", "先下载正文 txt 再本地合成 MP3；需安装 edge-tts"),
         ("互斥", "--real --ai"),
         ("示例", "fqdt audio <book_id> --tts --voice zh-CN-YunxiNeural"),
         ("相关", "--voice"),
@@ -345,14 +329,14 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
     ]}),
     ("download", "--format", FlagDoc { brief: "输出格式", takes_value: true, fields: &[
         ("类型", "字符串"),
-        ("取值", "txt（默认）/ epub"),
-        ("配置", "config.ini [download] format（fqdt config download.format）"),
+        ("取值", "txt/ epub"),
+        ("配置", "config.ini [download] format"),
         ("示例", "fqdt download <book_id> -t epub"),
     ]}),
     ("download", "--jobs", FlagDoc { brief: "并发数", takes_value: true, fields: &[
         ("类型", "整数"),
         ("默认", "按 CPU 核数"),
-        ("配置", "config.ini [download] concurrent（fqdt config download.concurrent）"),
+        ("配置", "config.ini [download] concurrent"),
         ("示例", "fqdt download <book_id> -j 4"),
     ]}),
     ("download", "--force", FlagDoc { brief: "强制覆盖", takes_value: false, fields: &[
@@ -361,19 +345,19 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
     ]}),
     ("download", "--interval", FlagDoc { brief: "请求间隔毫秒", takes_value: true, fields: &[
         ("类型", "整数"),
-        ("默认", "0（不限速）"),
+        ("默认", "0"),
         ("说明", "每章请求之间的等待，限速用"),
         ("示例", "fqdt download <book_id> -i 500"),
     ]}),
     ("search", "--auto", FlagDoc { brief: "自动下载第 N 本", takes_value: true, fields: &[
-        ("类型", "整数（1-based）"),
+        ("类型", "整数"),
         ("说明", "跳过交互选择，直接下载第 N 条结果；配合 -o/-r/-t"),
         ("示例", "fqdt search 诡秘 -D 1"),
         ("相关", "-o -r -t"),
     ]}),
     ("search", "--page", FlagDoc { brief: "页码", takes_value: true, fields: &[
         ("类型", "整数"),
-        ("默认", "1（每页 10 本）"),
+        ("默认", "1"),
         ("示例", "fqdt search 诡秘 -p 2"),
     ]}),
     ("search", "--range", FlagDoc { brief: "章节范围", takes_value: true, fields: &[
@@ -384,7 +368,7 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
     ]}),
     ("search", "--format", FlagDoc { brief: "输出格式", takes_value: true, fields: &[
         ("类型", "字符串"),
-        ("取值", "txt（默认）/ epub"),
+        ("取值", "txt/ epub"),
         ("说明", "仅 -D 自动下载时生效"),
         ("示例", "fqdt search 诡秘 -D 1 -t epub"),
     ]}),
@@ -401,12 +385,12 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("示例", "fqdt info <book_id> chapters -r 1-50"),
     ]}),
     ("info", "--show", FlagDoc { brief: "正文预览", takes_value: false, fields: &[
-        ("说明", "概览前列章节附带正文（前 40 行折叠，完整用 function fetch-content）"),
+        ("说明", "概览前列章节附带正文"),
         ("示例", "fqdt info <book_id> --show"),
     ]}),
 ];
 
-/// 子命令别名 → 主名（表内统一用主名）。
+/// 子命令别名 → 主名。
 fn canonical_sub(s: &str) -> &str {
     match s {
         "a" => "audio", "d" => "download", "i" => "info", "s" => "shelf",
@@ -481,7 +465,7 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("", "优先级: 命令行 flag > config.ini 同义项", ""),
     ("search", "flag 详情: fqdt search -D --help", "示例:\n  fqdt search 诡秘之主\n  fqdt search 诡秘 -D 1"),
     ("info", "配置: [info] top_chapters/top_comments/hot/intro_len/comments_count/author_count  [ui] clip_len\nflag 详情: fqdt info -r --help",
-     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters\n  fqdt info <book_id> --add（收藏）\n  fqdt info <item_id>（章节卡）\n  fqdt info 2_698…（作者）"),
+     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters\n  fqdt info <book_id> --add\n  fqdt info <item_id>\n  fqdt info 2_698…"),
     ("download", "配置: [download] concurrent/format/output_dir/filename_template\nflag 详情: fqdt download -r --help",
      "示例:\n  fqdt download <book_id> -r 1-50 -t epub"),
     ("audio", "配置: [audio] tone/tone_fallbacks/abr/post_process  [tts] rate/volume/pitch\nflag 详情: fqdt audio --tone --help · fqdt help audio --lrc",
@@ -490,9 +474,9 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("tts", "配置: [tts] rate/volume/pitch", "示例:\n  fqdt tts book.txt"),
     ("shelf", "", ""),
     ("init", "", ""),
-    ("login", "配置: Cookie 独立存 ~/.config/fqdt/cookie（不进 config.ini）",
+    ("login", "配置: Cookie 独立存 ~/.config/fqdt/cookie",
      "示例:\n  fqdt login '<Cookie>'\n  fqdt login --check"),
-    ("account", "", "示例:\n  fqdt account shelf\n  fqdt account user\n  fqdt account --add <book_id>\n  fqdt account --move <book_id> --to Done\n  fqdt account shelf --search 词\n  fqdt account shelf --author"),
+    ("account", "解析: fqdt account <section> --json | jq", "示例:\n  fqdt account shelf\n  fqdt account user\n  fqdt account --add <book_id>\n  fqdt account --move <book_id> --to Done\n  fqdt account shelf --search 词\n  fqdt account progress --search 词\n  fqdt account shelf --author"),
     ("config", "配置: 读写 config.ini 全部键\n键详情: fqdt config <key> --help",
      "示例:\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
     ("function", "", ""),
@@ -566,8 +550,6 @@ async fn main() {
             dispatch_update(target, output, jobs, force, verbose, interval, &cfg).await,
         Cmd::Tts { path, voice, jobs } =>
             dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
-        Cmd::Get { target, output, range, format, jobs, force, audio, audio_only, tone, lrc, update, interval } =>
-            dispatch_get(target, output, range, format, jobs, force, verbose, audio, audio_only, tone, lrc, update, interval, &cfg).await,
         Cmd::Shelf { add, delete, dl, update } => workflow::shelf::run(add, delete, dl, update, &cfg).await,
         Cmd::Init => { Config::save_default().ok(); println!("  {GREEN}ok{RST} ~/.config/fqdt/config.ini"); }
         Cmd::Login { cookie, check, clear } =>
@@ -721,42 +703,6 @@ async fn dispatch_tts(path: String, voice: &str, _jobs: Option<usize>, verbose: 
         cfg.abr, None, false, "", "external", vb).await;
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn dispatch_get(target: Option<String>, output: Option<String>, range: Option<String>,
-    format: Option<String>, jobs: Option<usize>, force: bool, verbose: bool,
-    audio: bool, audio_only: bool, tone: usize, lrc: Option<String>,
-    update: bool, interval: u64, cfg: &Config) {
-    let vb = verbose || cfg.verbose;
-    let target = match target {
-        Some(t) => t,
-        None => { eprintln!("  err 需要书籍 ID、目录或 --audio-only"); return; }
-    };
-
-    if update {
-        workflow::update::run(Some(&target), output.as_deref(), jobs, range.as_deref(), force, audio, vb, interval, cfg).await;
-        return;
-    }
-
-    if audio_only {
-        let lrc_mode = lrc.as_deref().unwrap_or("external");
-        let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
-            vec![2, 4, 5, 6, 74, 91]
-        } else { cfg.audio_tone_fallbacks.clone() };
-        let out = output
-            .map(|s| std::path::PathBuf::from(s).join("Audio"))
-            .unwrap_or_else(|| cfg.output_dir.join("Audio"));
-        workflow::download::fetch_and_dl_audio(&target, &out, &range, tone, cfg.abr, lrc_mode, force, &fallbacks, vb, cfg).await;
-        return;
-    }
-
-    let lrc_mode = lrc.as_deref().unwrap_or("external");
-    let p = types::DownloadParams {
-        output, range, format, concurrent: jobs,
-        audio, tone, abr: cfg.abr,
-        lrc: lrc_mode.into(), force, verbose: vb, book_title: None,
-    };
-    workflow::download::run(&target, &p, cfg).await;
-}
 
 /// 写一行到 stdout；下游管道已关闭（EPIPE）时静默退出，避免 panic
 pub(crate) fn emit_line(s: &str) {

@@ -83,7 +83,7 @@ async fn verify_now() {
 }
 
 /// GET 网页端点（带 Cookie）→ JSON + 业务码统一判定。
-async fn page_json(url: &str, cookie: &str) -> Result<Value, String> {
+pub async fn page_json(url: &str, cookie: &str) -> Result<Value, String> {
     let text = crate::api::http_get_cookie(url, cookie).await?;
     let v: Value = serde_json::from_str(&text).map_err(|_| "上游返回非 JSON".to_string())?;
     page_check(v)
@@ -155,11 +155,12 @@ pub async fn account(section: Option<String>, json: bool, args: AccountArgs, cfg
     if sec == "shelf" {
         return shelf_section(&cookie, json, args.search.as_deref(), args.author, cfg).await;
     }
+    if sec == "progress" { return progress_section(&cookie, json, args.search.as_deref()).await; }
     util_progress(&format!("获取 {sec}"));
     let res = fetch_section(&cookie, sec).await;
     util_clear();
     match res {
-        Ok(v) => render_section(&v, json, sec),
+        Ok(v) => render_section(&v, json, sec, args.search.as_deref()),
         Err(e) => eprintln!("  {RED}err{RST} {e}"),
     }
 }
@@ -209,11 +210,126 @@ async fn shelf_section(cookie: &str, json: bool, search: Option<&str>, author: b
             let fb = fetch_section(cookie, "shelf").await;
             util_clear();
             match fb {
-                Ok(v) => render_section(&v, json, "shelf"),
+                Ok(v) => render_section(&v, json, "shelf", search),
                 Err(e) => eprintln!("  {RED}err{RST} {e}"),
             }
         }
     }
+}
+
+/// 阅读时间线：网页 progress 端点（read_timestamp 降序），网页失败回退 core。
+async fn progress_section(cookie: &str, json: bool, search: Option<&str>) {
+    util_progress("获取阅读进度");
+    let res = fetch_progress_web(cookie).await;
+    util_clear();
+    match res {
+        Ok(v) => render_progress(&v, json, search),
+        Err(e) => {
+            eprintln!("  {DIM}网页通道失败（{e}），回退核心通道{RST}");
+            util_progress("获取阅读进度");
+            let fb = fetch_section(cookie, "progress").await;
+            util_clear();
+            match fb {
+                Ok(v) => render_section(&v, json, "progress", search),
+                Err(e) => eprintln!("  {RED}err{RST} {e}"),
+            }
+        }
+    }
+}
+
+/// 网页进度时间线：progress 端点（26 本在读）+ multidetail 章节/书名 + 快照兜底，按时间降序。
+async fn fetch_progress_web(cookie: &str) -> Result<Value, String> {
+    let v = page_json(&format!("{FQ_WEB}/api/reader/book/progress"), cookie).await?;
+    let arr = v.get("data").and_then(|x| x.as_array()).ok_or("进度结构未知")?;
+    // prog: book_id → (item_id, 读的百分比)；ids 喂 multidetail
+    let mut prog: HashMap<String, (String, u64)> = HashMap::new();
+    for it in arr {
+        if let Some(id) = it.get("book_id").and_then(|x| x.as_str()) {
+            prog.insert(id.to_string(), (
+                it.get("item_id").and_then(|x| x.as_str()).unwrap_or("0").to_string(),
+                it.get("read_progress").and_then(num_u64).unwrap_or(0) / 100,
+            ));
+        }
+    }
+    let ids: Vec<(String, String)> = prog.keys().map(|k| (k.clone(), String::new())).collect();
+    let det = shelf_det_map(cookie, &ids, &prog).await.unwrap_or_default();
+    let snap = snap_name_map();
+    let mut rows: Vec<(u64, Value)> = arr.iter().filter_map(|it| {
+        let id = it.get("book_id")?.as_str()?;
+        let ts = it.get("read_timestamp").and_then(num_u64).unwrap_or(0);
+        let (name, chapter, rc, sc) = det.get(id).cloned().unwrap_or_default();
+        // 书名：multidetail 权威，失败用快照；章节同理；进度：已读/总章优先，端点万分比兜底
+        let (name, chapter) = if name.is_empty() {
+            snap.get(id).cloned().unwrap_or_else(|| (format!("#{id}"), String::new()))
+        } else { (name, chapter) };
+        let pct = if rc > 0 && sc > 0 { rc * 100 / sc }
+            else { prog.get(id).map(|(_, p)| *p).unwrap_or(0) };
+        Some((ts, json!({"read_timestamp": ts, "book_id": id, "book_name": name,
+                         "chapter": chapter, "pct": pct})))
+    }).collect();
+    rows.sort_by_key(|a| std::cmp::Reverse(a.0));
+    Ok(json!({"items": rows.into_iter().map(|(_, r)| r).collect::<Vec<_>>()}))
+}
+
+/// 快照书名/章节 map（book_id → (书名, 章节)），multidetail 失败时的兜底。
+fn snap_name_map() -> HashMap<String, (String, String)> {
+    crate::store::shelf_snap().and_then(|(s, _)| s.get("books").cloned())
+        .and_then(|b| b.as_array().cloned()).unwrap_or_default().iter()
+        .filter_map(|b| Some((
+            b.get("book_id")?.as_str()?.to_string(),
+            (b.get("book_name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+             b.get("chapter").and_then(|x| x.as_str()).unwrap_or("").to_string()),
+        ))).collect()
+}
+
+/// Unix 秒 → `MM-DD HH:MM`（固定 +08:00 中国时区；无 chrono，civil-from-days 手算）。
+fn fmt_ts(sec: u64) -> String {
+    let sec = sec + 8 * 3600;
+    let (days, secs) = ((sec / 86400) as i64, sec % 86400);
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let (h, mi) = (secs / 3600, (secs % 3600) / 60);
+    format!("{m:02}-{d:02} {h:02}:{mi:02}")
+}
+
+/// 渲染时间线：`MM-DD HH:MM 书名 · 章节 · pct% #id`。
+fn render_progress(v: &Value, json: bool, search: Option<&str>) {
+    let Some(arr) = v.get("items").and_then(|x| x.as_array()) else {
+        return eprintln!("  {RED}err{RST} 进度结构未知（--json 查看原文）");
+    };
+    let kw = search.map(|s| s.to_lowercase());
+    let items: Vec<&Value> = arr.iter()
+        .filter(|it| match kw.as_ref() { None => true, Some(k) => match_item(it, k) }).collect();
+    if json {
+        if kw.is_none() {
+            return crate::emit_line(&serde_json::to_string_pretty(v).unwrap_or_default());
+        }
+        let f = Value::Array(items.into_iter().cloned().collect());
+        return crate::emit_line(&serde_json::to_string_pretty(&f).unwrap_or_default());
+    }
+    if items.is_empty() {
+        let msg = if kw.is_some() { "（无匹配条目）" } else { "（暂无阅读进度）" };
+        return crate::emit_line(&format!("  {DIM}{msg}{RST}"));
+    }
+    for it in &items {
+        let s = |k: &str| it.get(k).and_then(|x| x.as_str()).unwrap_or("");
+        let ts = fmt_ts(it.get("read_timestamp").and_then(num_u64).unwrap_or(0));
+        let mut line = format!("  {DIM}{ts}{RST} {CYAN}{}{RST}", s("book_name"));
+        if !s("chapter").is_empty() { line += &format!(" · {}", s("chapter")); }
+        line += &format!(" · {YELLOW}{}%{RST}", it.get("pct").and_then(num_u64).unwrap_or(0));
+        line += &format!(" {BLUE}#{}{RST}", s("book_id"));
+        crate::emit_line(&line);
+    }
+    crate::emit_line(&match search {
+        Some(k) => format!("{GREEN}ok{RST} 进度 {}/{} 本（匹配 \"{k}\"）", items.len(), arr.len()),
+        None => format!("{GREEN}ok{RST} 进度 {} 本（按最后阅读时间）", items.len()),
+    });
 }
 
 /// 书架写操作：add/remove/check/move（网页 bookshelf 端点，JSON body）。
@@ -403,13 +519,8 @@ fn render_shelf(v: &Value, json: bool, search: Option<&str>) {
         return eprintln!("  {RED}err{RST} 书架结构未知（--json 查看原文）");
     };
     let kw = search.map(|s| s.to_lowercase());
-    let items: Vec<&Value> = arr.iter().filter(|it| {
-        match kw.as_ref() {
-            None => true,
-            Some(k) => it.get("book_name").and_then(|x| x.as_str())
-                .unwrap_or("").to_lowercase().contains(k),
-        }
-    }).collect();
+    let items: Vec<&Value> = arr.iter()
+        .filter(|it| match kw.as_ref() { None => true, Some(k) => match_item(it, k) }).collect();
     if json {
         if kw.is_none() {
             return crate::emit_line(&serde_json::to_string_pretty(v).unwrap_or_default());
@@ -517,8 +628,14 @@ fn upstream_ok(v: &Value) -> Result<(), String> {
 }
 
 /// 渲染 section 结果：--json 原样；默认宽松提取书目数组逐行展示。
-fn render_section(v: &Value, json: bool, section: &str) {
+fn render_section(v: &Value, json: bool, section: &str, search: Option<&str>) {
     if json {
+        if let (Some(k), Some(arr)) = (search, find_books(v)) {
+            let kw = k.to_lowercase();
+            let f: Vec<&Value> = arr.iter().filter(|it| match_item(it, &kw)).collect();
+            return crate::emit_line(&serde_json::to_string_pretty(
+                &Value::Array(f.into_iter().cloned().collect())).unwrap_or_default());
+        }
         return crate::emit_line(&serde_json::to_string_pretty(v).unwrap_or_default());
     }
     if let Err(e) = upstream_ok(v) {
@@ -528,9 +645,15 @@ fn render_section(v: &Value, json: bool, section: &str) {
         crate::emit_line(&format!("  （{section} 无条目，或结构未知 → --json 查看原文）"));
         return;
     };
-    if arr.is_empty() { return crate::emit_line(&format!("  （{section} 为空）")); }
+    let kw = search.map(|s| s.to_lowercase());
+    let items: Vec<&Value> = arr.iter()
+        .filter(|it| match kw.as_ref() { None => true, Some(k) => match_item(it, k) }).collect();
+    if items.is_empty() {
+        let msg = if kw.is_some() { "（无匹配条目）" } else { "为空" };
+        return crate::emit_line(&format!("  {DIM}{section} {msg}{RST}"));
+    }
     let mut n = 0;
-    for item in arr {
+    for item in &items {
         let s = |k: &str| item.get(k).and_then(|x| x.as_str()).unwrap_or("");
         let name = if s("book_name").is_empty() { s("title") } else { s("book_name") };
         if name.is_empty() { continue; }
@@ -544,7 +667,16 @@ fn render_section(v: &Value, json: bool, section: &str) {
         let author_part = if author.is_empty() { String::new() } else { format!(" {MAGENTA}{author}{RST}") };
         crate::emit_line(&format!("  {CYAN}{name}{RST}{author_part}{id_part}"));
     }
-    crate::emit_line(&format!("{GREEN}ok{RST} {section} {n} 项"));
+    crate::emit_line(&match search {
+        Some(k) => format!("{GREEN}ok{RST} {section} {n}/{} 项（匹配 \"{k}\"）", items.len()),
+        None => format!("{GREEN}ok{RST} {section} {n} 项"),
+    });
+}
+
+/// 条目含词匹配：书名/标题/作者/章节，kw 需先小写。
+fn match_item(it: &Value, kw: &str) -> bool {
+    ["book_name", "title", "author", "chapter"].iter().any(|k|
+        it.get(*k).and_then(|x| x.as_str()).is_some_and(|s| s.to_lowercase().contains(kw)))
 }
 
 /// 递归找第一个含 book_name/title 的数组（上游各 resource 结构不一，宽松提取）。

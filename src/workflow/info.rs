@@ -398,16 +398,11 @@ async fn related_misc(book_id: &str) -> Vec<String> {
     lines
 }
 
-/// 听书版本与音色（`fqdt info <id> audio`）：AI 音色 id 列表 + 各听书版主播阵容。
+/// 听书版本与音色（`fqdt info <id> audio`）：AI 音色编号+名称 + 各听书版主播阵容。
 async fn audio_section(book_id: &str, cfg: &Config) {
     let Some(d) = detail_json(book_id).await else { return };
     let s = |p: &str| d.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let tones = s("/data/tones");
-    if !tones.is_empty() {
-        let ids: Vec<&str> = tones.split(',').filter(|x| !x.trim().is_empty()).collect();
-        crate::emit_line(&format!("  {CYAN}AI 音色 {}{RST} ({})  {DIM}{}{RST}",
-            ids.len(), cfg.audio_tone, ids.join(",")));
-    }
+    render_ai_tones(&s("/data/tones"), book_id, cfg).await;
     util::progress("获取听书版本");
     let res = crate::fqapi::get_json(&format!("/api/v1/books/{book_id}/tones"), "").await;
     util::clear_progress();
@@ -424,6 +419,32 @@ async fn audio_section(book_id: &str, cfg: &Config) {
         let title: String = title.chars().take(cfg.ui_clip_len.saturating_mul(3)).collect();
         crate::emit_line(&format!("  {GREEN}{title}{RST} {BLUE}#{id}{RST}"));
     }
+}
+
+/// AI 音色行：toneinfo 权威带名 `1 甜美少女音 · ...`，端点失败回退 core id 列表。
+async fn render_ai_tones(tones: &str, book_id: &str, cfg: &Config) {
+    if tones.is_empty() { return; }
+    let ids: Vec<&str> = tones.split(',').filter(|x| !x.trim().is_empty()).collect();
+    let named = tone_names(book_id).await;
+    match named {
+        Some(n) => crate::emit_line(&format!(
+            "  {CYAN}AI 音色{RST} {n} {DIM}· 默认 {} · {}{RST}", cfg.audio_tone, ids.join(","))),
+        None => crate::emit_line(&format!(
+            "  {CYAN}AI 音色 {}{RST} ({})  {DIM}{}{RST}",
+            ids.len(), cfg.audio_tone, ids.join(","))),
+    }
+}
+
+/// 逐书音色表：`GET /reading/bookapi/audio/toneinfo/?book_id=&aid=1967` 无需登录，
+/// `tts_tones[] {id,title}` 拼 `1 甜美少女音 · 2 清亮青叔音 ...`；失败或空回 None。
+async fn tone_names(book_id: &str) -> Option<String> {
+    let url = format!(
+        "https://fanqienovel.com/reading/bookapi/audio/toneinfo/?book_id={book_id}&aid=1967");
+    let v = crate::workflow::account::page_json(&url, "").await.ok()?;
+    let list = v.pointer("/data/tts_tones")?.as_array()?;
+    let s = list.iter().filter_map(|t| Some(format!(
+        "{} {}", t.get("id")?, t.get("title")?.as_str()?))).collect::<Vec<_>>().join(" · ");
+    (!s.is_empty()).then_some(s)
 }
 
 /// 目录（带进度与错误处理的共用包装）。

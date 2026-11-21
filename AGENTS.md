@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.22.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.23.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -594,6 +594,11 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 34. **📦 书架整理三连（info 收藏 / shelf 过滤 / 分组移动）** — ① `fqdt info <id> --add`：概览展示后直接收藏（复用 shelf_op add）；② `fqdt account shelf --search <词>`：书名本地模糊过滤（147 本大书架可用性，收据显示 `n/总数`，--json 同步过滤）；③ `fqdt account --move <book_id> --to <group>`：分组移动（`POST /reading/bookapi/bookshelf/update/v?aid=1967`，body `book_data[{asterisked,book_id,book_type,group_name,has_shown,is_pin,modify_time}]`，两 flag clap 互 requires，**实测 group_name 为目标组名、组不存在服务端自动建组**（响应 `new_booklist_name_id_map`），测试书 Reading→Done→Reading 往返通过）；④ help 示例段补 account 写操作与 info --add。**遗留：account 参数改 `AccountArgs` struct 收拢（7 参数签名爆炸）**。`[x]` ✅ v0.20.0
 35. **📦 shelf 分组视图 + 作者列 + highlights 修复** — ① shelf 按 `group` 分节渲染（`【组名】` 分区头，TUI.md §5，保持首次出现顺序，多组时尾行加 `· N 组`）；② 作者列：`fqdt account shelf --author` 才拉——core detail 第二段（`书名|作者|...`）逐本并发（JoinSet 分批 10、8s 超时降级不带作者），本地缓存 `~/.config/fqdt/authors.json`（{id:{a,t}}，TTL 30 天，config.rs `authors_path()`），行内 `CYAN书名 MAGENTA作者`；③ highlights 101003 **结论：非参数问题**——真 cookie 下现有 URL 直接 `code:0`（21 本划线，结构 `{bookmark_num/underline_num/notes_num, data:{book_id,book_name,author}}` 与 render_highlights 已匹配），101003 是未登录态的登录检测，**零代码改动，仅需真机验证**。`[x]` ✅ v0.21.0
 36. **📦 统一存储 store.json** — 运行时状态收进单一 JSON（`~/.config/fqdt/store.json`，0600，原子写 tmp+rename）：① cookie（{value,saved_at}，替代纯文本 cookie 文件）；② 本地书架 bookmarks（替代 `books.txt` 的 `id:title` 行格式）；③ 作者缓存 authors（替代 authors.json）；④ **shelf 快照**（{books,fetched_at}，TTL 600s——离线可看上次书架+秒开，网络成功时刷新）。新模块 `src/store.rs`：`load()/save()` 首启自动迁移旧格式（旧文件改 `.bak` 备份），损坏时回退默认不崩溃。**不收**：config.ini（人手编+git式子命令已成熟）、cache/（性能层）、info.list（跟书目录走）。收益：单点管理、权限统一、后续新状态字段直接加 key。`[x]` ✅ v0.22.0
+37. **📦 account progress 网页化** — `fqdt account progress` 从 core `progress_list` 升级网页 `GET /api/reader/book/progress`（实测 26 本在读，字段 `book_id/item_id/read_progress万分比/read_timestamp秒/genre_type/index`）：按 `read_timestamp` **降序时间线**渲染 `MM-DD HH:MM 书名 · 章节 · pct% #id`（书名/章节优先取 store shelf 快照 map，缺的书 multidetail 批量补）；网页失败回退 core 通道。收益：阅读时间线（shelf 无时间维度）。`[x]` ✅ v0.23.0
+38. **🎨 help 全面去括号 + tone 音色标注** — ① 所有面向用户的 help（clap doc/`help=`、FLAG_HELP/CONFIG_HELP 详情、HELP_TAILS）删除括号及其内容（用户明确不要括号注释；纯代码注释与运行输出不动）；② `--tone` 取值行标注数字→音色名（权威端点逆向：`GET /reading/bookapi/audio/toneinfo/?book_id={id}&aid=1967` 无需登录，`data.tts_tones[] {id,title,description}`，逐书可用集不同）；③ `info <id> audio` 升级带名渲染（tone_names 端点失败回退 core id 列表）。`[x]` ✅ v0.23.0
+39. **🧹 子命令去重精简** — 删 `get`（hide=true 兼容残留，=download+audio+update 合体；变体/match 臂/dispatch_get 全清，别名与 HELP_TAILS 本无引用）。**修正决策：`tts` 保留**——`fqdt tts <本地txt>` 与 `fqdt audio --tts <book_id>` 输入源不同非重复。`shelf`（本地）vs `account shelf`（云端）、`function` vs `api`（管道 vs 透传）语义不同均保留。`[x]` ✅ v0.23.0
+40. **📖 TUI 阅读器** — `fqdt read <book_id>` 真 TUI 连贯阅读一整本书（章节切换/j-k 滚动/进度记忆进 store/与 download·shelf·account 联动）。**UI 层直接抄现成实现**（用户明确要求：自己写容易出各种问题）——调研成熟 Rust TUI 阅读器/阅读器类开源项目（Ratatui 生态）抄其布局与事件循环，业务层接 fqdt fetch_content。备选：调用外部 pager（less）降级。`[ ]`
+41. **📦 account 列表搜索扩展 + 机器可解析输出** — ① `--search` 从 shelf 扩到 progress/history/folders（新 `match_item`：book_name/title/author/chapter 小写包含；render_section/render_progress 带 search 参数，json+search 出过滤数组，尾行 `{n}/{total} 项`；render_shelf 匹配统一用 match_item 后作者/章节也能搜）；② 机器解析指引：HELP_TAILS account 第二列 `解析: fqdt account <section> --json | jq`，`--search` doc 更新覆盖范围。`[x]` ✅ v0.23.0
 
 ### 7.3 已知问题
 
