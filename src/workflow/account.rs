@@ -10,8 +10,8 @@
 //!
 //! # CLI 调用
 //! - `fqdt login [COOKIE] [--check] [--clear]`
-//! - `fqdt account [shelf|folders|history|progress|highlights|user] [--json]`
-//! - `fqdt account --add|--remove|--check <book_id>`（云端书架增删/在架检查）
+//! - `fqdt info <sec> [--json]`：folders/history/progress/highlights/user 只读 sections
+//! - `fqdt shelf add|remove|move|check <book_id>`：云端书架写操作
 
 use crate::config;
 use crate::util::{BLUE, CYAN, DIM, GREEN, MAGENTA, RED, RST, YELLOW};
@@ -36,7 +36,6 @@ pub async fn login(cookie: Option<String>, check: bool, clear: bool) {
                 crate::emit_line(&format!("{GREEN}ok{RST} Cookie 已保存 ~/.config/fqdt/cookie"));
                 // 保存后立即验证，不再让用户对着提示行猜有没有生效
                 verify_now().await;
-                crate::emit_line(&format!("  {DIM}查看: fqdt account user · 清除: fqdt login --clear{RST}"));
             }
             Err(e) => eprintln!("  {RED}err{RST} {e}"),
         }
@@ -109,38 +108,11 @@ fn page_check(v: Value) -> Result<Value, String> {
     Ok(v)
 }
 
-/// `fqdt account` 写操作与过滤参数（clap 侧已保证 move/to 联用、add/remove/check 互斥）。
-pub struct AccountArgs {
-    pub add: Option<String>,
-    pub remove: Option<String>,
-    pub check: Option<String>,
-    pub regroup: Option<String>, // --move
-    pub to: Option<String>,      // --to
-    pub search: Option<String>,
-    pub author: bool,            // --author（逐本拉作者，带缓存）
-}
-
-/// `fqdt account [SECTION] [--json] [写操作 flags]`：个人数据展示与书架增删/分组。
-pub async fn account(section: Option<String>, json: bool, args: AccountArgs, cfg: &Config) {
-    let to = args.to.as_deref();
-    let op = args.add.map(|b| ("add", b, None))
-        .or_else(|| args.remove.map(|b| ("remove", b, None)))
-        .or_else(|| args.check.map(|b| ("check", b, None)))
-        .or_else(|| args.regroup.map(|b| ("move", b, to)));
+/// `fqdt info <sec>` 只读 section 分发（原 account 迁入，42③）：
+/// folders/history/progress/highlights 需 Cookie，user 自行判断登录态。
+pub async fn read_section(sec: &str, json: bool, search: Option<&str>) {
+    if sec == "user" { return render_user().await; }
     let Some(cookie) = need_cookie() else { return };
-    if let Some((op, id, group)) = op {
-        return shelf_op(&cookie, op, &id, group).await;
-    }
-    let sec = section.as_deref().unwrap_or("shelf");
-    match sec {
-        "user" => return render_user().await,
-        "shelf" | "folders" | "progress" | "history" | "highlights" => {}
-        _ => {
-            eprintln!("  {RED}err{RST} 未知部分: {sec}");
-            crate::emit_line(&format!("  {DIM}可选: shelf(默认) · folders · history · progress · highlights · user{RST}"));
-            return;
-        }
-    }
     if sec == "highlights" {
         util_progress("获取 highlights");
         let url = format!(
@@ -152,21 +124,18 @@ pub async fn account(section: Option<String>, json: bool, args: AccountArgs, cfg
             Err(e) => eprintln!("  {RED}err{RST} {e}"),
         };
     }
-    if sec == "shelf" {
-        return shelf_section(&cookie, json, args.search.as_deref(), args.author, cfg).await;
-    }
-    if sec == "progress" { return progress_section(&cookie, json, args.search.as_deref()).await; }
+    if sec == "progress" { return progress_section(&cookie, json, search).await; }
     util_progress(&format!("获取 {sec}"));
     let res = fetch_section(&cookie, sec).await;
     util_clear();
     match res {
-        Ok(v) => render_section(&v, json, sec, args.search.as_deref()),
+        Ok(v) => render_section(&v, json, sec, search),
         Err(e) => eprintln!("  {RED}err{RST} {e}"),
     }
 }
 
 /// 读取登录 Cookie，缺失时打印指引并返回 None。
-fn need_cookie() -> Option<String> {
+pub fn need_cookie() -> Option<String> {
     match config::load_cookie() {
         Some(c) => Some(c),
         None => {
@@ -184,12 +153,14 @@ pub async fn add_book(book_id: &str) {
 }
 
 /// 书架展示：快照秒开（store.json TTL 600s，离线兜底）→ 网页三端点合并 → core 回退。
-async fn shelf_section(cookie: &str, json: bool, search: Option<&str>, author: bool, cfg: &Config) {
+/// `group` 为 None 显示第一层（未分组书 + 分组条目），Some 显示该组内书目。
+pub async fn shelf_section(cookie: &str, json: bool, search: Option<&str>, author: bool,
+    group: Option<&str>, cfg: &Config) {
     // 快照命中：新鲜（或不要求作者/快照已含作者）→ 直接渲染，零网络
     if let Some((v, fresh)) = crate::store::shelf_snap() {
         let has_author = v.get("books").and_then(|x| x.as_array())
             .is_some_and(|a| a.iter().any(|b| b.get("author").is_some()));
-        if fresh && (!author || has_author) { return render_shelf(&v, json, search); }
+        if fresh && (!author || has_author) { return render_shelf(&v, json, search, group); }
     }
     util_progress("获取书架");
     let res = fetch_shelf_web(cookie, cfg, author).await;
@@ -197,14 +168,14 @@ async fn shelf_section(cookie: &str, json: bool, search: Option<&str>, author: b
     match res {
         Ok(v) => {
             let _ = crate::store::shelf_snap_set(v.clone());
-            render_shelf(&v, json, search);
+            render_shelf(&v, json, search, group);
         }
         Err(e) => {
             eprintln!("  {DIM}网页通道失败（{e}），回退核心通道{RST}");
             // 网络不可用时的离线兜底：上次快照（字段比 core 全，优先于 core）
             if let Some((v, _)) = crate::store::shelf_snap() {
                 eprintln!("  {DIM}显示上次书架快照（store.json）{RST}");
-                return render_shelf(&v, json, search);
+                return render_shelf(&v, json, search, group);
             }
             util_progress("获取书架");
             let fb = fetch_section(cookie, "shelf").await;
@@ -333,7 +304,7 @@ fn render_progress(v: &Value, json: bool, search: Option<&str>) {
 }
 
 /// 书架写操作：add/remove/check/move（网页 bookshelf 端点，JSON body）。
-async fn shelf_op(cookie: &str, op: &str, book_id: &str, group: Option<&str>) {
+pub async fn shelf_op(cookie: &str, op: &str, book_id: &str, group: Option<&str>) {
     if op == "check" { return shelf_check(cookie, book_id).await; }
     if op == "move" { return shelf_move(cookie, book_id, group.unwrap_or("")).await; }
     let base = format!("{FQ_WEB}/reading/bookapi/bookshelf");
@@ -356,7 +327,7 @@ async fn shelf_op(cookie: &str, op: &str, book_id: &str, group: Option<&str>) {
 /// 分组移动（update/v；组不存在时服务端按名字自动建组，实测往返通过）。
 async fn shelf_move(cookie: &str, book_id: &str, group: &str) {
     if group.is_empty() {
-        return eprintln!("  {RED}err{RST} 缺少目标分组（--move <id> --to <分组>）");
+        return eprintln!("  {RED}err{RST} 缺少目标分组（fqdt shelf move <id> <分组>）");
     }
     let body = json!({"book_data":[{"asterisked":false,"book_id":book_id,"book_type":0,
         "group_name":group,"has_shown":false,"is_pin":false,"modify_time":ms_now()}]});
@@ -513,43 +484,93 @@ async fn shelf_det_map(cookie: &str, ids: &[(String, String)],
     Ok(map)
 }
 
-/// 渲染网页书架：一行一本（书名 · 当前章节 · 进度% · #id · 分组）；--search 按书名过滤。
-fn render_shelf(v: &Value, json: bool, search: Option<&str>) {
+/// 渲染网页书架（42① 番茄原生一层视图）：
+/// - 无 group 无 search：顶层只列未分组书 + 分组条目，已分组的书不直接显示
+/// - 指定 group：该组内书目；--search 展平全架过滤
+fn render_shelf(v: &Value, json: bool, search: Option<&str>, group: Option<&str>) {
     let Some(arr) = v.get("books").and_then(|x| x.as_array()) else {
         return eprintln!("  {RED}err{RST} 书架结构未知（--json 查看原文）");
     };
     let kw = search.map(|s| s.to_lowercase());
-    let items: Vec<&Value> = arr.iter()
-        .filter(|it| match kw.as_ref() { None => true, Some(k) => match_item(it, k) }).collect();
-    if json {
-        if kw.is_none() {
-            return crate::emit_line(&serde_json::to_string_pretty(v).unwrap_or_default());
-        }
-        let filtered = Value::Array(items.into_iter().cloned().collect());
-        return crate::emit_line(&serde_json::to_string_pretty(&filtered).unwrap_or_default());
+    if json { return shelf_json(v, arr, kw.as_deref(), group); }
+    if kw.is_some() || group.is_some() { return shelf_flat(arr, kw.as_deref(), group); }
+    shelf_top(arr);
+}
+
+/// 过滤判定：关键词（书名/标题/作者/章节）与分组范围同时满足。
+fn in_scope(it: &Value, kw: Option<&str>, group: Option<&str>) -> bool {
+    let g_ok = match group {
+        None => true,
+        Some(g) => it.get("group").and_then(|x| x.as_str()).unwrap_or("") == g,
+    };
+    g_ok && match kw {
+        None => true,
+        Some(k) => match_item(it, k),
     }
+}
+
+/// JSON 输出：无过滤原样输出，否则输出过滤后的 books 数组。
+fn shelf_json(v: &Value, arr: &[Value], kw: Option<&str>, group: Option<&str>) {
+    if kw.is_none() && group.is_none() {
+        return crate::emit_line(&serde_json::to_string_pretty(v).unwrap_or_default());
+    }
+    let f: Vec<&Value> = arr.iter().filter(|it| in_scope(it, kw, group)).collect();
+    let out = Value::Array(f.into_iter().cloned().collect());
+    crate::emit_line(&serde_json::to_string_pretty(&out).unwrap_or_default());
+}
+
+/// 指定组或关键词的展平视图：逐行 + 收据。
+fn shelf_flat(arr: &[Value], kw: Option<&str>, group: Option<&str>) {
+    let items: Vec<&Value> = arr.iter().filter(|it| in_scope(it, kw, group)).collect();
     if items.is_empty() {
-        let msg = if kw.is_some() { "（无匹配书目）" } else { "书架为空（fqdt info <id> --add 收藏）" };
+        let msg = match (group, kw) {
+            (Some(g), _) => format!("分组 {g} 为空或不存在"),
+            (_, Some(_)) => "（无匹配书目）".into(),
+            _ => "书架为空".into(),
+        };
         return crate::emit_line(&format!("  {DIM}{msg}{RST}"));
     }
-    let groups = group_rows(&items);
-    let mut n = 0;
-    let mut multi = 0;
-    for (g, rows) in &groups {
-        if rows.is_empty() { continue; }
-        if !g.is_empty() {
-            multi += 1;
-            crate::emit_line(&format!("  {CYAN}【{g}】{RST}"));
-        }
-        for line in rows { crate::emit_line(line); n += 1; }
+    for it in &items {
+        if let Some(line) = shelf_line(it) { crate::emit_line(&line); }
     }
-    let groups_part = if multi > 1 { format!(" · {multi} 组") } else { String::new() };
-    let head = match search {
-        Some(k) => format!("{GREEN}ok{RST} 书架 {n}/{} 本（匹配 \"{k}\"）{groups_part}", arr.len()),
-        None => format!("{GREEN}ok{RST} 书架 {n} 本{groups_part}"),
+    let head = match (group, kw) {
+        (Some(g), Some(k)) =>
+            format!("{GREEN}ok{RST} 书架【{g}】{}/{} 本（匹配 \"{k}\"）", items.len(), arr.len()),
+        (Some(g), None) => format!("{GREEN}ok{RST} 书架【{g}】{} 本", items.len()),
+        (None, Some(k)) =>
+            format!("{GREEN}ok{RST} 书架 {}/{} 本（匹配 \"{k}\"）", items.len(), arr.len()),
+        (None, None) => format!("{GREEN}ok{RST} 书架 {} 本", items.len()),
     };
     crate::emit_line(&head);
-    crate::emit_line(&format!("  {DIM}加: fqdt account --add <id> · 移出: --remove <id> · 移组: --move <id> --to <分组> · 作者: --author{RST}"));
+}
+
+/// 顶层第一层视图：未分组书逐行 + 分组条目行 `【组名】N 本`（保持首次出现顺序）。
+fn shelf_top(arr: &[Value]) {
+    if arr.is_empty() { return crate::emit_line(&format!("  {DIM}书架为空{RST}")); }
+    let ungrouped: Vec<&Value> = arr.iter()
+        .filter(|it| it.get("group").and_then(|x| x.as_str()).unwrap_or("").is_empty())
+        .collect();
+    let mut groups: Vec<(String, usize)> = Vec::new();
+    for it in arr {
+        let g = it.get("group").and_then(|x| x.as_str()).unwrap_or("");
+        if g.is_empty() { continue; }
+        match groups.iter_mut().find(|(n, _)| n == g) {
+            Some((_, c)) => *c += 1,
+            None => groups.push((g.to_string(), 1)),
+        }
+    }
+    for it in &ungrouped {
+        if let Some(line) = shelf_line(it) { crate::emit_line(&line); }
+    }
+    for (g, n) in &groups {
+        crate::emit_line(&format!("  {CYAN}【{g}】{RST} {DIM}{n} 本{RST}"));
+    }
+    let head = if groups.is_empty() {
+        format!("{GREEN}ok{RST} 书架 {} 本", ungrouped.len())
+    } else {
+        format!("{GREEN}ok{RST} 书架 {} 本 · {} 组", arr.len(), groups.len())
+    };
+    crate::emit_line(&head);
 }
 
 /// 单本书渲染行：书名 · 作者(--author 时) · 当前章节 · 进度%/#id；空书名返回 None。
@@ -565,19 +586,6 @@ fn shelf_line(it: &Value) -> Option<String> {
     }
     if !s("book_id").is_empty() { line += &format!(" {BLUE}#{}{RST}", s("book_id")); }
     Some(line)
-}
-
-/// 按 group 分节（保持首次出现顺序）：返回 (组名, 渲染行列表)。
-fn group_rows(items: &[&Value]) -> Vec<(String, Vec<String>)> {
-    let mut order: Vec<String> = Vec::new();
-    let mut map: HashMap<String, Vec<String>> = HashMap::new();
-    for it in items {
-        let Some(line) = shelf_line(it) else { continue };
-        let g = it.get("group").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        if !map.contains_key(&g) { order.push(g.clone()); }
-        map.entry(g).or_default().push(line);
-    }
-    order.into_iter().map(|g| (g.clone(), map.remove(&g).unwrap_or_default())).collect()
 }
 
 /// 按 section 组装请求并调 core 端点，返回响应 JSON。
@@ -693,12 +701,11 @@ fn find_books(v: &Value) -> Option<&Vec<Value>> {
     }
 }
 
-/// `fqdt account user`：真实用户资料（user/info/v2 + basic_info，网页端点）。
+/// `fqdt info user`：真实用户资料（user/info/v2 + basic_info，网页端点）。
 async fn render_user() {
     let Some(c) = config::load_cookie() else {
         crate::emit_line(&format!("  {YELLOW}未登录{RST}"));
         crate::emit_line(&format!("  {DIM}fqdt login '<Cookie>' 设置（浏览器登录 fanqienovel.com 复制）{RST}"));
-        crate::emit_line(&format!("  {DIM}能力: shelf · folders · history · progress · highlights · user{RST}"));
         return;
     };
     util_progress("获取用户信息");
@@ -706,10 +713,7 @@ async fn render_user() {
     let basic = page_json(&format!("{FQ_WEB}/reading/user/basic_info/get/v?aid=1967"), &c).await;
     util_clear();
     let Ok(v) = info else {
-        let e = info.unwrap_err();
-        eprintln!("  {RED}err{RST} {e}");
-        crate::emit_line(&format!("  {DIM}能力: shelf · folders · history · progress · highlights{RST}"));
-        return;
+        return eprintln!("  {RED}err{RST} {}", info.unwrap_err());
     };
     let d = v.get("data");
     let name = d.and_then(|x| x.get("name")).and_then(|x| x.as_str()).unwrap_or("?");
@@ -735,11 +739,9 @@ async fn render_user() {
         let desc: String = desc.chars().take(60).collect();
         crate::emit_line(&format!("  {DIM}{desc}{RST}"));
     }
-    crate::emit_line(&format!("  {YELLOW}能力{RST} shelf 书架 · folders 书单 · history 阅读历史 · progress 阅读进度 · highlights 划线"));
-    crate::emit_line(&format!("  {DIM}查询: fqdt account shelf --json 查看原始结构{RST}"));
 }
 
-/// `fqdt account highlights`：有划线/书签的书（bookmark/personal_list）。
+/// `fqdt info highlights`：有划线/书签的书（bookmark/personal_list）。
 fn render_highlights(v: &Value, json: bool) {
     if json {
         return crate::emit_line(&serde_json::to_string_pretty(v).unwrap_or_default());

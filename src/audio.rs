@@ -359,45 +359,6 @@ pub fn embed_lrc(mp3_path: &Path, ch: &Chapter, verbose: bool, content: Option<&
     }
 }
 
-pub fn embed_cover(mp3_path: &Path, cover_path: &Path, verbose: bool) {
-    use id3::frame::{Picture, PictureType};
-    use id3::{Content, Frame, Tag, TagLike};
-
-    let mime = match cover_path.extension().and_then(|s| s.to_str()) {
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("png") => "image/png",
-        _ => {
-            eprintln!("  warn 不支持的封面格式 (支持 jpg/png): {}", cover_path.display());
-            return;
-        }
-    };
-    let img_data = match std::fs::read(cover_path) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("  err 读封面: {}", e);
-            return;
-        }
-    };
-    let mut tag = match Tag::read_from_path(mp3_path) {
-        Ok(t) => t,
-        Err(_) => Tag::new(),
-    };
-    tag.add_frame(Frame::with_content(
-        "APIC",
-        Content::Picture(Picture {
-            mime_type: mime.into(),
-            picture_type: PictureType::CoverFront,
-            description: "cover".into(),
-            data: img_data,
-        }),
-    ));
-    if let Err(e) = tag.write_to_path(mp3_path, id3::Version::Id3v24) {
-        eprintln!("  err 写入封面: {}", e);
-    } else if verbose {
-        eprintln!("  [verbose] 封面已嵌入: {}", mp3_path.display());
-    }
-}
-
 fn handle_lrc(path: &Path, ch: &Chapter, mode: &str, verbose: bool, content: Option<&str>) {
     match mode {
         "external" => { if let Err(e) = write_lrc_file(path, ch, content) { eprintln!("  err LRC: {}", e); } }

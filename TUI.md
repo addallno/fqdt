@@ -23,13 +23,14 @@
 **颜色常量只能从 `src/util.rs` 引**（RST/DIM/CYAN/YELLOW/MAGENTA/GREEN/BLUE/RED），禁止裸写 `\x1b[...]`。
 **开关**：`util::init_color()`（main 里 Config 加载、`ui_color` 检查后调用；`ui.color=false` 等价 NO_COLOR）——`NO_COLOR` 非空 / `CLICOLOR=0` / stdout 非 TTY → 纯文本输出。
 
-## 2.1 help 消息规范
+## 2.1 help 消息规范（细则见 `HELP-DESIGN.md`）
 - 简短介绍只写一句用途，**不枚举子项/子 flag**（`--help` 会补全）；flag help 必须可操作（含义、单位、取值范围、默认值、与其他 flag 关系）。
-- 结构：用途 → usage → flags → 底部（gh 式）：**配置对应段恒显示，示例段**受 `ui.help_examples=false` 关闭（`HELP_TAILS` + `apply_help_tails` 单点定义）。
-- **flags 先于 configs**：flag 说明在参数区先出现；顶部注明 `优先级: 命令行 flag > config.ini 同义项`。
-- help 与行为同步：子命令语义变更（如 search 改纯搜索）**当次发版必须改 doc**，不许遗留旧描述。
-- **逐 flag 详情**（v0.17.0）：四场景 `fqdt audio --tone --help`、`fqdt help audio --lrc`、`fqdt download -r --help`、`fqdt config tone --help` 由 `FLAG_HELP`（main.rs）/`CONFIG_HELP`（config.rs）单点表拦截，渲染 usage+brief+字段表（类型/取值/默认/说明/互斥）；带值的 `--tone 1 --help` 走 clap 原生子命令 help；`config <键> --help` 支持点号键（多候选列清单）。
-- **短 help 去括号**：`--help` flag 列表一行一句（可操作语义），括号里的补充移详情表；help 底部加详情引导行（`flag 详情: fqdt audio --tone --help`）。
+- **四层结构**（v0.24.0）：顶层分组 help（`render_top_help` 手写：查询/下载/管理/服务/其他五组）→ 子命令 help（clap doc + `HELP_TAILS` 示例段）→ flag 详情（`FLAG_HELP`）→ config 键详情（`CONFIG_HELP`）。每层不越界。
+- **文案硬约束**：去括号、不教 help（无 `flag 详情:` 尾行）、不列配置键（配置说明唯一来源 = `config.ini` 分节模板注释）、不打迁移提示（命令删除直接未知命令 err）。
+- **flags 先于 configs**：顶部注明 `优先级: 命令行 flag > config.ini 同义项`。
+- help 与行为同步：子命令语义变更**当次发版必须改 doc**，不许遗留旧描述。
+- **逐 flag 详情**：四场景 `fqdt audio --tone --help`、`fqdt help audio --lrc`、`fqdt download -r --help`、`fqdt config tone --help` 由 `FLAG_HELP`（main.rs）/`CONFIG_HELP`（config.rs）单点表拦截，渲染 usage+brief+字段表（类型/取值/默认/说明/互斥）；带值的 `--tone 1 --help` 走 clap 原生子命令 help；`config <键> --help` 支持点号键（多候选列清单）。
+- 示例段受 `ui.help_examples=false` 关闭（`HELP_TAILS` + `apply_help_tails` 单点定义）；示例必须真实可跑、1–3 条覆盖不同场景。
 
 ## 3. 每个命令的四问（Vercel CLI 四问裁剪）
 任何输出都要回答：
@@ -50,6 +51,8 @@
 - 对齐用固定宽度列（`{:>2}` 序号），中文列宽用 `pad`/`clip` 辅助（discover.rs 已有）。
 - 分隔符首选 `·`，其次 `|`；空状态必须给一句话（`无结果`、`（无推荐数据）`），不留白屏。
 - 分区标题：`【标题】` 或 `{CYAN}`浓色，用一个风格并全项目统一（现用 `【推荐】`）。
+- **云端书架一层视图**（v0.24.0，`shelf_top`）：顶层只列**未分组书行** + `【组名】N 本` 分组条目行（已分组的书不直接显示）；`shelf list <组名>` 展开该组书行；`--search`/`--author` 展平过滤。头行 `ok 书架 N 本` 或 `ok 书架 N 本 · M 组`。
+- **指引尾行纪律**（v0.24.0）：运行输出不打 tips 尾行（能力:/查询:/查看: 等 DIM 行全删）；仅未登录 / 未设置 Cookie 保留**单行**指引。
 
 ## 6. 符号与进度
 - 状态符号：`✓` 成功 `✗` 失败（进度条消息内已用）；主输出别滥用符号。

@@ -78,7 +78,7 @@ async fn chapter_card(item_id: &str, v: &Value, section: Option<&str>, show: boo
     }
     if show { show_item_text(cfg, item_id).await; }
     crate::emit_line(&format!(
-        "  {DIM}概览 fqdt info {book_id} · 目录 fqdt info {book_id} chapters · 正文 fqdt function fetch-content {item_id}{RST}"));
+        "  {DIM}概览 fqdt info {book_id} · 目录 fqdt info {book_id} chapters · 正文 fqdt api /api/v1/chapters/{item_id} --jq data.content{RST}"));
 }
 
 /// 章节正文预览（同概览 show：40 行折叠 + 逃生口）。
@@ -89,7 +89,7 @@ async fn show_item_text(cfg: &Config, item_id: &str) {
             let total = text.lines().count();
             for line in text.lines().take(40) { println!("    {line}"); }
             if total > 40 {
-                println!("  {DIM}… 共 {total} 行 · 全文 function fetch-content {item_id}{RST}");
+                println!("  {DIM}… 共 {total} 行 · 全文 fqdt api /api/v1/chapters/{item_id} --jq data.content{RST}");
             }
         }
         Err(e) => eprintln!("  {RED}err{RST} 获取正文失败: {e}"),
@@ -118,7 +118,7 @@ fn user_card(uid: &str, v: &Value) {
         let desc: String = desc.chars().take(60).collect();
         crate::emit_line(&format!("  {DIM}{desc}{RST}"));
     }
-    crate::emit_line(&format!("  {DIM}读者公开资料 · 自己的资料 fqdt account user{RST}"));
+    crate::emit_line(&format!("  {DIM}读者公开资料{RST}"));
 }
 
 /// # info — 书籍信息（概览 + 可选 section）
@@ -242,7 +242,7 @@ async fn print_top_chapters(v: &[&crate::types::Chapter], top: usize, show: bool
                 let total = text.lines().count();
                 for line in text.lines().take(40) { println!("    {}", line); }
                 if total > 40 {
-                    println!("  {DIM}… 共 {} 行 · 全文 function fetch-content {}{RST}", total, c.item_id);
+                    println!("  {DIM}… 共 {} 行 · 全文 fqdt api /api/v1/chapters/{} --jq data.content{RST}", total, c.item_id);
                 }
             }
             Err(e) => eprintln!("  {RED}err{RST} {:04}: {}", c.index, e),

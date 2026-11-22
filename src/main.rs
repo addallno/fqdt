@@ -17,15 +17,16 @@ use std::path::Path;
 #[derive(Parser)]
 #[command(name = "fqdt", version, about = "番茄小说下载器")]
 struct Cli {
-    #[arg(long, global = true, help = "搜索 API 源 ")]
+    // 仅顶层出现（不进子命令 help）；须置于子命令前：fqdt --catalog-url X search …
+    #[arg(long, help = "搜索 API 源")]
     search_url: Option<String>,
-    #[arg(long, global = true, help = "目录 API 源 ")]
+    #[arg(long, help = "目录 API 源")]
     catalog_url: Option<String>,
-    #[arg(long, global = true, help = "内容 API 源 ")]
+    #[arg(long, help = "内容 API 源")]
     content_url: Option<String>,
-    #[arg(long, global = true, help = "请求超时秒 ")]
+    #[arg(long, global = true, help = "请求超时秒")]
     timeout: Option<u64>,
-    #[arg(short = 'v', long, global = true, help = "详细日志 ")]
+    #[arg(short = 'v', long, global = true, help = "详细日志")]
     verbose: bool,
     #[command(subcommand)]
     cmd: Cmd,
@@ -34,30 +35,35 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// 搜索小说
+    #[command(display_order = 10)]
     Search {
         keyword: String,
         #[arg(short='p', long, default_value="1", help = "页码")]
         page: usize,
         #[arg(short='D', long, help = "自动下载第 N 本结果")]
         auto: Option<usize>,
-        #[arg(long, help = "仅展示搜索结果 ")]
+        #[arg(long, help = "仅展示搜索结果")]
         dry_run: bool,
-        #[arg(short='o', long, help = "输出目录 ")]
+        #[arg(short='o', long, help = "输出目录（仅 -D）")]
         output: Option<String>,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short='j', long, help = "并发数（仅 -D）")]
         jobs: Option<usize>,
-        #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-")]
+        #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-（仅 -D）")]
         range: Option<String>,
-        #[arg(short='t', long, help = "输出格式: txt / epub")]
+        #[arg(short='t', long, help = "输出格式: txt / epub（仅 -D）")]
         format: Option<String>,
-        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
+        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒（仅 -D）")]
         interval: u64,
     },
     /// 查看书籍信息
+    ///
+    /// 也承载发现流: fqdt info recommend（首页推荐）/ fqdt info category（分类列表）
+    /// 与个人数据: fqdt info folders / history / progress / user / highlights
     #[command(alias = "i")]
+    #[command(display_order = 11)]
     Info {
-        #[arg(help = "id 自动识别: 书/章节 item_id/作者/读者 uid")]
-        book_id: String,
+        #[arg(help = "id 自动识别: 书/章节 item_id/作者/读者 uid；或 recommend / category / folders / history / progress / user / highlights")]
+        book_id: Option<String>,
         #[arg(help = "部分: chapters/intro/author/comments/cover/related/audio")]
         section: Option<String>,
         #[arg(short='r', long, help = "章节范围")]
@@ -66,11 +72,24 @@ enum Cmd {
         show: bool,
         #[arg(long, help = "加入云端书架")]
         add: bool,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+        #[arg(long, value_name = "KEYWORD", help = "关键词过滤（仅 folders/history/progress）")]
+        search: Option<String>,
+        #[arg(long, default_value = "2", help = "推荐区块类型（仅 recommend）")]
+        tab_type: u32,
+        #[arg(long, default_value = "0", help = "推荐区块索引（仅 recommend）")]
+        tab_index: u32,
+        #[arg(long, default_value = "0", help = "推荐偏移（仅 recommend）")]
+        offset: u32,
+        #[arg(long, default_value = "1", help = "分类: 1 男频 / 2 女频 / 3 出版 / 4 听书（仅 category）")]
+        tab: u32,
     },
     /// 下载正文
     #[command(alias = "d")]
+    #[command(display_order = 20)]
     Download {
-        #[arg(help = "book_id 或书名关键词 ")]
+        #[arg(help = "book_id 或书名关键词")]
         book_id: String,
         #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
@@ -87,33 +106,37 @@ enum Cmd {
     },
     /// 下载语音
     #[command(alias = "a")]
+    #[command(display_order = 21)]
     Audio {
+        #[arg(help = "book_id 或书名关键词")]
         book_id: String,
         #[arg(short='o', long, help = "输出目录")]
         output: Option<String>,
         #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-")]
         range: Option<String>,
-        #[arg(long, default_value = "1", help = "AI 音色编号")]
-        tone: usize,
-        #[arg(long, help = "歌词模式")]
-        lrc: Option<String>,
         #[arg(short='j', long, help = "并发数")]
         jobs: Option<usize>,
         #[arg(short='f', long, help = "强制覆盖已存在文件")]
         force: bool,
         #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
+        #[arg(long, help = "歌词模式 external/embed/both/off")]
+        lrc: Option<String>,
         #[arg(long, help = "真人讲书版", conflicts_with_all = ["ai", "tts"])]
         real: bool,
-        #[arg(long, help = "智能朗读", conflicts_with_all = ["tts"])]
+        // --tone 嵌套展示于 --ai 之下（--ai 多行 help + --tone 隐藏独立行），解析不受影响
+        #[arg(long, conflicts_with = "tts", help = "智能朗读\n    --tone <N>  AI 音色编号，默认 1，fqdt info <id> audio 查可用")]
         ai: bool,
-        #[arg(long, help = "Edge-TTS 本地合成")]
+        #[arg(long, hide = true, default_value = "1", help = "")]
+        tone: usize,
+        #[arg(long, help = "Edge-TTS 本地合成\n    --voice <名>  语音名，默认 zh-CN-XiaoxiaoNeural")]
         tts: bool,
-        #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音名")]
+        #[arg(long, hide = true, default_value = "zh-CN-XiaoxiaoNeural", help = "")]
         voice: String,
     },
     /// 增量更新已下载的书籍
     #[command(alias = "u")]
+    #[command(display_order = 22)]
     Update {
         target: String,
         #[arg(short='o', long, help = "输出目录")]
@@ -127,6 +150,7 @@ enum Cmd {
     },
     /// 文本转语音
     #[command(alias = "t")]
+    #[command(display_order = 31)]
     Tts {
         path: String,
         #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音名")]
@@ -136,21 +160,15 @@ enum Cmd {
     },
     /// 书架管理
     #[command(alias = "s")]
+    #[command(display_order = 30)]
     Shelf {
-        #[arg(short='a', long)]
-        add: Option<String>,
-        #[arg(short='d', long)]
-        delete: Option<usize>,
-        #[arg(short='D', long)]
-        dl: Option<usize>,
-        #[arg(short='U', long)]
-        update: bool,
+        #[command(subcommand)]
+        cmd: Option<ShelfCmd>,
     },
-    /// 生成默认配置文件
-    Init,
     /// 登录态管理
     ///
     /// 上游无账号密码登录；Cookie 存 ~/.config/fqdt/cookie 独立文件。
+    #[command(display_order = 32)]
     Login {
         /// Cookie 字符串
         cookie: Option<String>,
@@ -161,37 +179,10 @@ enum Cmd {
         #[arg(long, help = "清除 Cookie")]
         clear: bool,
     },
-    /// 个人数据
-    Account {
-        /// 部分: shelf/folders/history/progress/user
-        section: Option<String>,
-        #[arg(long, help = "输出原始 JSON")]
-        json: bool,
-        /// 加书到云端书架
-        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["remove", "check", "regroup"])]
-        add: Option<String>,
-        /// 从云端书架移出
-        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["add", "check", "regroup"])]
-        remove: Option<String>,
-        /// 检查是否在云端书架
-        #[arg(long, value_name = "BOOK_ID", conflicts_with_all = ["add", "remove", "regroup"])]
-        check: Option<String>,
-        /// 移动书到分组
-        #[arg(long = "move", value_name = "BOOK_ID", requires = "to", conflicts_with_all = ["add", "remove", "check"])]
-        regroup: Option<String>,
-        /// 目标分组名
-        #[arg(long, value_name = "GROUP", requires = "regroup")]
-        to: Option<String>,
-        /// 关键词过滤，shelf/progress/history/folders 可用
-        #[arg(long, value_name = "KEYWORD")]
-        search: Option<String>,
-        /// 拉取每本书作者
-        #[arg(long)]
-        author: bool,
-    },
     /// 查看/修改配置
     ///
-    /// 键为点号形式，如 info.top_chapters、audio.abr、ui.clip_len
+    /// 键为点号形式，如 info.top_chapters、audio.abr、ui.clip_len；config init 生成默认配置文件
+    #[command(display_order = 33)]
     Config {
         /// 键
         key: Option<String>,
@@ -202,15 +193,10 @@ enum Cmd {
         #[arg(long, help = "删除该键")]
         unset: bool,
     },
-    /// 小工具集 + 函数管道
-    #[command(name = "function", alias = "fn")]
-    Function {
-        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
-        args: Vec<String>,
-    },
     /// 透传调用 fqapi 端点 
     ///
     /// 路径如 /api/v1/books/{id}/directory，query 拼在 ? 后或用 -q 追加。
+    #[command(display_order = 41)]
     Api {
         /// 端点路径
         path: Option<String>,
@@ -233,34 +219,73 @@ enum Cmd {
         #[arg(long = "list", help = "列出常用端点")]
         list: bool,
     },
-    /// 首页推荐流
-    Recommend {
-        #[arg(long, default_value = "2", help = "区块类型 ")]
-        tab_type: u32,
-        #[arg(long, default_value = "0", help = "区块索引")]
-        tab_index: u32,
-        #[arg(long, default_value = "0", help = "偏移")]
-        offset: u32,
-        #[arg(long, help = "输出原始 JSON")]
-        json: bool,
-    },
-    /// 分类列表
-    Category {
-        #[arg(long, default_value = "1", help = "1 男频 / 2 女频 / 3 出版 / 4 听书")]
-        tab: u32,
-        #[arg(long, help = "输出原始 JSON")]
-        json: bool,
-    },
     /// 对外 HTTP 服务
+    #[command(display_order = 40)]
     Serve {
         #[arg(long, default_value = "18921", help = "监听端口")]
         port: u16,
         #[arg(long, help = "监听局域网地址")]
         lan: bool,
     },
+    /// 显示版本号
+    #[command(display_order = 90)]
+    Version,
     /// 自定义命令
     #[command(external_subcommand)]
     Custom(Vec<String>),
+}
+
+/// `fqdt shelf` 子命令（42②：裸 shelf 报错要求子命令，list 为书架入口）。
+/// 预留：查看类可加 `--dump` flag 打印原始结构（42④，暂未实现）。
+#[derive(Subcommand)]
+enum ShelfCmd {
+    /// 书架列表：未登录显示本地，已登录显示云端，--local 强制本地
+    List {
+        /// 组名：指定则显示该组内书目，无参显示第一层（未分组书 + 分组条目）
+        group: Option<String>,
+        #[arg(long, help = "显示本地书架")]
+        local: bool,
+        #[arg(long, value_name = "KEYWORD", help = "关键词过滤")]
+        search: Option<String>,
+        #[arg(long, help = "逐本拉取作者")]
+        author: bool,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
+    /// 加书：本地 <ID>:<标题> 含冒号，云端纯 <ID>
+    Add {
+        #[arg(help = "<ID>:<标题> 本地 · <ID> 云端")]
+        book: String,
+    },
+    /// 从云端书架移出
+    Remove {
+        #[arg(help = "book_id")]
+        book_id: String,
+    },
+    /// 移动云端书到分组，组不存在时自动建组
+    Move {
+        #[arg(help = "book_id")]
+        book_id: String,
+        #[arg(help = "目标分组名")]
+        group: String,
+    },
+    /// 检查是否在云端书架
+    Check {
+        #[arg(help = "book_id")]
+        book_id: String,
+    },
+    /// 删除本地书架条目
+    Delete {
+        #[arg(help = "条目编号")]
+        index: usize,
+    },
+    /// 下载本地书架某本
+    Download {
+        #[arg(help = "条目编号")]
+        index: usize,
+    },
+    /// 逐本更新本地书架
+    Update,
 }
 
 // ===== 逐 flag 详情帮助（v0.17.0） =====
@@ -394,7 +419,7 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
 fn canonical_sub(s: &str) -> &str {
     match s {
         "a" => "audio", "d" => "download", "i" => "info", "s" => "shelf",
-        "u" => "update", "t" => "tts", "fn" => "function", other => other,
+        "u" => "update", "t" => "tts", other => other,
     }
 }
 
@@ -460,29 +485,90 @@ fn scan_config_key(args: &[String]) -> Option<String> {
     args.iter().skip(1).find(|a| !a.starts_with('-')).cloned()
 }
 
-/// help 底部附加段：(子命令名, 配置对应, 示例)。示例受 config `ui.help_examples` 控制。
+// ===== 顶层分组 help（v0.24.0，49④） =====
+
+/// 顶层分组：(组名, 子命令)。clap 模板无分组能力，手写渲染（FLAG_HELP 先例）。
+const TOP_GROUPS: &[(&str, &[&str])] = &[
+    ("查询", &["search", "info"]),
+    ("下载", &["download", "audio", "update"]),
+    ("管理", &["shelf", "tts", "login", "config"]),
+    ("服务", &["serve", "api"]),
+    ("其他", &["version", "help"]),
+];
+
+/// 顶层选项段（硬编码；子命令 about 从 Cli::command() 内省，避免双份维护）。
+const TOP_OPTIONS: &[(&str, &str)] = &[
+    ("      --search-url <SEARCH_URL>", "搜索 API 源"),
+    ("      --catalog-url <CATALOG_URL>", "目录 API 源"),
+    ("      --content-url <CONTENT_URL>", "内容 API 源"),
+    ("      --timeout <TIMEOUT>", "请求超时秒"),
+    ("  -v, --verbose", "详细日志"),
+    ("  -h, --help", "查看帮助"),
+    ("  -V, --version", "显示版本"),
+];
+
+/// 顶层 help 请求判定：裸调用 / --help / -h / help，且尚未出现子命令。
+/// `fqdt search --help`、`fqdt help search` 等仍交 clap。
+fn top_help_requested(args: &[String]) -> bool {
+    if args.is_empty() { return true; }
+    if args.len() == 1 && args[0] == "help" { return true; }
+    let mut saw_sub = false;
+    for a in args {
+        if a == "--help" || a == "-h" { return !saw_sub; }
+        if !a.starts_with('-') { saw_sub = true; }
+    }
+    false
+}
+
+/// 手写分组顶层 help：查询/下载/管理/服务/其他 + 选项 + 优先级尾行。
+fn render_top_help() {
+    let cmd = Cli::command();
+    crate::emit_line(&format!("{CYAN}fqdt{RST} — 番茄小说下载器"));
+    crate::emit_line("");
+    crate::emit_line(&format!("  {DIM}用法: fqdt [OPTIONS] <COMMAND>{RST}"));
+    crate::emit_line("");
+    for (group, subs) in TOP_GROUPS {
+        crate::emit_line(&format!("{CYAN}{group}:{RST}"));
+        for s in *subs {
+            crate::emit_line(&format!("  {s:<9} {}", sub_about(&cmd, s)));
+        }
+        crate::emit_line("");
+    }
+    crate::emit_line(&format!("{CYAN}选项:{RST}"));
+    for (flag, about) in TOP_OPTIONS {
+        crate::emit_line(&format!("  {flag}  {about}"));
+    }
+    crate::emit_line("");
+    crate::emit_line(&format!("  {DIM}优先级: 命令行 flag > config.ini 同义项{RST}"));
+}
+
+/// 子命令 about 内省（取首行）；clap 自动 help 子命令 build 前取不到，兜底中文。
+fn sub_about(cmd: &clap::Command, name: &str) -> String {
+    let about = cmd.find_subcommand(name).and_then(|c| c.get_about())
+        .map(|a| a.to_string()).unwrap_or_default();
+    let first = about.lines().next().unwrap_or("").to_string();
+    if first.is_empty() && name == "help" { "查看帮助".into() } else { first }
+}
+
+/// help 底部附加段：(子命令名, 附加说明, 示例)。示例受 config `ui.help_examples` 控制。
+/// 附加说明不写"flag 详情/配置键"类内容（用户明确：帮助里不教用 help、不列配置键）。
 const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("", "优先级: 命令行 flag > config.ini 同义项", ""),
-    ("search", "flag 详情: fqdt search -D --help", "示例:\n  fqdt search 诡秘之主\n  fqdt search 诡秘 -D 1"),
-    ("info", "配置: [info] top_chapters/top_comments/hot/intro_len/comments_count/author_count  [ui] clip_len\nflag 详情: fqdt info -r --help",
-     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters\n  fqdt info <book_id> --add\n  fqdt info <item_id>\n  fqdt info 2_698…"),
-    ("download", "配置: [download] concurrent/format/output_dir/filename_template\nflag 详情: fqdt download -r --help",
-     "示例:\n  fqdt download <book_id> -r 1-50 -t epub"),
-    ("audio", "配置: [audio] tone/tone_fallbacks/abr/post_process  [tts] rate/volume/pitch\nflag 详情: fqdt audio --tone --help · fqdt help audio --lrc",
-     "示例:\n  fqdt audio <book_id> --real\n  fqdt audio <book_id> --tone 6"),
-    ("update", "配置: 同 [download]", ""),
-    ("tts", "配置: [tts] rate/volume/pitch", "示例:\n  fqdt tts book.txt"),
-    ("shelf", "", ""),
-    ("init", "", ""),
-    ("login", "配置: Cookie 独立存 ~/.config/fqdt/cookie",
+    ("search", "", "示例:\n  fqdt search 诡秘之主\n  fqdt search 诡秘 -D 1"),
+    ("info", "",
+     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters\n  fqdt info <book_id> --add\n  fqdt info recommend\n  fqdt info category --tab 1\n  fqdt info user\n  fqdt info progress --search 词\n  fqdt info <item_id>\n  fqdt info 2_698…"),
+    ("download", "", "示例:\n  fqdt download <book_id> -r 1-50 -t epub"),
+    ("audio", "",
+     "示例:\n  fqdt audio <book_id> --real\n  fqdt audio <book_id> --ai --tone 6\n  fqdt audio 诡秘之主 --ai"),
+    ("update", "", ""),
+    ("tts", "", "示例:\n  fqdt tts book.txt"),
+    ("shelf", "",
+     "示例:\n  fqdt shelf list\n  fqdt shelf list 已读\n  fqdt shelf list --local\n  fqdt shelf add <ID>:<标题>\n  fqdt shelf add <book_id>\n  fqdt shelf move <book_id> 已读\n  fqdt shelf download 1"),
+    ("login", "",
      "示例:\n  fqdt login '<Cookie>'\n  fqdt login --check"),
-    ("account", "解析: fqdt account <section> --json | jq", "示例:\n  fqdt account shelf\n  fqdt account user\n  fqdt account --add <book_id>\n  fqdt account --move <book_id> --to Done\n  fqdt account shelf --search 词\n  fqdt account progress --search 词\n  fqdt account shelf --author"),
-    ("config", "配置: 读写 config.ini 全部键\n键详情: fqdt config <key> --help",
-     "示例:\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
-    ("function", "", ""),
+    ("config", "",
+     "示例:\n  fqdt config init\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
     ("api", "", "示例:\n  fqdt api /api/v1/search -q query=诡秘 -q tab_type=3\n  fqdt api /api/v1/books/123 --jq data.book_name"),
-    ("recommend", "", ""),
-    ("category", "", ""),
     ("serve", "", ""),
 ];
 
@@ -518,6 +604,12 @@ async fn main() {
     if !cfg.ui_color { std::env::set_var("NO_COLOR", "1"); }
     apply_help_tails(&mut cmd, cfg.ui_help_examples);
     crate::util::init_color();
+    // 顶层分组 help 拦截：裸调用/--help/help（子命令级 help 仍走 clap）
+    let top_args: Vec<String> = std::env::args().skip(1).collect();
+    if top_help_requested(&top_args) {
+        render_top_help();
+        return;
+    }
     let cli = Cli::from_arg_matches(&cmd.get_matches()).unwrap_or_else(|e| e.exit());
     cfg.apply_cli_overrides(
         cli.search_url.as_deref(),
@@ -537,9 +629,22 @@ async fn main() {
         Cmd::Search { keyword, page, auto, dry_run, output, jobs, range, format, interval } =>
             workflow::search::run(&keyword, page, output.as_deref(), jobs, range.as_deref(),
                 format.as_deref(), verbose, auto, dry_run, interval, &cfg).await,
-        Cmd::Info { book_id, section, range, show, add } => {
-            workflow::info::run(&book_id, section.as_deref(), range.as_deref(), show, verbose, &cfg).await;
-            if add { workflow::account::add_book(&book_id).await; }
+        Cmd::Info { book_id, section, range, show, add, json, search, tab_type, tab_index, offset, tab } => {
+            // 首位置参数按值路由：discover 入口与个人数据只读 section（原 account 迁入）
+            match book_id.as_deref() {
+                None => eprintln!("  err 用法: fqdt info <book_id> [section] · info recommend · info category · info user"),
+                Some("recommend") if section.is_none() =>
+                    workflow::discover::recommend(tab_type, tab_index, offset, json, &cfg).await,
+                Some("category") if section.is_none() =>
+                    workflow::discover::category(tab, json, &cfg).await,
+                Some(sec @ ("folders" | "history" | "progress" | "user" | "highlights"))
+                    if section.is_none() =>
+                    workflow::account::read_section(sec, json, search.as_deref()).await,
+                Some(id) => {
+                    workflow::info::run(id, section.as_deref(), range.as_deref(), show, verbose, &cfg).await;
+                    if add { workflow::account::add_book(id).await; }
+                }
+            }
         }
         Cmd::Download { book_id, output, range, format, jobs, force, interval } =>
             dispatch_download(book_id, output, range, format, jobs, force, verbose, interval, &cfg).await,
@@ -550,24 +655,15 @@ async fn main() {
             dispatch_update(target, output, jobs, force, verbose, interval, &cfg).await,
         Cmd::Tts { path, voice, jobs } =>
             dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
-        Cmd::Shelf { add, delete, dl, update } => workflow::shelf::run(add, delete, dl, update, &cfg).await,
-        Cmd::Init => { Config::save_default().ok(); println!("  {GREEN}ok{RST} ~/.config/fqdt/config.ini"); }
+        Cmd::Shelf { cmd } => workflow::shelf::run(cmd, &cfg).await,
         Cmd::Login { cookie, check, clear } =>
             workflow::account::login(cookie, check, clear).await,
-        Cmd::Account { section, json, add, remove, check, regroup, to, search, author } => {
-            let args = workflow::account::AccountArgs { add, remove, check, regroup, to, search, author };
-            workflow::account::account(section, json, args, &cfg).await;
-        }
         Cmd::Config { key, value, list, unset } =>
             crate::config::run_cmd(key, value, list, unset),
-        Cmd::Function { args } => run_function(args, &cfg).await,
         Cmd::Api { path, method, query, data, jq, status, list } =>
             run_api(path, method, query, data, jq, status, list).await,
-        Cmd::Recommend { tab_type, tab_index, offset, json } =>
-            workflow::discover::recommend(tab_type, tab_index, offset, json, &cfg).await,
-        Cmd::Category { tab, json } =>
-            workflow::discover::category(tab, json, &cfg).await,
         Cmd::Serve { port, lan } => run_serve(port, lan).await,
+        Cmd::Version => println!("fqdt {}", env!("CARGO_PKG_VERSION")),
         Cmd::Custom(args) => dispatch_custom(args, &cfg),
     }
 }
@@ -598,7 +694,21 @@ fn dispatch_custom(args: Vec<String>, cfg: &Config) {
         return;
     }
     eprintln!("  err 未知命令: {}", cmd);
-    eprintln!("  可用命令: search, info, download, audio, update, tts, shelf, init, login, account, function");
+    eprintln!("  可用命令: search, info, download, audio, update, tts, shelf, login, config");
+}
+
+/// 选书：纯数字（≥10 位）视为 book_id，否则关键词交互选书并自动加书架（download/audio 共用）
+async fn resolve_book_id(target: String, cfg: &Config, vb: bool) -> Option<String> {
+    if target.chars().all(|c| c.is_ascii_digit()) && target.len() >= 10 {
+        return Some(target);
+    }
+    match workflow::search::pick(&target, cfg, vb).await {
+        Some((id, title)) => {
+            config::add_bookmark(&id, &title).ok();
+            Some(id)
+        }
+        None => None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -606,18 +716,7 @@ async fn dispatch_download(target: String, output: Option<String>, range: Option
     format: Option<String>, jobs: Option<usize>, force: bool, verbose: bool,
     _interval: u64, cfg: &Config) {
     let vb = verbose || cfg.verbose;
-    // 纯数字（≥10 位）视为 book_id，否则当搜索词：搜索 → 交互选择 → 下载
-    let book_id = if target.chars().all(|c| c.is_ascii_digit()) && target.len() >= 10 {
-        target
-    } else {
-        match workflow::search::pick(&target, cfg, vb).await {
-            Some((id, title)) => {
-                config::add_bookmark(&id, &title).ok();
-                id
-            }
-            None => return,
-        }
-    };
+    let Some(book_id) = resolve_book_id(target, cfg, vb).await else { return };
     let p = types::DownloadParams {
         output, range, format, concurrent: jobs,
         audio: false, tone: 1, abr: cfg.abr,
@@ -632,6 +731,15 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
     _interval: u64, real: bool, ai: bool, tts: bool, voice: &str, cfg: &Config) {
     let vb = verbose || cfg.verbose;
     let lrc_mode = lrc.as_deref().unwrap_or("external");
+    // 本地目录原样；否则选书（纯数字=book_id，关键词交互选，与 download 共用）
+    let book_id = if Path::new(&book_id).is_dir() {
+        book_id
+    } else {
+        match resolve_book_id(book_id, cfg, vb).await {
+            Some(id) => id,
+            None => return,
+        }
+    };
     let path = Path::new(&book_id);
 
     // Edge-TTS：先下载正文（txt），再整目录合成 mp3 到 <out>/Audio/
@@ -796,246 +904,3 @@ async fn run_api(
         std::process::exit(1);
     }
 }
-
-async fn run_function(args: Vec<String>, cfg: &Config) {
-    if args.is_empty() {
-        eprintln!("  err 需要函数名或管道\n  用法:\n  \
-            fqdt function embed <file> [--lrc] [--cover <img>]\n  \
-            fqdt function process <file> [--abr N] [--speed X] [--normalize] [--cmd <cmd>]\n  \
-            fqdt function fetch-catalog <book_id>\n  \
-            fqdt function fetch-content <item_id>\n  \
-            fqdt function fetch-audio-url <book_id> <item_id> [tone]\n  \
-            fqdt function search <keyword> [-p <page>]\n  \
-            fqdt function strip-html <file|->\n  \
-            fqdt function compress <file> [--abr N]\n  \
-            fqdt function embed-lrc <file>\n  \
-            fqdt function embed-cover <file> <cover>\n  \
-            fqdt function read-info <dir>\n  \
-            fqdt function read-audio-info <dir>\n  \
-            fqdt function save <file>\n  \
-            fqdt function save <file> (管道末端保存输出)\n  \
-            fqdt function ... \\; ... \\; ...  (chaining with ;)\n  \
-            \n  主命令:\n  \
-            fqdt download <book_id> [选项]\n  \
-            fqdt audio <book_id> [选项]\n  \
-            fqdt update <book_id|目录> [选项]\n  \
-            fqdt tts <路径> [选项]\n  \
-            fqdt search <keyword> [选项]\n  \
-            fqdt info <book_id> [选项]\n  \
-            fqdt shelf [选项]\n  \
-            fqdt init\n  \
-            fqdt function <fn> [参数]");
-        return;
-    }
-
-    let sep_positions: Vec<usize> = args.iter().enumerate()
-        .filter(|(_, s)| *s == ";").map(|(i, _)| i).collect();
-
-    if sep_positions.is_empty() {
-        let out = dispatch_one(&args, cfg, "").await;
-        if !out.is_empty() { println!("{}", out); }
-    } else {
-        let mut segments: Vec<&[String]> = vec![];
-        let mut start = 0usize;
-        for &pos in &sep_positions {
-            if pos > start {
-                segments.push(&args[start..pos]);
-            }
-            start = pos + 1;
-        }
-        if start < args.len() {
-            segments.push(&args[start..]);
-        }
-
-        let mut piped = String::new();
-        for seg in &segments {
-            if seg.is_empty() { continue; }
-            let resolved: Vec<String> = seg.iter()
-                .map(|a| a.replace("{}", &piped))
-                .collect();
-            piped = dispatch_one(&resolved, cfg, &piped).await;
-            if !piped.is_empty() {
-                println!("{}", piped);
-            }
-        }
-    }
-}
-
-async fn dispatch_one(args: &[String], cfg: &Config, piped: &str) -> String {
-    fn err(e: String) -> String { eprintln!("  err {}", e); String::new() }
-
-    if args.is_empty() { return String::new(); }
-    let func = &args[0];
-    let rest: Vec<&str> = args[1..].iter().map(|s| s.as_str()).collect();
-
-    match func.as_str() {
-        "embed" | "emb" => {
-            if rest.is_empty() { return err("需要 input 路径".into()); }
-            let input = rest[0].to_string();
-            let lrc = rest.contains(&"--lrc");
-            let cover = rest.iter().position(|a| *a == "--cover").and_then(|i| rest.get(i+1).map(|s| s.to_string()));
-            workflow::embed::run(&input, lrc, cover, cfg);
-            input
-        }
-        "process" | "proc" => {
-            if rest.is_empty() { return err("需要 input 路径".into()); }
-            let input = rest[0].to_string();
-            let abr = rest.iter().position(|a| *a == "--abr").and_then(|i| rest.get(i+1).and_then(|s| s.parse::<u32>().ok()));
-            let speed = rest.iter().position(|a| *a == "--speed").and_then(|i| rest.get(i+1).and_then(|s| s.parse::<f32>().ok()));
-            let normalize = rest.contains(&"--normalize");
-            let cmd = rest.iter().position(|a| *a == "--cmd").and_then(|i| rest.get(i+1).map(|s| s.to_string()));
-            workflow::process::run(&input, abr, speed, normalize, cmd, cfg);
-            input
-        }
-        "fetch-catalog" | "cat" => {
-            if rest.is_empty() { return err("需要 book_id".into()); }
-            let api = api::Client::from_config(cfg, cfg.verbose);
-            match api.fetch_catalog(rest[0]).await {
-                Ok(chs) => {
-                    let json = serde_json::to_string_pretty(&chs).unwrap_or_default();
-                    println!("{}", json);
-                    chs.iter().map(|c| c.item_id.clone()).next().unwrap_or_default()
-                }
-                Err(e) => err(e)
-            }
-        }
-        "fetch-content" | "content" => {
-            if rest.is_empty() { return err("需要 item_id".into()); }
-            let api = api::Client::from_config(cfg, cfg.verbose);
-            match api.fetch_content(rest[0]).await {
-                Ok(text) => { println!("{}", text); text }
-                Err(e) => err(e)
-            }
-        }
-        "fetch-audio-url" | "audio-url" => {
-            if rest.len() < 2 { return err("需要 book_id item_id [tone]".into()); }
-            let tone: usize = rest.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
-            let api = api::Client::from_config(cfg, cfg.verbose);
-            match api.fetch_audio(rest[0], rest[1], tone).await {
-                Ok((url, key)) => {
-                    println!("{}", url);
-                    if !key.is_empty() { eprintln!("  {GREEN}ok{RST} CENC 密钥 {}", key); }
-                    url
-                }
-                Err(e) => err(e)
-            }
-        }
-        "search" => {
-            if rest.is_empty() { return err("需要 keyword".into()); }
-            let keyword = rest[0].to_string();
-            let page: usize = rest.iter().position(|a| *a == "-p" || *a == "--page")
-                .and_then(|i| rest.get(i+1).and_then(|s| s.parse().ok())).unwrap_or(1);
-            let api = api::Client::from_config(cfg, cfg.verbose);
-            match api.search(&keyword, page).await {
-                Ok(books) => {
-                    let json = serde_json::to_string_pretty(&books).unwrap_or_default();
-                    println!("{}", json);
-                    books.iter().map(|b| b.book_id.clone()).next().unwrap_or_default()
-                }
-                Err(e) => err(e)
-            }
-        }
-        "strip-html" | "html" => {
-            if rest.is_empty() { return err("需要文件路径或 -".into()); }
-            let text = if rest[0] == "-" {
-                let mut buf = String::new();
-                std::io::stdin().read_line(&mut buf).ok();
-                buf
-            } else {
-                std::fs::read_to_string(rest[0]).unwrap_or_default()
-            };
-            let out = api::strip_html(&text);
-            println!("{}", out);
-            out
-        }
-        "compress" | "mp3" => {
-            if rest.is_empty() { return err("需要文件路径".into()); }
-            let input = rest[0].to_string();
-            let abr: u32 = rest.iter().position(|a| *a == "--abr")
-                .and_then(|i| rest.get(i+1).and_then(|s| s.parse().ok())).unwrap_or(32);
-            let path = std::path::Path::new(&input);
-            audio::post_process(path, abr, None, false, "", cfg.verbose);
-            println!("  {GREEN}ok{RST} {}", input);
-            input
-        }
-        "embed-lrc" | "lrc" => {
-            if rest.is_empty() { return err("需要 MP3 路径".into()); }
-            let input = rest[0].to_string();
-            let path = std::path::Path::new(&input);
-            let ch = types::Chapter {
-                index: 0,
-                title: path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
-                item_id: String::new(),
-            };
-            audio::embed_lrc(path, &ch, cfg.verbose, None);
-            println!("  {GREEN}ok{RST} {}", input);
-            input
-        }
-        "embed-cover" | "cover" => {
-            if rest.len() < 2 { return err("需要 MP3 路径和封面路径".into()); }
-            let mp3 = rest[0];
-            let cover = rest[1];
-            audio::embed_cover(std::path::Path::new(mp3), std::path::Path::new(cover), cfg.verbose);
-            println!("  {GREEN}ok{RST} {} ← {}", mp3, cover);
-            mp3.to_string()
-        }
-        "read-info" | "info" => {
-            if rest.is_empty() { return err("需要目录路径".into()); }
-            match download::read_info_list(std::path::Path::new(rest[0])) {
-                Ok((bid, title, fmt, chapters)) => {
-                    let out = format!("book_id={}, title={}, format={}, chapters={}",
-                        bid, title, fmt, chapters.len());
-                    println!("  {}", out);
-                    out
-                }
-                Err(e) => err(e)
-            }
-        }
-        "read-audio-info" | "audio-info" => {
-            if rest.is_empty() { return err("需要目录路径".into()); }
-            let dir = std::path::Path::new(rest[0]);
-            let audio_dir = if dir.join("Audio").exists() { dir.join("Audio") } else { dir.to_path_buf() };
-            match download::read_audio_info_list(&audio_dir) {
-                Ok((bid, title, chapters)) => {
-                    let out = format!("book_id={}, title={}, chapters={}", bid, title, chapters.len());
-                    println!("  {}", out);
-                    out
-                }
-                Err(e) => err(e)
-            }
-        }
-        "fetch-detail" | "detail" => {
-            if rest.is_empty() { return err("需要 book_id".into()); }
-            let api = api::Client::from_config(cfg, cfg.verbose);
-            match api.fetch_detail(rest[0]).await {
-                Ok(info) => { println!("  {}", info); info }
-                Err(e) => err(e)
-            }
-        }
-        "fetch-content-batch" | "batch" => {
-            if rest.len() < 2 { return err("需要 book_id 和 item_ids".into()); }
-            let item_ids: Vec<&str> = rest[1..].to_vec();
-            let api = api::Client::from_config(cfg, cfg.verbose);
-            match api.fetch_content_batch(rest[0], &item_ids).await {
-                Ok(map) => {
-                    for (id, content) in &map {
-                        println!("  [{}]\n{}\n", id, content);
-                    }
-                    map.into_values().next().unwrap_or_default()
-                }
-                Err(e) => err(e)
-            }
-        }
-        "save" => {
-            if rest.is_empty() { return err("需要输出路径".into()); }
-            let path = rest[0].to_string();
-            if let Err(e) = std::fs::write(&path, piped) {
-                return err(format!("写入失败: {}", e));
-            }
-            println!("  {GREEN}ok{RST} 保存 {} ({} 字节)", path, piped.len());
-            piped.to_string()
-        }
-        _ => err(format!("未知函数: {}", func))
-    }
-}
-

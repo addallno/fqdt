@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.23.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.24.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -29,7 +29,7 @@
 - **一个函数一个职责**
 - **纯输入→输出**，不处理 UI/日志/并发（这些由高阶函数包装）
 - **返回 `Result<T, String>`**，调用者决定错误处理
-- **上方有文档注释**：功能说明 + 被哪些工作流调用 + 可被 `function` 子命令直接调用
+- **上方有文档注释**：功能说明 + 被哪些工作流调用 + CLI 调用方式
 
 | 分类 | 函数 | 输入 | 输出 | 被工作流调用 |
 |------|------|------|------|-------------|
@@ -42,24 +42,21 @@
 |  | `generate_epub()` | title, chapters, path | `()` | download (epub模式) |
 |  | `append_epub_chapter()` | epub_path, Chapter, text | `()` | download (epub模式) |
 | **音频** | `download_audio_chapter()` | Chapter, dir, tone | `PathBuf` | download_audio, update_audio |
-|  | `compress_mp3()` | input, output, abr | `()` | download_audio, process |
-|  | `post_process_file()` | input, output, cmd | `()` | download_audio, process |
-|  | `normalize_audio()` | input, output | `()` | process |
-|  | `speed_audio()` | input, output, rate | `()` | process |
+|  | `compress_mp3()` | input, output, abr | `()` | download_audio |
+|  | `post_process_file()` | input, output, cmd | `()` | download_audio |
 | **LRC** | `gen_lrc_text()` | Chapter | `String` | download_audio, embed |
-|  | `write_lrc_file()` | path, text | `()` | download_audio, embed |
-|  | `embed_lrc_uslt()` | mp3_path, text | `()` | download_audio, embed |
-| **封面** | `embed_cover_apic()` | mp3_path, image_path | `()` | embed |
-| **TTS** | `edge_tts_speak()` | text, voice, params | `PathBuf` | tts_convert |
-|  | `convert_tts_file()` | txt_path, params | `PathBuf` | tts_convert |
-|  | `convert_tts_dir()` | dir_path, params | `Vec<PathBuf>` | tts_convert |
+|  | `write_lrc_file()` | path, text | `()` | download_audio |
+|  | `embed_lrc()` | mp3_path, Chapter, content? | `()` | download_audio |
+| **TTS** | `edge_tts_speak()` | text, voice, params | `PathBuf` | audio --tts |
+|  | `convert_tts_file()` | txt_path, params | `PathBuf` | audio --tts |
+|  | `convert_tts_dir()` | dir_path, params | `Vec<PathBuf>` | audio --tts |
 | **元数据** | `read_info_list()` | dir | `(book_id, title, fmt, chapters)` | update |
 |  | `write_info_list()` | dir, metadata | `()` | download, update |
 |  | `read_audio_info_list()` | dir | `(book_id, title, chapters)` | update_audio |
 |  | `write_audio_info_list()` | dir, metadata | `()` | download_audio |
 | **书架** | `load_bookmarks()` | — | `Vec<(id, title)>` | shelf |
-|  | `save_bookmark()` | id, title | `()` | shelf --add |
-|  | `remove_bookmark()` | idx | `()` | shelf --del |
+|  | `save_bookmark()` | id, title | `()` | shelf add |
+|  | `remove_bookmark()` | idx | `()` | shelf delete |
 | **范围** | `parse_range()` | str | `Option<ChapterRange>` | download, update, info |
 |  | `filter_by_range()` | chapters, range | `Vec<&Chapter>` | download, update, info |
 | **工具** | `sanitize_filename()` | str | `String` | 全局 |
@@ -136,8 +133,7 @@ where F: Fn() -> Result<T, String> {
 ///    c. `write_audio_info_list(dir, meta)` — 写入音频元数据
 ///
 /// ## 调用
-/// - CLI: `fqdt download <book_id> [--audio] [--abr N]`
-/// - Config: `[workflow.download]` 可覆盖步骤
+/// - CLI: `fqdt download <book_id> [-r 范围] [-t txt|epub]`；音频续下见 fetch_and_dl_audio
 pub fn workflow_download(api: &Client, book_id: &str, out: PathBuf, range: Option<&str>,
                          fmt: &str, ft: &str, concurrent: usize, force: bool, vb: bool,
                          audio: bool, tone: usize, abr: u32, lrc: &str, fallbacks: &[usize]) { ... }
@@ -147,37 +143,26 @@ pub fn workflow_download(api: &Client, book_id: &str, out: PathBuf, range: Optio
 
 | 工作流 | 命令 | 功能 |
 |--------|------|------|
-| `workflow_download` | `download` | 下载正文 + 可选音频 |
-| `workflow_update` | `update` | 增量更新（正文/音频） |
-| `workflow_audio` | `audio` | 纯音频下载 |
-| `workflow_search_dl` | `search` | 搜索 → 选择 → 下载 |
-| `workflow_tts_convert` | `audio --tts` | TTS 文件/目录转换 |
-| `workflow_embed` | `function embed` | 嵌入 LRC/封面 |
-| `workflow_process` | `function process` | 后处理（压缩/变速/归一化） |
-| `workflow_shelf` | `shelf` | 书架管理 |
-| `discover::recommend` | `recommend` | 首页推荐流 |
-| `discover::category` | `category` | 分类列表 |
-| `discover::comments` | `comments` | 书评 |
-| `discover::author` | `author` | 作者资料 + 书单 |
+| `download::run` | `download` | 下载正文 |
+| `update::run` | `update` | 增量更新（正文/音频） |
+| `audio::run` | `audio` | 纯音频下载 |
+| `search::run` | `search` | 搜索列表（`-D` 可续下载） |
+| `audio::run_tts` | `tts` / `audio --tts` | TTS 文件/目录转换 |
+| `shelf::run` | `shelf <子命令>` | 本地/云端书架管理 |
+| `info::run` | `info` | 书籍概览/sections/个人数据 |
+| `discover::recommend` | `info recommend` | 首页推荐流 |
+| `discover::category` | `info category` | 分类列表 |
+| `discover::comments` | `info <id> comments` | 书评 |
+| `discover::author` | `info <id> author` | 作者资料 + 书单 |
 
-### 1.5 `function` 子命令
+### 1.5 基本函数的 CLI 暴露
 
-`function` 子命令**直接暴露基本函数**，供 CLI 调用：
+`function` 子命令已于 **v0.24.0 删除**（用户判定 worthless，管道需求由 `api` 与既有命令覆盖）。
+基本函数的 CLI 暴露途径：
 
-```sh
-fqdt function fetch-catalog <book_id>          # 获取目录并打印
-fqdt function fetch-content <item_id>           # 获取正文并打印
-fqdt function fetch-audio-url <book_id> <item_id> [tone]  # 获取音频 URL（+ CENC 密钥）
-fqdt function compress <input.mp3> --abr 32     # 压缩 MP3
-fqdt function gen-lrc <chapter.json>            # 生成 LRC 文本
-fqdt function embed-lrc <file.mp3>              # 嵌入 LRC 到 ID3
-fqdt function embed-cover <file.mp3> --cover img.jpg
-fqdt function strip-html <file.html>            # 剥离 HTML 标签
-fqdt function search <keyword>                  # 搜索并打印结果（JSON）
-fqdt function read-info <dir>                   # 读取 info.list 并打印
-```
-
-**实现方式**：`function` 子命令是 clap 的 `#[command(subcommand)]`，每个基本函数映射到一个 `FunctionCmd` 变体。函数实现本身在各自的模块中（`api.rs`/`audio.rs`/`download.rs`），`main.rs` 只做分发。
+- 端点级透传：`fqdt api <path>`（见 1.5.1）
+- 业务封装：`search` / `info` / `download` / `audio` 等顶层命令（见 1.5.2）
+- 正文获取：`fqdt api /api/v1/chapters/{item_id} --jq data.content` 直接吐正文明文
 
 #### 1.5.1 `api` 子命令（端点透传）
 
@@ -200,16 +185,17 @@ fqdt api /api/v1/videos/1 -X POST -d '{"a":1}' --status
 高阶工作流（`src/workflow/discover.rs`），默认彩色表格，`--json` 输出机器可读原文：
 
 ```sh
-fqdt recommend                          # 首页推荐流（16 本书）
-fqdt recommend --tab-type 25 --tab-index 0   # 2 推荐 / 25 小说 / 11 经典 / 5 听书
-fqdt category --tab 1                   # 1 男频 / 2 女频 / 3 出版 / 4 听书
-fqdt recommend --json | jq .            # 机器可读
+fqdt info recommend                     # 首页推荐流（16 本书）
+fqdt info recommend --tab-type 25 --tab-index 0   # 2 推荐 / 25 小说 / 11 经典 / 5 听书
+fqdt info category --tab 1              # 1 男频 / 2 女频 / 3 出版 / 4 听书
+fqdt info recommend --json | jq .       # 机器可读
 fqdt info <book_id> comments            # 书评（原顶层 comments 命令，v0.13.0 迁入 info）
 fqdt info <book_id> author              # 作者资料 + 推荐书单（原顶层 author 命令，v0.13.0 迁入 info）
 ```
 
-- **breaking（v0.13.0）**：顶层 `comments` / `author` 命令删除，只能经 `info <book_id> <section>` 访问（discover.rs 内函数保留，info 调用）
-- info 的 section：`chapters`（目录含 item_id）/ `intro`（完整简介）/ `author` / `comments` / `cover`（封面 URL），无 section = 概览
+- **breaking（v0.13.0）**：顶层 `comments` / `author` 删除；**breaking（v0.24.0）**：顶层 `recommend` / `category` 删除并入 info——info 的 book_id 改 Option，无 id 且首参为二者时走 discover
+- info 的 section：`chapters`（目录含 item_id）/ `intro`（完整简介）/ `author` / `comments` / `cover` / `related` / `audio`，无 id = `recommend` / `category` 流，无 section = 概览
+- **个人数据 sections（v0.24.0，原 account 只读迁入）**：`folders` / `history` / `progress`（可 `--search`）/ `user` / `highlights`（需登录，`--json` 机器可读）
 - 结构约定：`取 JSON → 字段提取 → 渲染管线`；新封装只需复用 `get/clip/pad/book_line` 辅助
 - `rank` 端点只返回区块模板配置、无实体书单，故不封装，用 `fqdt api /api/v1/rank/<id>` 透传
 - `author` 的 bookshelf 是作者**推荐书单**，非全部作品
@@ -229,7 +215,7 @@ fqdt serve --port 18999 --lan # 指定端口 + 监听局域网
 
 ### 1.6 配置驱动的扩展
 
-`config.ini` 允许**不修改代码**添加新的 function 和工作流：
+`config.ini` 允许**不修改代码**添加自定义命令（现状仅 `[workflow_cmd]` 已实现；`[function]`/`[workflow]` 节为愿景，见待办 5）：
 
 ```ini
 [function]
@@ -271,14 +257,18 @@ src/
 ├── config.rs        Config 解析 + 书架 + 配置驱动扩展
 ├── types.rs         数据结构定义
 ├── epub.rs          EPUB 生成函数
-├── workflow.rs 或 workflow/
-│   ├── mod.rs       工作流调度
-│   ├── download.rs  workflow_download
-│   ├── update.rs    workflow_update
-│   ├── audio.rs     workflow_audio
-│   ├── embed.rs     workflow_embed
-│   └── process.rs   workflow_process
-└── util.rs          工具函数 + 高阶函数
+├── workflow/        工作流（mod.rs 调度 + 9 模块）
+│   ├── mod.rs       模块导出
+│   ├── download.rs  下载正文 / 目录模式 / 音频续下
+│   ├── update.rs    增量更新
+│   ├── audio.rs     纯音频 + TTS 入口
+│   ├── search.rs    搜索列表 + 交互选书 pick
+│   ├── info.rs      书籍概览 / sections / 读者资料渲染
+│   ├── discover.rs  推荐流 / 分类 / 书评 / 作者
+│   ├── shelf.rs     书架子命令分发（本地/云端）
+│   └── account.rs   登录 / 云端书架读写 / 个人数据 sections
+├── store.rs         运行时状态（cookie/书架/作者缓存/快照）
+└── util.rs          工具函数 + 高阶函数 + 颜色常量
 ```
 
 ---
@@ -303,7 +293,7 @@ src/
 /// - `workflow_search_dl` — 搜索→选择→下载
 ///
 /// # CLI 调用
-/// - `fqdt function search <keyword> -p <page>`
+/// - `fqdt search <keyword> -p <page>`
 ///
 /// # 可选高阶函数包装
 /// - `with_verbose` — 打印 API URL 和响应摘要
@@ -442,24 +432,13 @@ use crate::types::Chapter;
 
 ## 5. 接口设计
 
-### 5.1 基本函数 → `function` 子命令映射
+### 5.1 基本函数的暴露方式
 
-每个基本函数在 `FunctionCmd` 枚举中有一个对应变体：
+基本函数不再有独立 CLI 映射（`function` 子命令 v0.24.0 已删）。暴露方式：
 
-```rust
-enum FunctionCmd {
-    Search { keyword: String, page: Option<usize> },
-    FetchCatalog { book_id: String },
-    FetchContent { item_id: String },
-    FetchAudioUrl { book_id: String, item_id: String, tone: Option<usize> },
-    Compress { input: String, abr: u32 },
-    EmbedLrc { input: String },
-    EmbedCover { input: String, cover: String },
-    StripHtml { input: String },
-    ReadInfo { dir: String },
-    GenLrc { chapter_json: String },
-}
-```
+- **端点函数**（`api.rs`）→ `fqdt api` 透传 + 各封装命令内部调用
+- **原子函数**（`audio.rs`/`download.rs`/`epub.rs`）→ 仅工作流内部调用，CLI 不直出
+- 新增基本函数时：补文档注释（3.1 模板，写明被哪些工作流调用），**不**再加 CLI 变体
 
 ### 5.2 工作流参数设计
 
@@ -547,7 +526,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 |  | Audio/info.list 读写 | ✅ |
 | **TTS** | edge-tts 文件/目录转换 | ✅ |
 |  | 参数化（rate/volume/pitch） | ✅ |
-| **CLI** | 6 个子命令 + function 子命令 | ✅ |
+| **CLI** | 分组顶层 help + 子命令（search/info/download/audio/update/shelf/tts/login/config/serve/api/version） | ✅ v0.24.0 |
 |  | `api` 端点透传（--list/--jq/-X/--data，46 端点直通） | ✅ v0.7.0 |
 |  | 封装子命令（recommend/category/comments/author，`--json`） | ✅ v0.8.0 |
 |  | `serve` HTTP 服务模式（--port/--lan） | ✅ v0.9.0 |
@@ -561,7 +540,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 1. **⚡ 代码拆分** — 将当前 `download()`、`update()`、`audio_dl()` 等大函数拆成基本函数
 2. **⚡ 高阶函数提取** — 实现 `with_retry`、`with_cache`、`with_progress`、`with_verbose`、`with_filter`、`with_output`
 3. **⚡ workflow 模块** — 创建 `src/workflow/`，将预编译工作流从 main.rs 移出
-4. **📦 function 子命令扩展** — 为每个基本函数添加 `FunctionCmd` 变体
+4. **📦 function 子命令扩展** — 为每个基本函数添加 `FunctionCmd` 变体（已废弃：function 于 v0.24.0 删除）
 5. **📦 配置驱动扩展** — 实现 `[function]`、`[workflow]`、`[workflow_cmd]` 节
 6. **📦 高阶 verbose** — 用 `with_verbose` 替换所有 `if verbose { ... }` 散落代码
 7. **🔍 API 探索** — 探索是否有新的官方/第三方 API 端点
@@ -599,6 +578,16 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 39. **🧹 子命令去重精简** — 删 `get`（hide=true 兼容残留，=download+audio+update 合体；变体/match 臂/dispatch_get 全清，别名与 HELP_TAILS 本无引用）。**修正决策：`tts` 保留**——`fqdt tts <本地txt>` 与 `fqdt audio --tts <book_id>` 输入源不同非重复。`shelf`（本地）vs `account shelf`（云端）、`function` vs `api`（管道 vs 透传）语义不同均保留。`[x]` ✅ v0.23.0
 40. **📖 TUI 阅读器** — `fqdt read <book_id>` 真 TUI 连贯阅读一整本书（章节切换/j-k 滚动/进度记忆进 store/与 download·shelf·account 联动）。**UI 层直接抄现成实现**（用户明确要求：自己写容易出各种问题）——调研成熟 Rust TUI 阅读器/阅读器类开源项目（Ratatui 生态）抄其布局与事件循环，业务层接 fqdt fetch_content。备选：调用外部 pager（less）降级。`[ ]`
 41. **📦 account 列表搜索扩展 + 机器可解析输出** — ① `--search` 从 shelf 扩到 progress/history/folders（新 `match_item`：book_name/title/author/chapter 小写包含；render_section/render_progress 带 search 参数，json+search 出过滤数组，尾行 `{n}/{total} 项`；render_shelf 匹配统一用 match_item 后作者/章节也能搜）；② 机器解析指引：HELP_TAILS account 第二列 `解析: fqdt account <section> --json | jq`，`--search` doc 更新覆盖范围。`[x]` ✅ v0.23.0
+42. **📐 shelf/account/info 结构重构** — ① 云端书架番茄原生一层：顶层只列**未分组书 + 分组条目**（已分组的书不直接显示，显示整个分组）；`shelf list [组名]` 无参显示第一层、指定组名显示该组内所有书；② 顶层 `fqdt shelf` 子命令化：**裸输入 shelf 直接报错要求输入子命令**（现有 -a/-d/-D/-U flag 改子命令），`list` 为书架入口——未登录显示本地书架，已登录显示云端、加 flag 显示本地书架；③ account 只读功能（folders/history/progress/user/highlights，**不含 shelf**）迁入 `fqdt info` 作为 subcommands；account sections 也从位置参数变 subcommands；④ 未来预留：查看类子命令加 flags（如 `dump` 打印到终端）、`shelf view <路径|书名>`（路径或书名在书架内搜索查看，暂不做，设计留口）。`[x]` ✅ v0.24.0
+43. **✏️ related → relative 更名** — `fqdt info <id> related` 子命令改名 `relative`（main.rs help 61/HELP_TAILS 302,305、info.rs SECTIONS/match/fn 名同步改；HTTP 路径 `/related` 不动）。`[ ]`
+44. **🔊 audio 目录规则** — 下载音频/保存 tts：**非 `-o` 形式指定的目录且为存储书籍目录 → 仍生成 Audio 子文件夹（现状不变）**；**直接通过书籍 ID 下载 → 不创建 Audio 文件夹**（文件直接落目标目录）。改动点 dispatch_audio（main.rs 687-688）、download.rs:56、main.rs:997。`[ ]`
+45. **🐛 进度条双行 bug** — 现象：**开始只有一条，输出完成后变两条**（不清空上一行、在下一行输出）；疑点 util.rs Braille eprint 与 indicatif pb 同写 stderr 的行错位（finish 后残留一行）。先复现定位再修，修完 TUI.md 检查清单。`[ ]`
+46. **🧹 输出整洁（用户：别 tips 乱信息）** — ① 结构重构落地后 `fqdt account` 移除**不打任何"已移除/请改用 xxx"迁移提示**（直接走未知命令 err 或隐藏兼容）；② 各命令运行输出删指引类 tips 尾行（能力:/查询:/获取:/查看:/验证: 等 DIM 行），错误一行一记录为主，仅未登录/未设置 Cookie 保留单行指引。`[x]` ✅ v0.24.0
+47. **🎨 help 精简（用户批次：m0105/m0117/m0118）** — ① `--search-url/--catalog-url/--content-url` 等 `--*url` 只在 `fqdt --help` 顶层出现，子命令 help 不再显示（去掉 `global=true`，仅顶层解析传 `apply_cli_overrides`；`-v/timeout` 仍 global）；② 删 HELP_TAILS 中 `flag 详情: ...` 与 `配置: ...` 尾行（示例段保留、仍受 `ui.help_examples` 控制）——帮助里不再教人用 help、不再列配置键；③ `--tone` 在 help 中作 `--ai` 的下级展示（声明紧跟 `--ai`，缩进/树符号表达从属，`fqdt help audio --tone` 详情不变）；④ 顺带排查其他可归组的 flag（如 `--voice` 归 `--tts`）。`[x]` v0.24.0 ✅
+48. **📄 config.ini 分节模板（m0118）** — `save_default` 重写：**按子命令分节**（[search]/[download]/[audio]/[tts]/[info]/[ui]/[shelf]…），每节列出该子命令全部相关键（预留/空值或默认值），**每个键上方一行中文注释说明作用**；help 不再承载配置说明，配置说明唯一来源=config.ini 注释（与 `fqdt config <key> --help` CONFIG_HELP 并存）。旧键名与解析逻辑不变。`[x]` v0.24.0 ✅
+49. **📐 子命令大重构（breaking，m0128+m0105）** — ① **删 `function` 子命令**（用户判定 worthless：Cmd::Function/run_function/别名 `fn`/HELP_TAILS/别名映射/601 提示全清；管道需求由 `api`/既有命令覆盖）；② `init` 并入 config：`fqdt config init`（顶层 Init 删）；③ `recommend`/`category` 并入 info（`fqdt info recommend`、`fqdt info category`——info 的 book_id 改 Option，无 id 且 section 为二者时走 discover，实现时核对参数形态）；④ **顶层子命令重排分组**：查询(search, info) / 下载(download, audio, update) / 管理(shelf, tts, login, config) / 服务(serve, api…) / help, version——按序 `display_order`，分组标题自定义顶层 help（clap 模板无分组能力，参照 FLAG_HELP 先例手写渲染）；`version` 补为子命令；⑤ **account 移除**（m0105 用户重申）：只读 sections 迁 `info` 子命令、云端书架写操作（--add/--remove/--move/--check/--author/--search）迁 `shelf` 子命令——即待办 42 的落地并入本项。`[x]` ✅ v0.24.0
+50. **🤔 download+audio 合并评估（m0130）** — 结论：**不合并命令，仅共享选书逻辑**（已执行）。利弊：① 复用面——二者已共享 `fetch_catalog`/`Downloader`/`AudioDownloader`/`run_dir`/range/tone/abr 参数与 `workflow::search::pick`（仅 download 用），进一步合并只省一个 match 臂；② 参数面——download 有 `-t txt/epub`、audio 有三模式（`--real/--ai/--tts`）+`--lrc`+`--tone/--voice`，合并后 15+ flag、互斥组（format vs lrc vs real/ai/tts）复杂，与 47 help 精简方向相悖；③ 用户心智——"下载正文"与"下载有声书"是两个清晰动词，按媒体类型分命令；④ 与 49 分组关系——下载组 `download, audio, update` 三子命令正好成组，合并后组内只剩 update 显得失衡；⑤ 先例反证——v0.13.0 删 `get`（download+audio+update 合体，待办 39），合体命令已被否决过一次，合并是走回头路。**已执行部分**：`audio` 位置参数支持书名关键词（与 download 同规则：纯数字≥10 位=book_id，否则 `workflow::search::pick` 交互选书并自动加书架），help 文案同步"book_id 或书名关键词"。`[x]` ✅ v0.24.0
+51. **📚 help 设计指南（m0132，本批最后做）** — 全部 help/子命令重构完成后，写 `HELP-DESIGN.md`（项目根）：面向其他 agent 的 help 消息设计与重写规范——结构（顶层分组/子命令段/flag 段/示例段）、文案（去括号、不教 help、不列配置、动词化 flag）、机制（FLAG_HELP/HELP_TAILS/CONFIG_HELP 三表分工、clap 拦截点）、评审 checklist；含联网调研的优秀 CLI help 写法要点（clig.dev 等）。`[x]` ✅ v0.24.0
 
 ### 7.3 已知问题
 
@@ -615,6 +604,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 ### 8.0 终端输出设计规范（强制）
 
 - **任何涉及 CLI 输出/日志/颜色/进度的改动，必须先读项目根 `TUI.md` 并遵守**（流分工、三色分层、一行一记录、日志默认静默、四问检查清单）
+- **任何涉及 help 文案/子命令结构的改动，必须先读项目根 `HELP-DESIGN.md` 并遵守**（四层结构、去括号/不教 help/不列配置、四表分工、checklist）
 - 颜色常量只能来自 `src/util.rs`（RST/DIM/CYAN/YELLOW/MAGENTA），禁止裸写 ANSI
 
 ### 8.1 To-Do 管理
@@ -734,7 +724,7 @@ df -h /                          # 确认释放
     ├── download.rs        ← 正文下载 + info.list
     ├── config.rs          ← 配置解析 + 书架
     ├── types.rs           ← 数据结构
-    ├── workflow/          ← 工作流（download/update/audio/embed/process/discover）
+    ├── workflow/          ← 工作流（download/update/audio/shelf/info/search/discover/account）
     ├── workflow/discover.rs ← 发现/查询封装（recommend/category/comments/author）
     └── epub.rs            ← EPUB 生成
 ```

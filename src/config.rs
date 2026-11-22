@@ -67,67 +67,91 @@ impl Config {
         fs::create_dir_all(&d).map_err(|e| e.to_string())?;
         let path = d.join("config.ini");
         if path.exists() { return Ok(()); }
-        let ini = "\
+        fs::write(&path, Self::DEFAULT_INI).map_err(|e| e.to_string())
+    }
+
+    // ===== 默认 config.ini 模板（save_default） =====
+// 节名必须与 KEYS 各条目的节一致（ini_write 按 KEYS 节写入，节名不同会产生重复键）。
+// 每键上方一行中文注释说明作用；配置说明唯一来源=本文件 + `fqdt config <key> --help`。
+const DEFAULT_INI: &str = "\
 # 番茄小说下载器配置
+# 直接编辑本文件，或 fqdt config <点号键> <值>（如 fqdt config download.format epub）
+# 优先级: 命令行 flag > 本文件同义项
+
 [download]
-# 并发数 (默认: CPU核心数*2, 最高32)
+# 正文/音频并发下载线程数，0=按 CPU 核数*2 自动，上限 32
 concurrent = 0
+# 默认输出格式 txt 或 epub
 format = txt
+# 默认输出目录，相对路径基于当前工作目录
 output_dir = .
+# 文件名模板，{idx04}=章序四位，{title}=章标题
 filename_template = {idx04}_{title}
+# 默认详细日志，true 等价全局 -v
 verbose = false
 
 [cache]
+# 目录/详情文件缓存开关
 cache_enabled = true
+# 缓存有效期秒，过期条目下次请求时刷新
 cache_ttl = 86400
 
 [api]
-# 搜索API(逗号分隔,从前往后尝试,{}会被关键词和页码替换)
+# 请求超时秒，全局默认；单章下载另有 10s 内层超时
+timeout = 15
+# 第三方搜索降级源，逗号分隔从前往后尝试，{} 换关键词与页码
 search_url = https://novel.snssdk.com/api/novel/channel/homepage/search/search/v1/?aid=1967&q={}&offset={},http://101.35.133.34:5000/api/search?key={}&offset={}
-# 目录API
+# 第三方目录降级源，{} 换 book_id
 catalog_url = https://fanqienovel.com/api/reader/directory/detail?bookId={},http://101.35.133.34:5000/api/book?book_id={},http://101.35.133.34:5000/api/directory?book_id={}
-# 内容API(逗号分隔,从前往后尝试,{}会被item_id替换)
+# 第三方正文降级源，{} 换 item_id
 content_url = http://101.35.133.34:5000/api/content?tab=小说&item_id={},http://101.35.133.34:5000/api/chapter?item_id={},http://101.35.133.34:5000/api/raw_full?item_id={},https://tt.sjmyzq.cn/api/raw_full?item_id={}
-# 批量内容API({}会被book_id和item_ids(逗号分隔)替换)
+# 批量正文源，{} 换 book_id 与逗号分隔 item_ids，仅历史兼容
 batch_url = http://101.35.133.34:5000/api/content?tab=批量&book_id={}&item_ids={}
-# 书籍详情API
+# 第三方详情降级源，{} 换 book_id
 detail_url = http://101.35.133.34:5000/api/detail?book_id={}
-# 语音内容API(两个{}: 第一个item_id, 第二个tone_id)
+# 第三方语音内容源，两个 {} 依次为 item_id 与 tone_id
 audio_content_url = http://101.35.133.34:5000/api/content?tab=听书&item_id={}&tone_id={}
-# 默认语音音色(1-91)
-audio_tone = 1
-# 音色回退列表(主音色失败时依次尝试)
-audio_tone_fallbacks = 2,4,5,6,74,91
-
-[tts]
-# edge-tts 语速/音量/音调
-tts_rate = +0%
-tts_volume = +0%
-tts_pitch = +0Hz
 
 [audio]
-# MP3 编码码率 0=原始(不重编码), 32/64/128
+# 默认 AI 音色编号 1-91，fqdt info <id> audio 查本书可用集合
+audio_tone = 1
+# 音色回退列表，主音色失败时依次尝试
+audio_tone_fallbacks = 2,4,5,6,74,91
+# MP3 压缩码率 kbps，0=不重编码，可选 32/64/128
 abr = 0
-# 后处理命令模板 {input} {output} (如 lame --abr 32 {input} {output})
+# 后处理命令模板，{input} {output} 为占位符
 post_process =
 
+[tts]
+# Edge-TTS 语速，如 +0% / +10%
+tts_rate = +0%
+# Edge-TTS 音量，如 +0% / -20%
+tts_volume = +0%
+# Edge-TTS 音调，如 +0Hz / +5Hz
+tts_pitch = +0Hz
+
 [info]
-# 概览与 info 各 section: 目录前N章 / 评论前N条 / 热度行 / 简介截断 / 书评条数 / 书单条数 (0=关闭该项)
+# 概览显示目录前 N 章，0=关闭该段
 info_top_chapters = 10
+# 概览显示前 N 条书评，0=关闭
 info_top_comments = 3
+# 概览热度行开关，false 隐藏阅读量/评分/收藏
 info_hot = true
+# 简介截断字数，0=不显示简介
 info_intro_len = 80
+# info comments 章节/书评取前 N 条
 info_comments_count = 20
+# info author 推荐书单取前 N 条
 info_author_count = 20
 
 [ui]
-# 评论/摘要文本截断字数; 彩色输出 (false=强制无色); help 底部示例 (false=关闭)
+# 评论/摘要/相关书作者名截断字数，0=不截断
 ui_clip_len = 40
+# 彩色输出开关，false 等价 NO_COLOR=1
 ui_color = true
+# help 底部示例段开关，false 关闭
 ui_help_examples = true
 ";
-        fs::write(&path, ini).map_err(|e| e.to_string())
-    }
 
     pub fn apply_cli_overrides(&mut self, search_url: Option<&str>, catalog_url: Option<&str>, content_url: Option<&str>) {
         if let Some(v) = search_url { self.search_urls = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(); }
@@ -317,8 +341,14 @@ pub fn run_cmd(key: Option<String>, value: Option<String>, list: bool, unset: bo
         for (dotted, _, _, _, get) in KEYS { crate::emit_line(&format!("{}={}", dotted, get(&Config::load()))); }
         return;
     }
+    // `fqdt config init`：生成默认配置文件（原顶层 init 命令并入）
+    if key.as_deref() == Some("init") && value.is_none() && !unset {
+        Config::save_default().ok();
+        crate::emit_line(&format!("{GREEN}ok{RST} ~/.config/fqdt/config.ini"));
+        return;
+    }
     let Some(k) = key else {
-        eprintln!("  err 用法: fqdt config --list | <key> | <key> <value> | --unset <key>");
+        eprintln!("  err 用法: fqdt config init | --list | <key> | <key> <value> | --unset <key>");
         return;
     };
     if unset { return unset_key(&k); }
