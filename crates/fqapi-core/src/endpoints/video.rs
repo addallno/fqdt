@@ -1653,31 +1653,44 @@ fn decrypt_cenc_mp4(data: &mut [u8], content_key: &[u8]) -> Result<(), String> {
 }
 
 fn rewrite_encrypted_sample_entries(data: &mut [u8], boxes: &HashMap<[u8; 4], Vec<Mp4Box>>) {
-    for (typ, replacement) in [(b"encv", b"hvc1"), (b"enca", b"mp4a")] {
-        let Some(list) = boxes.get(typ) else {
+    // 加密 sample entry（encv/enca）把真实编码类型藏在内层 codec box 里：
+    // 音频 dOps=Opus、esds=AAC；视频 avcC=H.264、hvcC=HEVC。解密后必须还原成
+    // 对应明文类型，否则播放器会按错误解码器解析——番茄音频实为 Opus，
+    // 早先一律改写为 mp4a 导致普通播放器（含部分 mpv）完全无法解码。
+    for typ in [*b"encv", *b"enca"] {
+        let Some(list) = boxes.get(&typ) else {
             continue;
         };
         for b in list {
-            if b.off + 8 <= data.len() {
-                data[b.off + 4..b.off + 8].copy_from_slice(replacement);
+            let default_replacement = if typ == *b"enca" { *b"mp4a" } else { *b"hvc1" };
+            let mut replacement = default_replacement;
+            let mut sinf: Option<Mp4Box> = None;
+            if let Some(child_start) = box_children_start(&typ, b.off, b.header) {
+                for child in iter_boxes(data, child_start, b.off + b.size) {
+                    match &child.typ {
+                        b"dOps" => replacement = *b"Opus",
+                        b"esds" => replacement = *b"mp4a",
+                        b"avcC" => replacement = *b"avc1",
+                        b"hvcC" => replacement = *b"hvc1",
+                        b"sinf" => sinf = Some(child),
+                        _ => {}
+                    }
+                }
             }
-            let Some(child_start) = box_children_start(typ, b.off, b.header) else {
-                continue;
-            };
-            for child in iter_boxes(data, child_start, b.off + b.size) {
-                if child.typ == *b"sinf" {
-                    if child.off + 8 <= data.len() {
-                        data[child.off..child.off + 4].copy_from_slice(&8u32.to_be_bytes());
-                        data[child.off + 4..child.off + 8].copy_from_slice(b"free");
+            if b.off + 8 <= data.len() {
+                data[b.off + 4..b.off + 8].copy_from_slice(&replacement);
+            }
+            if let Some(child) = sinf {
+                if child.off + 8 <= data.len() {
+                    data[child.off..child.off + 4].copy_from_slice(&8u32.to_be_bytes());
+                    data[child.off + 4..child.off + 8].copy_from_slice(b"free");
+                }
+                let start = child.off + 8;
+                let end = (child.off + child.size).min(data.len());
+                if start < end {
+                    for byte in &mut data[start..end] {
+                        *byte = 0;
                     }
-                    let start = child.off + 8;
-                    let end = (child.off + child.size).min(data.len());
-                    if start < end {
-                        for byte in &mut data[start..end] {
-                            *byte = 0;
-                        }
-                    }
-                    break;
                 }
             }
         }

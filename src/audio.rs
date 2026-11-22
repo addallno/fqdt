@@ -4,6 +4,7 @@ use crate::util;
 use crate::util::{GREEN, RST};
 use indicatif::ProgressBar;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::thread;
 
@@ -56,9 +57,9 @@ impl AudioDownloader {
         let pending: Vec<Chapter> = chapters.iter()
             .filter(|c| {
                 if self.p.force { return true; }
-                let mp3 = self.out_dir.join(self.fname(c));
-                if !mp3.exists() { return true; }
-                if need_lrc && !mp3.with_extension("lrc").exists() { return true; }
+                let stem = util::format_filename(&self.p.ft, c);
+                let Some(audio) = existing_audio(&self.out_dir, &stem) else { return true; };
+                if need_lrc && !audio.with_extension("lrc").exists() { return true; }
                 false
             })
             .map(|c| (*c).clone()).collect();
@@ -117,7 +118,7 @@ impl AudioDownloader {
         let mut json = format!("{{\n  \"book_title\": \"{}\",\n  \"tone\": {},\n  \"chapters\": [\n",
             title.replace('\\', "\\\\").replace('"', "\\\""), self.p.tone);
         for (i, ch) in chapters.iter().enumerate() {
-            let file = self.fname(ch);
+            let file = self.file_name(ch);
             let comma = if i + 1 < chapters.len() { "," } else { "" };
             json.push_str(&format!(
                 "    {{\"idx\":{}, \"title\":\"{}\", \"file\":\"{}\"}}{}\n",
@@ -127,9 +128,42 @@ impl AudioDownloader {
         fs::write(&path, json).ok();
     }
 
+    /// 章节默认文件名（无已落盘文件时的兜底扩展名）。
     fn fname(&self, ch: &Chapter) -> String {
         util::format_filename(&self.p.ft, ch) + ".mp3"
     }
+
+    /// 章节音频实际文件名：优先已落盘的 `.m4a`/`.mp3`。
+    fn file_name(&self, ch: &Chapter) -> String {
+        let stem = util::format_filename(&self.p.ft, ch);
+        match existing_audio(&self.out_dir, &stem) {
+            Some(p) => p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| self.fname(ch)),
+            None => self.fname(ch),
+        }
+    }
+}
+
+/// 依容器魔数判断音频实际扩展名：MP4（`ftyp`）→ `.m4a`，其余按 MP3。
+///
+/// 番茄音频解密后仍是 MP4 容器（Opus 编码），写成 `.mp3` 会让普通播放器
+/// 按扩展名选错解码器而无法播放。
+fn detect_audio_ext(path: &Path) -> &'static str {
+    let mut buf = [0u8; 12];
+    if let Ok(mut f) = fs::File::open(path) {
+        if f.read_exact(&mut buf).is_ok() && &buf[4..8] == b"ftyp" {
+            return ".m4a";
+        }
+    }
+    ".mp3"
+}
+
+/// 查找已存在的音频文件（兼容旧 `.mp3` 与新 `.m4a`）。
+fn existing_audio(out_dir: &Path, stem: &str) -> Option<PathBuf> {
+    ["m4a", "mp3"].iter()
+        .map(|ext| out_dir.join(format!("{}.{}", stem, ext)))
+        .find(|p| p.exists())
 }
 
 // ── Download single chapter ─────────────────────────────────
@@ -137,37 +171,41 @@ impl AudioDownloader {
 async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                 pre: &std::collections::HashMap<String, (String, String)>) -> Result<(), String> {
     let name = util::format_filename(&p.ft, ch);
-    let path = out_dir.join(format!("{}.mp3", name));
+    let work = out_dir.join(format!("{}.download", name));
 
-    // 如果 MP3 已存在但缺少 LRC，补生成
-    if !p.force && path.exists() {
-        let lrc_path = path.with_extension("lrc");
-        if p.lrc_mode != "off" && !lrc_path.exists() {
-            let content = api.fetch_content(&ch.item_id).await.ok();
-            handle_lrc(&path, ch, &p.lrc_mode, p.verbose, content.as_deref());
+    // 已存在音频但缺 LRC，补生成（兼容 .m4a / .mp3）
+    if !p.force {
+        if let Some(existing) = existing_audio(out_dir, &name) {
+            let lrc_path = existing.with_extension("lrc");
+            if p.lrc_mode != "off" && !lrc_path.exists() {
+                let content = api.fetch_content(&ch.item_id).await.ok();
+                handle_lrc(&existing, ch, &p.lrc_mode, p.verbose, content.as_deref());
+            }
+            return Ok(());
         }
-        return Ok(());
     }
 
     // 哈希对比：已存在文件且 --force 时，先对比大小再决定是否跳过
-    if p.force && path.exists() {
-        let old_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        let mut all_tones_force = vec![p.tone];
-        all_tones_force.extend(p.fallbacks.iter().filter(|&&t| t != p.tone));
-        for &t in &all_tones_force {
-            if let Ok((audio_url, _)) = api.fetch_audio(&p.book_id, &ch.item_id, t).await {
-                if let Ok(resp) = api.reqwest_client.get(&audio_url).send().await {
-                    let new_size = resp.content_length().unwrap_or(0);
-                    if new_size == old_size && new_size > 1000 {
-                        if p.verbose { crate::util::note(&format!("  {:04} {} 不变 ✓", ch.index, ch.title)); }
-                        let content = api.fetch_content(&ch.item_id).await.ok();
-                        handle_lrc(&path, ch, &p.lrc_mode, p.verbose, content.as_deref());
-                        return Ok(());
+    if p.force {
+        if let Some(existing) = existing_audio(out_dir, &name) {
+            let old_size = std::fs::metadata(&existing).map(|m| m.len()).unwrap_or(0);
+            let mut all_tones_force = vec![p.tone];
+            all_tones_force.extend(p.fallbacks.iter().filter(|&&t| t != p.tone));
+            for &t in &all_tones_force {
+                if let Ok((audio_url, _)) = api.fetch_audio(&p.book_id, &ch.item_id, t).await {
+                    if let Ok(resp) = api.reqwest_client.get(&audio_url).send().await {
+                        let new_size = resp.content_length().unwrap_or(0);
+                        if new_size == old_size && new_size > 1000 {
+                            if p.verbose { crate::util::note(&format!("  {:04} {} 不变 ✓", ch.index, ch.title)); }
+                            let content = api.fetch_content(&ch.item_id).await.ok();
+                            handle_lrc(&existing, ch, &p.lrc_mode, p.verbose, content.as_deref());
+                            return Ok(());
+                        }
                     }
                 }
             }
+            // 大小不同或无法获取 → 继续下载覆盖
         }
-        // 大小不同或无法获取 → 继续下载覆盖
     }
 
     let mut all_tones = vec![p.tone];
@@ -188,18 +226,36 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
             Ok(v) => v,
             Err(e) => { last_err = e; continue; }
         };
-        match download_file(&audio_url, &path, p.verbose) {
+        match download_file(&audio_url, &work, p.verbose) {
             Ok(_) => {
-                if let Err(e) = decrypt_audio_file(&path, &key_hex) {
+                if let Err(e) = decrypt_audio_file(&work, &key_hex) {
+                    let _ = fs::remove_file(&work);
                     last_err = format!("tone={} 解密失败: {}", t, e);
                     continue;
                 }
-                post_process(&path, p.abr, p.speed, p.normalize, &p.post_cmd, p.verbose);
+                let ext = detect_audio_ext(&work);
+                let final_path = out_dir.join(format!("{}{}", name, ext));
+                // 清掉同章另一扩展名的旧文件，避免残留两份
+                for other in ["mp3", "m4a"] {
+                    let p_other = out_dir.join(format!("{}.{}", name, other));
+                    if p_other != final_path {
+                        let _ = fs::remove_file(&p_other);
+                    }
+                }
+                if let Err(e) = fs::rename(&work, &final_path) {
+                    let _ = fs::remove_file(&work);
+                    last_err = format!("重命名音频失败: {}", e);
+                    continue;
+                }
+                post_process(&final_path, p.abr, p.speed, p.normalize, &p.post_cmd, p.verbose);
                 let content = api.fetch_content(&ch.item_id).await.ok();
-                handle_lrc(&path, ch, &p.lrc_mode, p.verbose, content.as_deref());
+                handle_lrc(&final_path, ch, &p.lrc_mode, p.verbose, content.as_deref());
                 return Ok(());
             }
-            Err(e) => { last_err = format!("tone={}: {}", t, e); }
+            Err(e) => {
+                let _ = fs::remove_file(&work);
+                last_err = format!("tone={}: {}", t, e);
+            }
         }
     }
     Err(last_err)
@@ -274,14 +330,23 @@ pub fn post_process(path: &Path, abr: u32, speed: Option<f32>, normalize: bool,
             Err(e) => { crate::util::note(&format!("  err 后处理命令执行失败: {}", e)); false }
         }
     } else if abr > 0 {
-        let p_s = path.to_string_lossy().to_string();
-        let t_s = tmp.to_string_lossy().to_string();
-        let abr_s = abr.to_string();
-        let args = vec!["--abr", &abr_s, "--silent", &p_s, &t_s];
-        match std::process::Command::new("lame").args(&args).output() {
-            Ok(out) if out.status.success() => true,
-            Ok(out) => { crate::util::note(&format!("  err lame 压缩失败 (exit={}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim())); false }
-            Err(e) => { crate::util::note(&format!("  err lame 未安装或执行失败: {}", e)); false }
+        // lame 只接受 MP3；Opus/m4a 等容器直接跳过，保留原文件
+        let is_mp3 = path.extension()
+            .map(|e| e.eq_ignore_ascii_case("mp3"))
+            .unwrap_or(false);
+        if !is_mp3 {
+            if verbose { crate::util::note("  [verbose] 非 MP3 容器，跳过 lame 压缩"); }
+            true
+        } else {
+            let p_s = path.to_string_lossy().to_string();
+            let t_s = tmp.to_string_lossy().to_string();
+            let abr_s = abr.to_string();
+            let args = vec!["--abr", &abr_s, "--silent", &p_s, &t_s];
+            match std::process::Command::new("lame").args(&args).output() {
+                Ok(out) if out.status.success() => true,
+                Ok(out) => { crate::util::note(&format!("  err lame 压缩失败 (exit={}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim())); false }
+                Err(e) => { crate::util::note(&format!("  err lame 未安装或执行失败: {}", e)); false }
+            }
         }
     } else {
         true
@@ -360,7 +425,19 @@ pub fn embed_lrc(mp3_path: &Path, ch: &Chapter, verbose: bool, content: Option<&
 }
 
 fn handle_lrc(path: &Path, ch: &Chapter, mode: &str, verbose: bool, content: Option<&str>) {
-    match mode {
+    // MP4/m4a 不能用 ID3 嵌入歌词，embed/both 退化为外置 .lrc，避免写坏容器
+    let is_mp3 = path.extension()
+        .map(|e| e.eq_ignore_ascii_case("mp3"))
+        .unwrap_or(false);
+    let effective = if is_mp3 {
+        mode
+    } else {
+        match mode {
+            "embed" | "both" => "external",
+            m => m,
+        }
+    };
+    match effective {
         "external" => { if let Err(e) = write_lrc_file(path, ch, content) { crate::util::note(&format!("  err LRC: {}", e)); } }
         "embed" => embed_lrc(path, ch, verbose, content),
         "both" => {

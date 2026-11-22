@@ -45,8 +45,11 @@ fqdt audio <book_id>
 fqdt a <book_id>                    # 简写
 fqdt a <book_id> -r 1-50 -j 6       # 范围+并发
 fqdt a <book_id> --tone 5           # 指定音色
-fqdt a <book_id> --lrc embed        # 歌词嵌入MP3
+fqdt a <book_id> --lrc embed        # 歌词嵌入（仅MP3，M4A自动改为外置.lrc）
 ```
+
+> 输出格式按容器自动判定：第三方源为 `.mp3`；番茄官方源实际是 Opus 编码的
+> MP4，保存为 `.m4a`（VLC/foobar2000/mpv/Android 等可正常播放）。
 
 ## update — 增量更新（简写 u）
 
@@ -141,8 +144,9 @@ output/
 ├── 书名.epub
 └── Audio/
     ├── info.list
-    ├── 0001_第一章_穿越.mp3
-    ├── 0001_第一章_穿越.lrc
+    ├── 0001_第一章_穿越.mp3     # 第三方源（明文，真MP3）
+    ├── 0002_第二章_奇遇.m4a     # 番茄官方源（Opus编码，MP4容器）
+    ├── 0002_第二章_奇遇.lrc
     └── ...
 ```
 

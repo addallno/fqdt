@@ -183,12 +183,15 @@ async fn update_audio(book_id: &str, all: &[crate::types::Chapter], out_dir: &st
         if let Ok(entries) = fs::read_dir(&audio_dir) {
             for e in entries.flatten() {
                 let name = e.file_name().to_string_lossy().to_string();
-                if name.ends_with(".mp3")
-                    && name.chars().all(|c| c.is_ascii_digit() || c == '.')
-                {
-                    if let Ok(n) = name.trim_end_matches(".mp3").parse::<usize>() {
-                        if n > max_existing {
-                            max_existing = n;
+                let stem = name
+                    .strip_suffix(".mp3")
+                    .or_else(|| name.strip_suffix(".m4a"));
+                if let Some(stem) = stem {
+                    if stem.chars().all(|c| c.is_ascii_digit() || c == '.') {
+                        if let Ok(n) = stem.parse::<usize>() {
+                            if n > max_existing {
+                                max_existing = n;
+                            }
                         }
                     }
                 }
