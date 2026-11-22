@@ -169,7 +169,7 @@ impl Default for Config {
             info_author_count: 20,
             ui_clip_len: 40,
             ui_color: true,
-            ui_help_examples: true,
+            ui_help_examples: false,
         }
     }
 }

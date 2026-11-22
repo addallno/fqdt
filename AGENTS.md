@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.25.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.26.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -588,6 +588,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 49. **📐 子命令大重构（breaking，m0128+m0105）** — ① **删 `function` 子命令**（用户判定 worthless：Cmd::Function/run_function/别名 `fn`/HELP_TAILS/别名映射/601 提示全清；管道需求由 `api`/既有命令覆盖）；② `init` 并入 config：`fqdt config init`（顶层 Init 删）；③ `recommend`/`category` 并入 info（`fqdt info recommend`、`fqdt info category`——info 的 book_id 改 Option，无 id 且 section 为二者时走 discover，实现时核对参数形态）；④ **顶层子命令重排分组**：查询(search, info) / 下载(download, audio, update) / 管理(shelf, tts, login, config) / 服务(serve, api…) / help, version——按序 `display_order`，分组标题自定义顶层 help（clap 模板无分组能力，参照 FLAG_HELP 先例手写渲染）；`version` 补为子命令；⑤ **account 移除**（m0105 用户重申）：只读 sections 迁 `info` 子命令、云端书架写操作（--add/--remove/--move/--check/--author/--search）迁 `shelf` 子命令——即待办 42 的落地并入本项。`[x]` ✅ v0.24.0
 50. **🤔 download+audio 合并评估（m0130）** — 结论：**不合并命令，仅共享选书逻辑**（已执行）。利弊：① 复用面——二者已共享 `fetch_catalog`/`Downloader`/`AudioDownloader`/`run_dir`/range/tone/abr 参数与 `workflow::search::pick`（仅 download 用），进一步合并只省一个 match 臂；② 参数面——download 有 `-t txt/epub`、audio 有三模式（`--real/--ai/--tts`）+`--lrc`+`--tone/--voice`，合并后 15+ flag、互斥组（format vs lrc vs real/ai/tts）复杂，与 47 help 精简方向相悖；③ 用户心智——"下载正文"与"下载有声书"是两个清晰动词，按媒体类型分命令；④ 与 49 分组关系——下载组 `download, audio, update` 三子命令正好成组，合并后组内只剩 update 显得失衡；⑤ 先例反证——v0.13.0 删 `get`（download+audio+update 合体，待办 39），合体命令已被否决过一次，合并是走回头路。**已执行部分**：`audio` 位置参数支持书名关键词（与 download 同规则：纯数字≥10 位=book_id，否则 `workflow::search::pick` 交互选书并自动加书架），help 文案同步"book_id 或书名关键词"。`[x]` ✅ v0.24.0
 51. **📚 help 设计指南（m0132，本批最后做）** — 全部 help/子命令重构完成后，写 `HELP-DESIGN.md`（项目根）：面向其他 agent 的 help 消息设计与重写规范——结构（顶层分组/子命令段/flag 段/示例段）、文案（去括号、不教 help、不列配置、动词化 flag）、机制（FLAG_HELP/HELP_TAILS/CONFIG_HELP 三表分工、clap 拦截点）、评审 checklist；含联网调研的优秀 CLI help 写法要点（clig.dev 等）。`[x]` ✅ v0.24.0
+52. **🧭 help 输出重构 + info 子命令化（m0049 用户全量反馈）** — ① **紧凑布局**：短介绍不另起一行，直接空几格接在 flag/子命令名后；flag/subcommand 之间不强制回车空行；消除 clap long_about 触发的长格式。② **info 的 section 改真子命令**（clap subcommand，各自专属 flag）：overview/chapters/intro/author/comments/cover/relative/audio/recommend/category/folders/history/progress/user/highlights；通用 flag（--timeout/-v 等全局）留父级，专属 flag 归各自子命令；其他命令层级同理。③ 顶层 help **去掉板块标题**（查询/下载/… 组名不显示），直接按分类顺序列出子命令；选项段标题改 **Options**（英文）。④ `ui.help_examples` **默认改为关闭**。⑤ 配置文件目录下生成 **help.txt** 完整参考：所有命令/子命令/子子命令 + flags 通用用法与目的；**API 子命令着重说明如何请求**（路径/-X/-q/-d/--jq/--status/--list/示例/常用端点）。启动时确保存在，版本变化才重写。⑥ **config.ini 模板**：分板块 + 英文标题（`## Download` 式）+ 每键中文注释说明作用。⑦ 同步 `HELP-DESIGN.md`。`[x] ✅ v0.26.0`
 
 ### 7.3 已知问题
 

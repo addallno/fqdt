@@ -78,6 +78,7 @@ const DEFAULT_INI: &str = "\
 # 直接编辑本文件，或 fqdt config <点号键> <值>（如 fqdt config download.format epub）
 # 优先级: 命令行 flag > 本文件同义项
 
+## Download
 [download]
 # 正文/音频并发下载线程数，0=按 CPU 核数*2 自动，上限 32
 concurrent = 0
@@ -90,12 +91,14 @@ filename_template = {idx04}_{title}
 # 默认详细日志，true 等价全局 -v
 verbose = false
 
+## Cache
 [cache]
 # 目录/详情文件缓存开关
 cache_enabled = true
 # 缓存有效期秒，过期条目下次请求时刷新
 cache_ttl = 86400
 
+## API
 [api]
 # 请求超时秒，全局默认；单章下载另有 10s 内层超时
 timeout = 15
@@ -112,8 +115,9 @@ detail_url = http://101.35.133.34:5000/api/detail?book_id={}
 # 第三方语音内容源，两个 {} 依次为 item_id 与 tone_id
 audio_content_url = http://101.35.133.34:5000/api/content?tab=听书&item_id={}&tone_id={}
 
+## Audio
 [audio]
-# 默认 AI 音色编号 1-91，fqdt info <id> audio 查本书可用集合
+# 默认 AI 音色编号 1-91，fqdt info audio <id> 查本书可用集合
 audio_tone = 1
 # 音色回退列表，主音色失败时依次尝试
 audio_tone_fallbacks = 2,4,5,6,74,91
@@ -122,6 +126,7 @@ abr = 0
 # 后处理命令模板，{input} {output} 为占位符
 post_process =
 
+## TTS
 [tts]
 # Edge-TTS 语速，如 +0% / +10%
 tts_rate = +0%
@@ -130,6 +135,7 @@ tts_volume = +0%
 # Edge-TTS 音调，如 +0Hz / +5Hz
 tts_pitch = +0Hz
 
+## Info
 [info]
 # 概览显示目录前 N 章，0=关闭该段
 info_top_chapters = 10
@@ -144,13 +150,14 @@ info_comments_count = 20
 # info author 推荐书单取前 N 条
 info_author_count = 20
 
+## UI
 [ui]
 # 评论/摘要/相关书作者名截断字数，0=不截断
 ui_clip_len = 40
 # 彩色输出开关，false 等价 NO_COLOR=1
 ui_color = true
-# help 底部示例段开关，false 关闭
-ui_help_examples = true
+# help 底部示例段开关，默认关闭，true 开启
+ui_help_examples = false
 ";
 
     pub fn apply_cli_overrides(&mut self, search_url: Option<&str>, catalog_url: Option<&str>, content_url: Option<&str>) {
@@ -243,22 +250,22 @@ const CONFIG_HELP: &[(&str, &str, &str)] = &[
     ("api.detail_url", "第三方详情降级源", "{} 换 book_id；主通道为 fqapi /api/v1/books/{id}"),
     ("api.audio_content_url", "第三方音频内容源", "两个 {}：item_id 与 tone_id；主通道 fqapi audio play"),
     ("api.timeout", "请求超时秒", "全局默认 15；单章下载另有 10s 内层超时"),
-    ("audio.tone", "默认 AI 音色编号", "1-91；audio --tone 与 info <id> audio 查询本书可用集合"),
+    ("audio.tone", "默认 AI 音色编号", "1-91；audio --tone 与 info audio <id> 查询本书可用集合"),
     ("audio.tone_fallbacks", "音色回退列表", "主音色失败时依次尝试的编号"),
     ("audio.abr", "MP3 压缩码率", "0=不重编码；32/64/128 kbps"),
     ("audio.post_process", "后处理命令模板", "{input} {output} 占位；如 lame --abr 32 {input} {output}"),
     ("tts.rate", "Edge-TTS 语速", "如 +0% / +10%；audio --tts 时生效"),
     ("tts.volume", "Edge-TTS 音量", "如 +0% / -20%"),
     ("tts.pitch", "Edge-TTS 音调", "如 +0Hz / +5Hz"),
-    ("info.top_chapters", "概览前 N 章", "0=关闭该段；完整列表用 info <id> chapters"),
-    ("info.top_comments", "概览前 N 条书评", "0=关闭；完整用 info <id> comments"),
+    ("info.top_chapters", "概览前 N 章", "0=关闭该段；完整列表用 info chapters <id>"),
+    ("info.top_comments", "概览前 N 条书评", "0=关闭；完整用 info comments <id>"),
     ("info.hot", "概览热度行开关", "false 隐藏 read_cnt_text·评分·收藏行"),
     ("info.intro_len", "简介截断字数", "概览与 discover 描述截断；0=不显示简介"),
     ("info.comments_count", "书评条数", "info comments 取前 N 条"),
     ("info.author_count", "书单条数", "info author 推荐书单取前 N 条"),
     ("ui.clip_len", "UI 文本截断字数", "评论/摘要/相关书作者名截断；0=不截断"),
     ("ui.color", "彩色输出开关", "false 等价 NO_COLOR=1；非 TTY 本就纯文本"),
-    ("ui.help_examples", "help 示例段开关", "false 关闭子命令 help 底部示例段"),
+    ("ui.help_examples", "help 示例段开关", "默认关闭；true 在子命令 help 底部追加示例段"),
 ];
 
 fn kind_label(k: Kind) -> &'static str {

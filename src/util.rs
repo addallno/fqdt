@@ -35,6 +35,8 @@ impl std::fmt::Display for Color {
 pub static RST: Color = Color("0");
 pub static DIM: Color = Color("2");
 pub static CYAN: Color = Color("1;36");
+/// help 段落标题（Options/Examples 等）：加粗 + 下划线
+pub static TITLE: Color = Color("1;4");
 pub static YELLOW: Color = Color("33");
 pub static MAGENTA: Color = Color("35");
 pub static GREEN: Color = Color("32");

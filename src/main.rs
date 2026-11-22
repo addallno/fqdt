@@ -4,6 +4,7 @@ mod config;
 mod download;
 mod epub;
 mod fqapi;
+mod helpfile;
 mod store;
 mod types;
 mod util;
@@ -11,7 +12,7 @@ mod workflow;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use types::Config;
-use crate::util::{CYAN, DIM, GREEN, RST, YELLOW};
+use crate::util::{CYAN, DIM, GREEN, RST, TITLE, YELLOW};
 use std::path::Path;
 
 #[derive(Parser)]
@@ -37,6 +38,7 @@ enum Cmd {
     /// 搜索小说
     #[command(display_order = 10)]
     Search {
+        #[arg(help = "搜索关键词")]
         keyword: String,
         #[arg(short='p', long, default_value="1", help = "页码")]
         page: usize,
@@ -56,34 +58,11 @@ enum Cmd {
         interval: u64,
     },
     /// 查看书籍信息
-    ///
-    /// 也承载发现流: fqdt info recommend（首页推荐）/ fqdt info category（分类列表）
-    /// 与个人数据: fqdt info folders / history / progress / user / highlights
     #[command(alias = "i")]
     #[command(display_order = 11)]
     Info {
-        #[arg(help = "id 自动识别: 书/章节 item_id/作者/读者 uid；或 recommend / category / folders / history / progress / user / highlights")]
-        book_id: Option<String>,
-        #[arg(help = "部分: chapters/intro/author/comments/cover/relative/audio")]
-        section: Option<String>,
-        #[arg(short='r', long, help = "章节范围")]
-        range: Option<String>,
-        #[arg(short='s', long, help = "显示正文预览")]
-        show: bool,
-        #[arg(long, help = "加入云端书架")]
-        add: bool,
-        #[arg(long, help = "输出原始 JSON")]
-        json: bool,
-        #[arg(long, value_name = "KEYWORD", help = "关键词过滤（仅 folders/history/progress）")]
-        search: Option<String>,
-        #[arg(long, default_value = "2", help = "推荐区块类型（仅 recommend）")]
-        tab_type: u32,
-        #[arg(long, default_value = "0", help = "推荐区块索引（仅 recommend）")]
-        tab_index: u32,
-        #[arg(long, default_value = "0", help = "推荐偏移（仅 recommend）")]
-        offset: u32,
-        #[arg(long, default_value = "1", help = "分类: 1 男频 / 2 女频 / 3 出版 / 4 听书（仅 category）")]
-        tab: u32,
+        #[command(subcommand)]
+        cmd: Option<InfoCmd>,
     },
     /// 下载正文
     #[command(alias = "d")]
@@ -125,7 +104,7 @@ enum Cmd {
         #[arg(long, help = "真人讲书版", conflicts_with_all = ["ai", "tts"])]
         real: bool,
         // --tone 嵌套展示于 --ai 之下（--ai 多行 help + --tone 隐藏独立行），解析不受影响
-        #[arg(long, conflicts_with = "tts", help = "智能朗读\n    --tone <N>  AI 音色编号，默认 1，fqdt info <id> audio 查可用")]
+        #[arg(long, conflicts_with = "tts", help = "智能朗读\n    --tone <N>  AI 音色编号，默认 1，fqdt info audio <id> 查可用")]
         ai: bool,
         #[arg(long, hide = true, default_value = "1", help = "")]
         tone: usize,
@@ -166,8 +145,6 @@ enum Cmd {
         cmd: Option<ShelfCmd>,
     },
     /// 登录态管理
-    ///
-    /// 上游无账号密码登录；Cookie 存 ~/.config/fqdt/cookie 独立文件。
     #[command(display_order = 32)]
     Login {
         /// Cookie 字符串
@@ -180,8 +157,6 @@ enum Cmd {
         clear: bool,
     },
     /// 查看/修改配置
-    ///
-    /// 键为点号形式，如 info.top_chapters、audio.abr、ui.clip_len；config init 生成默认配置文件
     #[command(display_order = 33)]
     Config {
         /// 键
@@ -193,9 +168,7 @@ enum Cmd {
         #[arg(long, help = "删除该键")]
         unset: bool,
     },
-    /// 透传调用 fqapi 端点 
-    ///
-    /// 路径如 /api/v1/books/{id}/directory，query 拼在 ? 后或用 -q 追加。
+    /// 透传调用 fqapi 端点
     #[command(display_order = 41)]
     Api {
         /// 端点路径
@@ -233,6 +206,71 @@ enum Cmd {
     /// 自定义命令
     #[command(external_subcommand)]
     Custom(Vec<String>),
+}
+
+/// `fqdt info` 子命令：书籍 section + 发现流 + 个人数据。
+/// 原位置参数 section 改为真子命令，flag 按子命令归属（通用 flag 仅 --timeout/-v）。
+#[derive(Subcommand)]
+enum InfoCmd {
+    /// 概览：标题/热度/简介 + 前 N 章 + 前 N 条书评
+    Overview {
+        /// book_id / 章节 item_id / 作者 id / 读者 uid
+        book_id: String,
+        #[arg(short = 'r', long, help = "章节范围")]
+        range: Option<String>,
+        #[arg(short = 's', long, help = "显示正文预览")]
+        show: bool,
+        #[arg(long, help = "加入云端书架")]
+        add: bool,
+    },
+    /// 目录（含 item_id）
+    Chapters {
+        #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String,
+        #[arg(short = 'r', long, help = "章节范围")]
+        range: Option<String>,
+        #[arg(long, help = "加入云端书架")]
+        add: bool,
+    },
+    /// 完整简介
+    Intro { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    /// 作者资料与书单
+    Author { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    /// 书评
+    Comments { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    /// 封面图 URL
+    Cover { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    /// 相关推荐
+    Relative { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    /// 本书可用 AI 音色
+    Audio { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    /// 首页推荐
+    Recommend {
+        #[arg(long, default_value = "2", help = "区块类型")]
+        tab_type: u32,
+        #[arg(long, default_value = "0", help = "区块索引")]
+        tab_index: u32,
+        #[arg(long, default_value = "0", help = "偏移")]
+        offset: u32,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
+    /// 分类列表
+    Category {
+        #[arg(long, default_value = "1", help = "1 男频 / 2 女频 / 3 出版 / 4 听书")]
+        tab: u32,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
+    /// 云端文件夹
+    Folders { #[arg(long, value_name = "KEYWORD", help = "关键词过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
+    /// 阅读历史
+    History { #[arg(long, value_name = "KEYWORD", help = "关键词过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
+    /// 阅读进度
+    Progress { #[arg(long, value_name = "KEYWORD", help = "关键词过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
+    /// 账号信息
+    User { #[arg(long, help = "输出原始 JSON")] json: bool },
+    /// 划线笔记
+    Highlights { #[arg(long, help = "输出原始 JSON")] json: bool },
 }
 
 /// `fqdt shelf` 子命令（42②：裸 shelf 报错要求子命令，list 为书架入口）。
@@ -307,7 +345,7 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("类型", "整数"),
         ("取值", "默认 1；常见 1 甜美少女 · 2 清亮青叔 · 4 成熟大叔 · 5 开朗青年 · 6 温柔淑女 · 74 大叔升级 · 51 多人发音"),
         ("说明", "文字版 AI 朗读音色；各书可用集合不同"),
-        ("查询", "fqdt info <book_id> audio 查看本书可用编号"),
+        ("查询", "fqdt info audio <book_id> 查看本书可用编号"),
         ("配置", "config.ini [audio] audio_tone"),
         ("示例", "fqdt audio <book_id> --tone 6"),
         ("相关", "--ai --real --tts"),
@@ -324,7 +362,7 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("说明", "自动发现最热真人听书版"),
         ("互斥", "--ai --tts"),
         ("示例", "fqdt audio <book_id> --real"),
-        ("查询", "fqdt info <book_id> relative 查看该书真人版"),
+        ("查询", "fqdt info relative <book_id> 查看该书真人版"),
     ]}),
     ("audio", "--ai", FlagDoc { brief: "智能朗读", takes_value: false, fields: &[
         ("说明", "使用文字版 AI 音色，配合 --tone 选编号；related_novel_bookid 自动转回文字版"),
@@ -407,11 +445,11 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("类型", "字符串"),
         ("取值", "同 download：N / N-M / -M / N-"),
         ("限制", "仅 chapters 与概览生效"),
-        ("示例", "fqdt info <book_id> chapters -r 1-50"),
+        ("示例", "fqdt info chapters <book_id> -r 1-50"),
     ]}),
     ("info", "--show", FlagDoc { brief: "正文预览", takes_value: false, fields: &[
         ("说明", "概览前列章节附带正文"),
-        ("示例", "fqdt info <book_id> --show"),
+        ("示例", "fqdt info overview <book_id> --show"),
     ]}),
 ];
 
@@ -520,21 +558,32 @@ fn top_help_requested(args: &[String]) -> bool {
     false
 }
 
-/// 手写分组顶层 help：查询/下载/管理/服务/其他 + 选项 + 优先级尾行。
+/// 无样式的根命令，供 help.txt 生成（纯文本）。
+pub(crate) fn cli_command() -> clap::Command { Cli::command() }
+
+/// clap help 段落标题（Usage/Arguments/Options/Commands）统一加粗 + 下划线。
+fn with_help_styles(cmd: clap::Command) -> clap::Command {
+    use clap::builder::styling::{Effects, Style, Styles};
+    let hdr = Style::new().effects(Effects::BOLD | Effects::UNDERLINE);
+    let style = Styles::default().header(hdr).usage(hdr);
+    cmd.styles(style).mut_subcommands(with_help_styles)
+}
+
+/// 手写顶层 help：子命令按分类顺序平铺（不显示分组标题）+ Options + 优先级尾行。
 fn render_top_help() {
     let cmd = Cli::command();
     crate::emit_line(&format!("{CYAN}fqdt{RST} — 番茄小说下载器"));
     crate::emit_line("");
     crate::emit_line(&format!("  {DIM}用法: fqdt [OPTIONS] <COMMAND>{RST}"));
     crate::emit_line("");
-    for (group, subs) in TOP_GROUPS {
-        crate::emit_line(&format!("{CYAN}{group}:{RST}"));
+    // 分类只决定顺序，不再打印组名（用户：按顺序列出即可，看得出用途）
+    for (_, subs) in TOP_GROUPS {
         for s in *subs {
             crate::emit_line(&format!("  {s:<9} {}", sub_about(&cmd, s)));
         }
-        crate::emit_line("");
     }
-    crate::emit_line(&format!("{CYAN}选项:{RST}"));
+    crate::emit_line("");
+    crate::emit_line(&format!("{TITLE}Options:{RST}"));
     for (flag, about) in TOP_OPTIONS {
         crate::emit_line(&format!("  {flag}  {about}"));
     }
@@ -554,21 +603,21 @@ fn sub_about(cmd: &clap::Command, name: &str) -> String {
 /// 附加说明不写"flag 详情/配置键"类内容（用户明确：帮助里不教用 help、不列配置键）。
 const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("", "优先级: 命令行 flag > config.ini 同义项", ""),
-    ("search", "", "示例:\n  fqdt search 诡秘之主\n  fqdt search 诡秘 -D 1"),
+    ("search", "", "Examples:\n  fqdt search 诡秘之主\n  fqdt search 诡秘 -D 1"),
     ("info", "",
-     "示例:\n  fqdt info <book_id>\n  fqdt info <book_id> chapters\n  fqdt info <book_id> --add\n  fqdt info recommend\n  fqdt info category --tab 1\n  fqdt info user\n  fqdt info progress --search 词\n  fqdt info <item_id>\n  fqdt info 2_698…"),
-    ("download", "", "示例:\n  fqdt download <book_id> -r 1-50 -t epub"),
+     "Examples:\n  fqdt info overview <book_id>\n  fqdt info chapters <book_id> -r 1-50\n  fqdt info overview <book_id> --add\n  fqdt info recommend\n  fqdt info category --tab 1\n  fqdt info progress --search 词\n  fqdt info overview <item_id>"),
+    ("download", "", "Examples:\n  fqdt download <book_id> -r 1-50 -t epub"),
     ("audio", "",
-     "示例:\n  fqdt audio <book_id> --real\n  fqdt audio <book_id> --ai --tone 6\n  fqdt audio 诡秘之主 --ai"),
+     "Examples:\n  fqdt audio <book_id> --real\n  fqdt audio <book_id> --ai --tone 6\n  fqdt audio 诡秘之主 --ai"),
     ("update", "", ""),
-    ("tts", "", "示例:\n  fqdt tts book.txt"),
+    ("tts", "", "Examples:\n  fqdt tts book.txt"),
     ("shelf", "",
-     "示例:\n  fqdt shelf list\n  fqdt shelf list 已读\n  fqdt shelf list --local\n  fqdt shelf add <ID>:<标题>\n  fqdt shelf add <book_id>\n  fqdt shelf move <book_id> 已读\n  fqdt shelf download 1"),
+     "Examples:\n  fqdt shelf list\n  fqdt shelf list 已读\n  fqdt shelf list --local\n  fqdt shelf add <ID>:<标题>\n  fqdt shelf add <book_id>\n  fqdt shelf move <book_id> 已读\n  fqdt shelf download 1"),
     ("login", "",
-     "示例:\n  fqdt login '<Cookie>'\n  fqdt login --check"),
+     "Examples:\n  fqdt login '<Cookie>'\n  fqdt login --check"),
     ("config", "",
-     "示例:\n  fqdt config init\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
-    ("api", "", "示例:\n  fqdt api /api/v1/search -q query=诡秘 -q tab_type=3\n  fqdt api /api/v1/books/123 --jq data.book_name"),
+     "Examples:\n  fqdt config init\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
+    ("api", "", "Examples:\n  fqdt api /api/v1/search -q query=诡秘 -q tab_type=3\n  fqdt api /api/v1/books/123 --jq data.book_name"),
     ("serve", "", ""),
 ];
 
@@ -583,6 +632,8 @@ fn apply_help_tails(cmd: &mut clap::Command, examples: bool) {
                 tail.push_str(ex);
             }
             if !tail.is_empty() {
+                // 示例段标题与 clap 段落标题一致：加粗 + 下划线
+                tail = tail.replace("Examples:", &format!("{TITLE}Examples:{RST}"));
                 let old = std::mem::replace(c, clap::Command::new("_"));
                 *c = old.after_help(tail);
             }
@@ -599,7 +650,7 @@ fn apply_help_tails(cmd: &mut clap::Command, examples: bool) {
 async fn main() {
     // 逐 flag / config 键详情：在 clap 解析前拦截（`fqdt audio --tone --help` 等四场景）
     try_flag_help();
-    let mut cmd = Cli::command();
+    let mut cmd = with_help_styles(Cli::command());
     let mut cfg = Config::load();
     if !cfg.ui_color { std::env::set_var("NO_COLOR", "1"); }
     apply_help_tails(&mut cmd, cfg.ui_help_examples);
@@ -620,6 +671,7 @@ async fn main() {
     cfg.ensure_dirs();
     cfg.validate();
     Config::save_default().ok();
+    crate::helpfile::ensure_help_file();
 
     // 全局 -v：core 日志 stderr 镜像 + workflow 请求详情（日志默认静默，仍落盘 rust.log）
     let verbose = cli.verbose || cfg.verbose;
@@ -631,23 +683,8 @@ async fn main() {
         Cmd::Search { keyword, page, auto, dry_run, output, jobs, range, format, interval } =>
             workflow::search::run(&keyword, page, output.as_deref(), jobs, range.as_deref(),
                 format.as_deref(), verbose, auto, dry_run, interval, &cfg).await,
-        Cmd::Info { book_id, section, range, show, add, json, search, tab_type, tab_index, offset, tab } => {
-            // 首位置参数按值路由：discover 入口与个人数据只读 section（原 account 迁入）
-            match book_id.as_deref() {
-                None => eprintln!("  err 用法: fqdt info <book_id> [section] · info recommend · info category · info user"),
-                Some("recommend") if section.is_none() =>
-                    workflow::discover::recommend(tab_type, tab_index, offset, json, &cfg).await,
-                Some("category") if section.is_none() =>
-                    workflow::discover::category(tab, json, &cfg).await,
-                Some(sec @ ("folders" | "history" | "progress" | "user" | "highlights"))
-                    if section.is_none() =>
-                    workflow::account::read_section(sec, json, search.as_deref()).await,
-                Some(id) => {
-                    workflow::info::run(id, section.as_deref(), range.as_deref(), show, verbose, &cfg).await;
-                    if add { workflow::account::add_book(id).await; }
-                }
-            }
-        }
+        Cmd::Info { cmd } =>
+            dispatch_info(cmd, verbose, &cfg).await,
         Cmd::Download { book_id, output, range, format, jobs, force, interval } =>
             dispatch_download(book_id, output, range, format, jobs, force, verbose, interval, &cfg).await,
         Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval, real, ai, tts, voice } =>
@@ -697,6 +734,43 @@ fn dispatch_custom(args: Vec<String>, cfg: &Config) {
     }
     eprintln!("  err 未知命令: {}", cmd);
     eprintln!("  可用命令: search, info, download, audio, update, tts, shelf, login, config");
+}
+
+/// info 子命令分发：书籍 section 走 workflow::info::run；发现流/个人数据各走原入口。
+async fn dispatch_info(cmd: Option<InfoCmd>, verbose: bool, cfg: &Config) {
+    let Some(cmd) = cmd else {
+        eprintln!("  err 用法: fqdt info <section> <book_id> · fqdt info --help");
+        std::process::exit(2);
+    };
+    let vb = verbose || cfg.verbose;
+    match cmd {
+        InfoCmd::Recommend { tab_type, tab_index, offset, json } =>
+            workflow::discover::recommend(tab_type, tab_index, offset, json, cfg).await,
+        InfoCmd::Category { tab, json } => workflow::discover::category(tab, json, cfg).await,
+        InfoCmd::Folders { search, json } => workflow::account::read_section("folders", json, search.as_deref()).await,
+        InfoCmd::History { search, json } => workflow::account::read_section("history", json, search.as_deref()).await,
+        InfoCmd::Progress { search, json } => workflow::account::read_section("progress", json, search.as_deref()).await,
+        InfoCmd::User { json } => workflow::account::read_section("user", json, None).await,
+        InfoCmd::Highlights { json } => workflow::account::read_section("highlights", json, None).await,
+        book => dispatch_info_book(book, vb, cfg).await,
+    }
+}
+
+/// 书籍类 info 子命令：统一映射到 workflow::info::run 的 section。
+async fn dispatch_info_book(cmd: InfoCmd, vb: bool, cfg: &Config) {
+    let (id, section, range, show, add) = match cmd {
+        InfoCmd::Overview { book_id, range, show, add } => (book_id, None, range, show, add),
+        InfoCmd::Chapters { book_id, range, add } => (book_id, Some("chapters"), range, false, add),
+        InfoCmd::Intro { book_id, add } => (book_id, Some("intro"), None, false, add),
+        InfoCmd::Author { book_id, add } => (book_id, Some("author"), None, false, add),
+        InfoCmd::Comments { book_id, add } => (book_id, Some("comments"), None, false, add),
+        InfoCmd::Cover { book_id, add } => (book_id, Some("cover"), None, false, add),
+        InfoCmd::Relative { book_id, add } => (book_id, Some("relative"), None, false, add),
+        InfoCmd::Audio { book_id, add } => (book_id, Some("audio"), None, false, add),
+        _ => return,
+    };
+    workflow::info::run(&id, section, range.as_deref(), show, vb, cfg).await;
+    if add { workflow::account::add_book(&id).await; }
 }
 
 /// 选书：纯数字（≥10 位）视为 book_id，否则关键词交互选书并自动加书架（download/audio 共用）
