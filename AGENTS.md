@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.26.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.26.1（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -589,11 +589,12 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 50. **🤔 download+audio 合并评估（m0130）** — 结论：**不合并命令，仅共享选书逻辑**（已执行）。利弊：① 复用面——二者已共享 `fetch_catalog`/`Downloader`/`AudioDownloader`/`run_dir`/range/tone/abr 参数与 `workflow::search::pick`（仅 download 用），进一步合并只省一个 match 臂；② 参数面——download 有 `-t txt/epub`、audio 有三模式（`--real/--ai/--tts`）+`--lrc`+`--tone/--voice`，合并后 15+ flag、互斥组（format vs lrc vs real/ai/tts）复杂，与 47 help 精简方向相悖；③ 用户心智——"下载正文"与"下载有声书"是两个清晰动词，按媒体类型分命令；④ 与 49 分组关系——下载组 `download, audio, update` 三子命令正好成组，合并后组内只剩 update 显得失衡；⑤ 先例反证——v0.13.0 删 `get`（download+audio+update 合体，待办 39），合体命令已被否决过一次，合并是走回头路。**已执行部分**：`audio` 位置参数支持书名关键词（与 download 同规则：纯数字≥10 位=book_id，否则 `workflow::search::pick` 交互选书并自动加书架），help 文案同步"book_id 或书名关键词"。`[x]` ✅ v0.24.0
 51. **📚 help 设计指南（m0132，本批最后做）** — 全部 help/子命令重构完成后，写 `HELP-DESIGN.md`（项目根）：面向其他 agent 的 help 消息设计与重写规范——结构（顶层分组/子命令段/flag 段/示例段）、文案（去括号、不教 help、不列配置、动词化 flag）、机制（FLAG_HELP/HELP_TAILS/CONFIG_HELP 三表分工、clap 拦截点）、评审 checklist；含联网调研的优秀 CLI help 写法要点（clig.dev 等）。`[x]` ✅ v0.24.0
 52. **🧭 help 输出重构 + info 子命令化（m0049 用户全量反馈）** — ① **紧凑布局**：短介绍不另起一行，直接空几格接在 flag/子命令名后；flag/subcommand 之间不强制回车空行；消除 clap long_about 触发的长格式。② **info 的 section 改真子命令**（clap subcommand，各自专属 flag）：overview/chapters/intro/author/comments/cover/relative/audio/recommend/category/folders/history/progress/user/highlights；通用 flag（--timeout/-v 等全局）留父级，专属 flag 归各自子命令；其他命令层级同理。③ 顶层 help **去掉板块标题**（查询/下载/… 组名不显示），直接按分类顺序列出子命令；选项段标题改 **Options**（英文）。④ `ui.help_examples` **默认改为关闭**。⑤ 配置文件目录下生成 **help.txt** 完整参考：所有命令/子命令/子子命令 + flags 通用用法与目的；**API 子命令着重说明如何请求**（路径/-X/-q/-d/--jq/--status/--list/示例/常用端点）。启动时确保存在，版本变化才重写。⑥ **config.ini 模板**：分板块 + 英文标题（`## Download` 式）+ 每键中文注释说明作用。⑦ 同步 `HELP-DESIGN.md`。`[x] ✅ v0.26.0`
+53. **🔊 音频 CENC sample entry 类型修复（外部 issue）** — 番茄音源实为 Opus-in-MP4，`rewrite_encrypted_sample_entries` 硬编码 enca→mp4a 且文件固定命名 .mp3，播放器解析失败（mpv 靠探测偶尔能播）。修复：① endpoints/video.rs 按内层 codec box（dOps/esds/avcC/hvcC）还原真实明文 sample entry 类型，sinf 改写为 free；② audio.rs 按 ftyp 魔数定扩展名（.m4a/.mp3）、下载走 .download 临时文件、existing_audio 双扩展名探测、lrc 对非 mp3 退化 external、post_process 非 mp3 跳过 lame；③ update.rs 扫描兼容 .m4a 后缀；④ README 同步。实测 PyAV 解码 opus 帧数与 senc sample_count 完全一致。`[x] ✅ v0.26.1`
 
 ### 7.3 已知问题
 
 - 第三方 API 不稳定（偶发 5xx）→ **已解决（v0.6.0）**：vendor fqapi-core（签名+设备池直连官方）为主通道，第三方源降级备选
-- 音频流实际是 MP4/AAC 容器（上游 mime_type=video_mp4），文件后缀仍为 .mp3；CENC 解密后有效，但 ID3 嵌 LRC 对 MP4 无效（默认 external 模式无碍）
+- 番茄官方音频实为 **Opus-in-MP4**（enca/dOps），旧版硬编码 enca→mp4a + 固定 .mp3 后缀导致播放器无法解码——已修复（v0.26.1）：按内层 codec box 还原 sample entry 类型、按 ftyp 魔数定 .m4a/.mp3；旧坏 .mp3 需 `-f` 重下；iOS 原生播放器不支持 MP4 封装 Opus（VLC/mpv/Android 正常）
 - edge-tts 需要 Python 环境
 - 编译只能用 rustls（Termux 无 libssl-dev）
 - 本地 `cargo build` 为 debug 模式（release 需 cross，耗时长）
