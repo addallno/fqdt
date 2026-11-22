@@ -82,13 +82,48 @@ pub fn bar_style(colors: &str, _concurrent: usize) -> ProgressStyle {
 
 // Braille 动画线程：progress() 起、clear_progress() 停
 static SPIN_STOP: AtomicBool = AtomicBool::new(false);
+static SPIN_ACTIVE: AtomicBool = AtomicBool::new(false);
+// 暂停协议：note() 置 PAUSE → 线程挂起并回 ACK → note 擦行输出 → 解除 PAUSE
+static SPIN_PAUSE: AtomicBool = AtomicBool::new(false);
+static SPIN_PAUSED: AtomicBool = AtomicBool::new(false);
 static SPIN_HANDLE: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
+// 当前运行中的 indicatif 进度条（with_progress_async 注册），note() 优先经它输出
+static ACTIVE_PB: std::sync::Mutex<Option<ProgressBar>> = std::sync::Mutex::new(None);
 
 fn stop_spinner() {
     SPIN_STOP.store(true, Ordering::SeqCst);
     if let Some(h) = SPIN_HANDLE.lock().unwrap().take() {
         let _ = h.join();
     }
+}
+
+/// 进度动画期间的安全输出（TUI.md §6）：进度行不以换行结束，直接 eprintln 会把
+/// 日志接在进度行尾并推走光标，导致进度帧/擦行错位、屏幕残留两行。本函数按
+/// 「暂停进度 → 擦行 → 输出 → 进度在下一行继续」的协议输出；无进度运行时等价 eprintln。
+pub fn note(line: &str) {
+    // indicatif 运行中：pb.println 自带清行/重画，非 TTY（hidden pb）则退回 eprintln
+    if let Some(pb) = ACTIVE_PB.lock().unwrap().clone() {
+        if !pb.is_hidden() {
+            pb.println(line);
+            return;
+        }
+    }
+    if SPIN_ACTIVE.load(Ordering::SeqCst) {
+        SPIN_PAUSE.store(true, Ordering::SeqCst);
+        // 等线程确认挂起（帧周期 120ms，上限 300ms 兜底）
+        let deadline = std::time::Instant::now() + Duration::from_millis(300);
+        while !SPIN_PAUSED.load(Ordering::SeqCst)
+            && !SPIN_STOP.load(Ordering::SeqCst)
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        eprint!("\x1b[2K\r");
+        eprintln!("{line}");
+        SPIN_PAUSE.store(false, Ordering::SeqCst);
+        return;
+    }
+    eprintln!("{line}");
 }
 
 /// stderr 阶段进度（Braille 动画 `  msg ⠋`）。仅 TTY 打印，完成后用
@@ -100,12 +135,21 @@ pub fn progress(msg: &str) {
     }
     stop_spinner();
     SPIN_STOP.store(false, Ordering::SeqCst);
+    SPIN_ACTIVE.store(true, Ordering::SeqCst);
     let m = msg.to_string();
     let handle = std::thread::spawn(move || {
         use std::io::Write;
         const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
         let mut i = 0usize;
         while !SPIN_STOP.load(Ordering::SeqCst) {
+            if SPIN_PAUSE.load(Ordering::SeqCst) {
+                SPIN_PAUSED.store(true, Ordering::SeqCst);
+                while SPIN_PAUSE.load(Ordering::SeqCst) && !SPIN_STOP.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                SPIN_PAUSED.store(false, Ordering::SeqCst);
+                continue;
+            }
             eprint!("\r  {DIM}{m} {}{RST}", FRAMES[i % FRAMES.len()]);
             std::io::stderr().flush().ok();
             i += 1;
@@ -118,6 +162,7 @@ pub fn progress(msg: &str) {
 /// 停止 [`progress`] 动画并擦除当前行。
 pub fn clear_progress() {
     stop_spinner();
+    SPIN_ACTIVE.store(false, Ordering::SeqCst);
     use std::io::IsTerminal;
     if std::io::stderr().is_terminal() {
         eprint!("\x1b[2K\r");
@@ -154,11 +199,11 @@ where
     Fut: std::future::Future<Output = T>,
 {
     if enabled {
-        eprintln!("  [verbose] {} 开始", label);
+        note(&format!("  [verbose] {label} 开始"));
     }
     let result = f().await;
     if enabled {
-        eprintln!("  [verbose] {} 完成", label);
+        note(&format!("  [verbose] {label} 完成"));
     }
     result
 }
@@ -183,6 +228,7 @@ where
     let pb = ProgressBar::new(total as u64);
     pb.set_style(bar_style(colors, concurrent));
     pb.enable_steady_tick(Duration::from_millis(120));
+    *ACTIVE_PB.lock().unwrap() = Some(pb.clone());
 
     let skipped = total - items.len();
     pb.inc(skipped as u64);
@@ -215,6 +261,7 @@ where
     }
 
     pb.finish_and_clear();
+    ACTIVE_PB.lock().unwrap().take();
     let errs = errors.lock().map(|v| v.clone()).unwrap_or_default();
     let fail = errs.len();
     let ok = total - skipped - fail;

@@ -64,7 +64,7 @@ enum Cmd {
     Info {
         #[arg(help = "id 自动识别: 书/章节 item_id/作者/读者 uid；或 recommend / category / folders / history / progress / user / highlights")]
         book_id: Option<String>,
-        #[arg(help = "部分: chapters/intro/author/comments/cover/related/audio")]
+        #[arg(help = "部分: chapters/intro/author/comments/cover/relative/audio")]
         section: Option<String>,
         #[arg(short='r', long, help = "章节范围")]
         range: Option<String>,
@@ -324,7 +324,7 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("说明", "自动发现最热真人听书版"),
         ("互斥", "--ai --tts"),
         ("示例", "fqdt audio <book_id> --real"),
-        ("查询", "fqdt info <book_id> related 查看该书真人版"),
+        ("查询", "fqdt info <book_id> relative 查看该书真人版"),
     ]}),
     ("audio", "--ai", FlagDoc { brief: "智能朗读", takes_value: false, fields: &[
         ("说明", "使用文字版 AI 音色，配合 --tone 选编号；related_novel_bookid 自动转回文字版"),
@@ -624,6 +624,8 @@ async fn main() {
     // 全局 -v：core 日志 stderr 镜像 + workflow 请求详情（日志默认静默，仍落盘 rust.log）
     let verbose = cli.verbose || cfg.verbose;
     fqapi_core::core_log::set_console(verbose);
+    // 进度条运行期间日志走 util::note（清行/重画），避免拼在进度行尾部造成双行残留
+    fqapi_core::core_log::set_console_hook(crate::util::note);
 
     match cli.cmd {
         Cmd::Search { keyword, page, auto, dry_run, output, jobs, range, format, interval } =>
@@ -742,7 +744,7 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
     };
     let path = Path::new(&book_id);
 
-    // Edge-TTS：先下载正文（txt），再整目录合成 mp3 到 <out>/Audio/
+    // Edge-TTS：先下载正文（txt），再整目录合成 mp3（-o 显式指定 → 直接落该目录；默认 → 存储书籍目录下 Audio/）
     if tts {
         let p = types::DownloadParams {
             output: output.clone(), range, format: None, concurrent: None,
@@ -750,8 +752,8 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
             verbose: vb, book_title: None,
         };
         workflow::download::run(&book_id, &p, cfg).await;
-        let dir = output.map(std::path::PathBuf::from).unwrap_or_else(|| cfg.output_dir.clone());
-        workflow::audio::run_tts(&dir.to_string_lossy(), None, voice,
+        let dir = output.as_deref().map(std::path::PathBuf::from).unwrap_or_else(|| cfg.output_dir.clone());
+        workflow::audio::run_tts(&dir.to_string_lossy(), output.as_deref(), voice,
             &cfg.tts_rate, &cfg.tts_volume, &cfg.tts_pitch, cfg.abr, None, false, "",
             "external", vb).await;
         return;
@@ -791,9 +793,10 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
     let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
         vec![2, 4, 5, 6, 74, 91]
     } else { cfg.audio_tone_fallbacks.clone() };
+    // 直接书籍 ID 下载：不建 Audio 子文件夹，mp3 直接落目标目录（-o 或 output_dir 根）
     let out = output
-        .map(|s| std::path::PathBuf::from(s).join("Audio"))
-        .unwrap_or_else(|| cfg.output_dir.join("Audio"));
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| cfg.output_dir.clone());
     workflow::download::fetch_and_dl_audio(&book_id, &out, &range, tone, cfg.abr, lrc_mode, force, &fallbacks, vb, cfg).await;
 }
 

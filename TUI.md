@@ -13,6 +13,7 @@
 | stderr | 日志、进度、错误、状态、交互提示 | eprintln + `util::progress` |
 - core 日志默认**不打印**（仍落盘 `rust.log`），仅 `-v/--verbose` 时镜像到 stderr。
 - 过程性进度一律走 `util::progress()` / `util::clear_progress()`（stderr、仅 TTY 打印、完成后原地清除再打收据）；绝不让动画混入 stdout。
+- **进度运行期间的一切行输出（verbose 日志、收据、错误）必须走 `util::note()`**——直接 `eprintln!` 会拼在进度行尾部把光标推到下一行，旧进度行永远擦不掉（双行残留 bug，AGENTS 7.2-45）；core 日志镜像经 `core_log::set_console_hook(util::note)` 自动收口。
 - 管道场景（`| grep`、`| jq`）stdout 必须干净：无颜色污染数据行。
 
 ## 2. 信息分层（色彩语义，effective info 才上色）
@@ -72,5 +73,6 @@
 - [ ] 颜色是否全部引自 util 常量？是否按语义分层（主体/强调/状态/弱化）？
 - [ ] 默认输出是否 < 3 行"非数据"文本？
 - [ ] `-v` 是否能看到完整日志？非 `-v` 是否一行日志都看不到？
+- [ ] 进度运行期间新增的行输出是否走 `util::note()`（而非裸 `eprintln!`）？
 - [ ] 错误信息是否包含原因与下一步建议？
 - [ ] 空结果/无数据是否有明确一句话？

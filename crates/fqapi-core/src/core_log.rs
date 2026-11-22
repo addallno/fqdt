@@ -152,7 +152,10 @@ impl Log for CoreLogger {
         // 控制台镜像默认关闭（CLI 场景日志刷屏），`set_console(true)` 后才输出。
         // 本地改动：CLI 场景 stdout 用于 JSON 管道，镜像走 stderr。
         if CONSOLE.load(Ordering::Relaxed) {
-            eprintln!("{line}");
+            match CONSOLE_HOOK.get() {
+                Some(f) => f(&line),
+                None => eprintln!("{line}"),
+            }
         }
     }
 
@@ -161,6 +164,15 @@ impl Log for CoreLogger {
 
 /// 控制台镜像开关：默认关闭（日志仍落盘 rust.log），`fqdt -v` 时开启。
 static CONSOLE: AtomicBool = AtomicBool::new(false);
+
+/// 控制台镜像输出 hook：CLI 场景进度条运行期间日志须走 util::note，
+/// 否则日志直接 eprintln 会拼在进度行尾部造成双行残留（TUI.md 检查清单）。
+static CONSOLE_HOOK: OnceLock<fn(&str)> = OnceLock::new();
+
+/// 注册控制台镜像输出 hook（进程内一次；不注册则默认 eprintln）。
+pub fn set_console_hook(f: fn(&str)) {
+    let _ = CONSOLE_HOOK.set(f);
+}
 
 /// 打开/关闭日志的 stderr 镜像（须在 `install` 后仍生效，进程内单次设置即可）。
 pub fn set_console(on: bool) {

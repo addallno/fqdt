@@ -159,7 +159,7 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                 if let Ok(resp) = api.reqwest_client.get(&audio_url).send().await {
                     let new_size = resp.content_length().unwrap_or(0);
                     if new_size == old_size && new_size > 1000 {
-                        if p.verbose { eprintln!("  {:04} {} 不变 ✓", ch.index, ch.title); }
+                        if p.verbose { crate::util::note(&format!("  {:04} {} 不变 ✓", ch.index, ch.title)); }
                         let content = api.fetch_content(&ch.item_id).await.ok();
                         handle_lrc(&path, ch, &p.lrc_mode, p.verbose, content.as_deref());
                         return Ok(());
@@ -222,7 +222,7 @@ fn decrypt_audio_file(path: &Path, key_hex: &str) -> Result<(), String> {
 }
 
 fn download_file(url: &str, path: &PathBuf, verbose: bool) -> Result<(), String> {
-    if verbose { eprintln!("  [verbose] DL {}", &url[..url.len().min(80)]); }
+    if verbose { crate::util::note(&format!("  [verbose] DL {}", &url[..url.len().min(80)])); }
 
     let r = std::process::Command::new("curl")
         .args(["-sfL", "--connect-timeout", "15", "--max-time", "120",
@@ -235,7 +235,7 @@ fn download_file(url: &str, path: &PathBuf, verbose: bool) -> Result<(), String>
         }
         if verbose {
             let stderr = String::from_utf8_lossy(&out.stderr);
-            eprintln!("  [verbose] curl fail: {}, err={}", out.status, stderr.trim());
+            crate::util::note(&format!("  [verbose] curl fail: {}, err={}", out.status, stderr.trim()));
         }
     }
 
@@ -267,11 +267,11 @@ pub fn post_process(path: &Path, abr: u32, speed: Option<f32>, normalize: bool,
         let input_s = path.to_string_lossy().to_string();
         let output_s = tmp.to_string_lossy().to_string();
         let cmd = cmd_template.replace("{input}", &input_s).replace("{output}", &output_s);
-        if verbose { eprintln!("  [verbose] post-process: {}", cmd); }
+        if verbose { crate::util::note(&format!("  [verbose] post-process: {}", cmd)); }
         match std::process::Command::new("sh").arg("-c").arg(&cmd).output() {
             Ok(out) if out.status.success() => true,
-            Ok(out) => { eprintln!("  err 后处理失败 (exit={}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim()); false }
-            Err(e) => { eprintln!("  err 后处理命令执行失败: {}", e); false }
+            Ok(out) => { crate::util::note(&format!("  err 后处理失败 (exit={}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim())); false }
+            Err(e) => { crate::util::note(&format!("  err 后处理命令执行失败: {}", e)); false }
         }
     } else if abr > 0 {
         let p_s = path.to_string_lossy().to_string();
@@ -280,8 +280,8 @@ pub fn post_process(path: &Path, abr: u32, speed: Option<f32>, normalize: bool,
         let args = vec!["--abr", &abr_s, "--silent", &p_s, &t_s];
         match std::process::Command::new("lame").args(&args).output() {
             Ok(out) if out.status.success() => true,
-            Ok(out) => { eprintln!("  err lame 压缩失败 (exit={}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim()); false }
-            Err(e) => { eprintln!("  err lame 未安装或执行失败: {}", e); false }
+            Ok(out) => { crate::util::note(&format!("  err lame 压缩失败 (exit={}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim())); false }
+            Err(e) => { crate::util::note(&format!("  err lame 未安装或执行失败: {}", e)); false }
         }
     } else {
         true
@@ -290,10 +290,10 @@ pub fn post_process(path: &Path, abr: u32, speed: Option<f32>, normalize: bool,
     if ok && tmp.exists() {
         let new_size = fs::metadata(&tmp).map(|m| m.len()).unwrap_or(0);
         if new_size > 1000 {
-            fs::rename(&tmp, path).unwrap_or_else(|e| eprintln!("  err 重命名失败: {}", e));
-            if verbose { eprintln!("  [verbose] 压缩完成: {}→{} ({}% of original)", path.display(), new_size, (new_size as f64 / orig_size.max(1) as f64 * 100.0) as u32); }
+            fs::rename(&tmp, path).unwrap_or_else(|e| crate::util::note(&format!("  err 重命名失败: {}", e)));
+            if verbose { crate::util::note(&format!("  [verbose] 压缩完成: {}→{} ({}% of original)", path.display(), new_size, (new_size as f64 / orig_size.max(1) as f64 * 100.0) as u32)); }
         } else {
-            eprintln!("  err 压缩后文件过小 ({}b), 保留原文件", new_size);
+            crate::util::note(&format!("  err 压缩后文件过小 ({}b), 保留原文件", new_size));
             let _ = fs::remove_file(&tmp);
         }
     }
@@ -355,16 +355,16 @@ pub fn embed_lrc(mp3_path: &Path, ch: &Chapter, verbose: bool, content: Option<&
     })));
 
     if let Err(e) = tag.write_to_path(mp3_path, id3::Version::Id3v24) {
-        if verbose { eprintln!("  [verbose] embed lrc fail: {}", e); }
+        if verbose { crate::util::note(&format!("  [verbose] embed lrc fail: {}", e)); }
     }
 }
 
 fn handle_lrc(path: &Path, ch: &Chapter, mode: &str, verbose: bool, content: Option<&str>) {
     match mode {
-        "external" => { if let Err(e) = write_lrc_file(path, ch, content) { eprintln!("  err LRC: {}", e); } }
+        "external" => { if let Err(e) = write_lrc_file(path, ch, content) { crate::util::note(&format!("  err LRC: {}", e)); } }
         "embed" => embed_lrc(path, ch, verbose, content),
         "both" => {
-            if let Err(e) = write_lrc_file(path, ch, content) { eprintln!("  err LRC: {}", e); }
+            if let Err(e) = write_lrc_file(path, ch, content) { crate::util::note(&format!("  err LRC: {}", e)); }
             embed_lrc(path, ch, verbose, content);
         }
         _ => {}
@@ -458,7 +458,7 @@ fn run_edge_tts(text: &str, voice: &str, rate: &str, volume: &str, pitch: &str,
             if size > 1000 { return Ok(()); }
         }
         if verbose {
-            eprintln!("  [verbose] edge-tts: status={}, err={}", out.status, String::from_utf8_lossy(&out.stderr).trim());
+            crate::util::note(&format!("  [verbose] edge-tts: status={}, err={}", out.status, String::from_utf8_lossy(&out.stderr).trim()));
         }
         return Err(format!("edge-tts 退出码 {}", out.status));
     }

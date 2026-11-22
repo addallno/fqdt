@@ -110,7 +110,7 @@ impl Downloader {
                     Some(t) => t.clone(),
                     None => api.fetch_content(&ch.item_id).await?,
                 };
-                if vb { eprintln!("  {:04} {} ✓", ch.index, ch.title); }
+                if vb { crate::util::note(&format!("  {:04} {} ✓", ch.index, ch.title)); }
                 texts.lock().unwrap().insert(ch.item_id.clone(), text);
                 pb.set_message(format!("✓{:04}", ch.index));
                 Ok(())
@@ -157,14 +157,14 @@ fn write_chapter(out_dir: &Path, ft: &str, ch: &Chapter, content: &str, verbose:
     if path.exists() {
         if let Ok(old) = std::fs::read_to_string(&path) {
             if old == text {
-                if verbose { eprintln!("  {:04} {} 不变 ✓", ch.index, ch.title); }
+                if verbose { crate::util::note(&format!("  {:04} {} 不变 ✓", ch.index, ch.title)); }
                 return Ok(());
             }
         }
     }
     let mut f = std::fs::File::create(&path).map_err(|e| format!("写入: {}", e))?;
     f.write_all(text.as_bytes()).map_err(|e| format!("写入: {}", e))?;
-    if verbose { eprintln!("  {:04} {} ✓", ch.index, ch.title); }
+    if verbose { crate::util::note(&format!("  {:04} {} ✓", ch.index, ch.title)); }
     Ok(())
 }
 

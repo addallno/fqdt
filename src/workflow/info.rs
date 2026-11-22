@@ -4,7 +4,7 @@ use crate::api::Client;
 use crate::types::{ChapterRange, Config};
 use crate::util::{self, BLUE, CYAN, DIM, GREEN, MAGENTA, RED, RST, YELLOW};
 
-const SECTIONS: &str = "chapters · intro · author · comments · cover · related · audio";
+const SECTIONS: &str = "chapters · intro · author · comments · cover · relative · audio";
 
 /// info 目标 ID 类型（v0.18.0 智能识别，信号均经实测）。
 enum IdKind {
@@ -166,7 +166,7 @@ pub async fn run(
                 return;
             }
             "cover" => return cover(book_id).await,
-            "related" => return related(book_id, cfg).await,
+            "relative" => return relative(book_id, cfg).await,
             "audio" => return audio_section(book_id, cfg).await,
             other => {
                 eprintln!("  {RED}err{RST} 未知 section: {other}");
@@ -345,9 +345,9 @@ async fn author(book_id: &str, cfg: &Config) {
     crate::workflow::discover::author(&id, cfg.info_author_count, false, cfg).await;
 }
 
-/// 相关书籍 + 听书/音色 misc（`fqdt info <id> related`）。
-async fn related(book_id: &str, cfg: &Config) {
-    let misc_lines = related_misc(book_id).await;
+/// 相关书籍 + 听书/音色 misc（`fqdt info <id> relative`）。
+async fn relative(book_id: &str, cfg: &Config) {
+    let misc_lines = relative_misc(book_id).await;
     util::progress("获取相关书籍");
     let res = crate::fqapi::get_json(&format!("/api/v1/books/{book_id}/related"), "").await;
     util::clear_progress();
@@ -370,8 +370,8 @@ async fn related(book_id: &str, cfg: &Config) {
     for m in &misc_lines { crate::emit_line(&format!("  {DIM}{m}{RST}")); }
 }
 
-/// related 杂项（两行）：书目（字数/章数/分类/听书量/起书时间）+ 音频（真人版数/AI 音色数）。
-async fn related_misc(book_id: &str) -> Vec<String> {
+/// relative 杂项（两行）：书目（字数/章数/分类/听书量/起书时间）+ 音频（真人版数/AI 音色数）。
+async fn relative_misc(book_id: &str) -> Vec<String> {
     let Some(d) = detail_json(book_id).await else { return vec![] };
     let s = |p: &str| d.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let num = |p: &str| s(p).parse::<u64>().unwrap_or(0);

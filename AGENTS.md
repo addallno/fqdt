@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.24.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.25.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -194,7 +194,7 @@ fqdt info <book_id> author              # 作者资料 + 推荐书单（原顶�
 ```
 
 - **breaking（v0.13.0）**：顶层 `comments` / `author` 删除；**breaking（v0.24.0）**：顶层 `recommend` / `category` 删除并入 info——info 的 book_id 改 Option，无 id 且首参为二者时走 discover
-- info 的 section：`chapters`（目录含 item_id）/ `intro`（完整简介）/ `author` / `comments` / `cover` / `related` / `audio`，无 id = `recommend` / `category` 流，无 section = 概览
+- info 的 section：`chapters`（目录含 item_id）/ `intro`（完整简介）/ `author` / `comments` / `cover` / `relative`（原 `related` 更名，HTTP 路径 `/related` 不动）/ `audio`，无 id = `recommend` / `category` 流，无 section = 概览
 - **个人数据 sections（v0.24.0，原 account 只读迁入）**：`folders` / `history` / `progress`（可 `--search`）/ `user` / `highlights`（需登录，`--json` 机器可读）
 - 结构约定：`取 JSON → 字段提取 → 渲染管线`；新封装只需复用 `get/clip/pad/book_line` 辅助
 - `rank` 端点只返回区块模板配置、无实体书单，故不封装，用 `fqdt api /api/v1/rank/<id>` 透传
@@ -579,9 +579,9 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 40. **📖 TUI 阅读器** — `fqdt read <book_id>` 真 TUI 连贯阅读一整本书（章节切换/j-k 滚动/进度记忆进 store/与 download·shelf·account 联动）。**UI 层直接抄现成实现**（用户明确要求：自己写容易出各种问题）——调研成熟 Rust TUI 阅读器/阅读器类开源项目（Ratatui 生态）抄其布局与事件循环，业务层接 fqdt fetch_content。备选：调用外部 pager（less）降级。`[ ]`
 41. **📦 account 列表搜索扩展 + 机器可解析输出** — ① `--search` 从 shelf 扩到 progress/history/folders（新 `match_item`：book_name/title/author/chapter 小写包含；render_section/render_progress 带 search 参数，json+search 出过滤数组，尾行 `{n}/{total} 项`；render_shelf 匹配统一用 match_item 后作者/章节也能搜）；② 机器解析指引：HELP_TAILS account 第二列 `解析: fqdt account <section> --json | jq`，`--search` doc 更新覆盖范围。`[x]` ✅ v0.23.0
 42. **📐 shelf/account/info 结构重构** — ① 云端书架番茄原生一层：顶层只列**未分组书 + 分组条目**（已分组的书不直接显示，显示整个分组）；`shelf list [组名]` 无参显示第一层、指定组名显示该组内所有书；② 顶层 `fqdt shelf` 子命令化：**裸输入 shelf 直接报错要求输入子命令**（现有 -a/-d/-D/-U flag 改子命令），`list` 为书架入口——未登录显示本地书架，已登录显示云端、加 flag 显示本地书架；③ account 只读功能（folders/history/progress/user/highlights，**不含 shelf**）迁入 `fqdt info` 作为 subcommands；account sections 也从位置参数变 subcommands；④ 未来预留：查看类子命令加 flags（如 `dump` 打印到终端）、`shelf view <路径|书名>`（路径或书名在书架内搜索查看，暂不做，设计留口）。`[x]` ✅ v0.24.0
-43. **✏️ related → relative 更名** — `fqdt info <id> related` 子命令改名 `relative`（main.rs help 61/HELP_TAILS 302,305、info.rs SECTIONS/match/fn 名同步改；HTTP 路径 `/related` 不动）。`[ ]`
-44. **🔊 audio 目录规则** — 下载音频/保存 tts：**非 `-o` 形式指定的目录且为存储书籍目录 → 仍生成 Audio 子文件夹（现状不变）**；**直接通过书籍 ID 下载 → 不创建 Audio 文件夹**（文件直接落目标目录）。改动点 dispatch_audio（main.rs 687-688）、download.rs:56、main.rs:997。`[ ]`
-45. **🐛 进度条双行 bug** — 现象：**开始只有一条，输出完成后变两条**（不清空上一行、在下一行输出）；疑点 util.rs Braille eprint 与 indicatif pb 同写 stderr 的行错位（finish 后残留一行）。先复现定位再修，修完 TUI.md 检查清单。`[ ]`
+43. **✏️ related → relative 更名** — `fqdt info <id> related` 子命令改名 `relative`（main.rs help/FLAG_HELP --real 查询行、info.rs SECTIONS/match/fn `related`→`relative`、`related_misc`→`relative_misc` 同步改；HTTP 路径 `/related` 与 API 字段 `related_*` 不动；AGENTS 1.5.1 section 表已同步）。`[x]` ✅ v0.25.0
+44. **🔊 audio 目录规则** — 下载音频/保存 tts 落点（已定案并验证）：**`fqdt audio <book_id>`（直接书籍 ID，含关键词选书）→ 不建 Audio 子文件夹**，mp3 直接落目标目录（`-o dir` → dir 根；无 -o → output_dir 根）；**`audio --tts` 无 -o（存储书籍目录）→ 仍建 `<out>/Audio/`（现状）**，`-o dir` → 直接落 dir 根；**书籍目录场景不变**（`audio <目录>`、`update` → path/Audio）。改动点：dispatch_audio out 计算去 join("Audio")、tts 分支 run_tts 传 output.as_deref()、download.rs:56 按 p.output 条件 join（该分支现为不可达死代码，download 无 --audio flag；main.rs 旧997 function read-audio-info 已随 function 删除消失）。六场景隔离实测通过。`[x]` ✅ v0.25.0
+45. **🐛 进度条双行 bug** — 已定位修复（script pty 字节流证实）：进度行（Braille 帧 / indicatif pb）不以换行结束，**进度期间的插入输出（-v core_log 镜像、verbose eprintln）直接拼在进度行尾部**，其 `\n` 把光标推到下一行 → 下一帧与 `clear_progress` 的 `\x1b[2K` 都作用于新行，旧进度行从未被清 → 残留双行。修复：① util.rs 新增 `pub fn note(line)` 统一出口（ACTIVE_PB → pb.println 自带清行重画；Braille 运行中 → PAUSE 暂停协议擦行后输出；否则 eprintln），`with_verbose_async`、core_log 镜像（fqapi_core `set_console_hook`，main.rs 注册）、进度期间的 eprintln 全部走 note（download.rs 3 处 / api.rs 9 处 / src/audio.rs 15 处）；② pty 实测 -v download 与 audio 双场景“帧后直接拼日志”=0、收据前均 `[2K` 擦行；③ TUI.md §2/§8 已加纪律。`[x]` ✅ v0.25.0
 46. **🧹 输出整洁（用户：别 tips 乱信息）** — ① 结构重构落地后 `fqdt account` 移除**不打任何"已移除/请改用 xxx"迁移提示**（直接走未知命令 err 或隐藏兼容）；② 各命令运行输出删指引类 tips 尾行（能力:/查询:/获取:/查看:/验证: 等 DIM 行），错误一行一记录为主，仅未登录/未设置 Cookie 保留单行指引。`[x]` ✅ v0.24.0
 47. **🎨 help 精简（用户批次：m0105/m0117/m0118）** — ① `--search-url/--catalog-url/--content-url` 等 `--*url` 只在 `fqdt --help` 顶层出现，子命令 help 不再显示（去掉 `global=true`，仅顶层解析传 `apply_cli_overrides`；`-v/timeout` 仍 global）；② 删 HELP_TAILS 中 `flag 详情: ...` 与 `配置: ...` 尾行（示例段保留、仍受 `ui.help_examples` 控制）——帮助里不再教人用 help、不再列配置键；③ `--tone` 在 help 中作 `--ai` 的下级展示（声明紧跟 `--ai`，缩进/树符号表达从属，`fqdt help audio --tone` 详情不变）；④ 顺带排查其他可归组的 flag（如 `--voice` 归 `--tts`）。`[x]` v0.24.0 ✅
 48. **📄 config.ini 分节模板（m0118）** — `save_default` 重写：**按子命令分节**（[search]/[download]/[audio]/[tts]/[info]/[ui]/[shelf]…），每节列出该子命令全部相关键（预留/空值或默认值），**每个键上方一行中文注释说明作用**；help 不再承载配置说明，配置说明唯一来源=config.ini 注释（与 `fqdt config <key> --help` CONFIG_HELP 并存）。旧键名与解析逻辑不变。`[x]` v0.24.0 ✅

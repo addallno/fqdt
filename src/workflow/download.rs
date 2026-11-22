@@ -53,7 +53,9 @@ pub async fn run(book_id: &str, p: &DownloadParams, cfg: &Config) {
         } else {
             cfg.audio_tone_fallbacks.clone()
         };
-        fetch_and_dl_audio(book_id, &out.join("Audio"), &p.range, p.tone, p.abr, &p.lrc, p.force, &fallbacks, vb, cfg).await;
+        // -o 显式指定 → 音频直接落该目录；默认（存储书籍目录）→ 仍建 Audio 子文件夹
+        let audio_out = if p.output.is_some() { out.clone() } else { out.join("Audio") };
+        fetch_and_dl_audio(book_id, &audio_out, &p.range, p.tone, p.abr, &p.lrc, p.force, &fallbacks, vb, cfg).await;
     }
 }
 

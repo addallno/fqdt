@@ -487,7 +487,7 @@ impl Client {
 
     fn log_fallback(&self, what: &str, e: &str) {
         if self.verbose {
-            eprintln!("  [verbose] fqapi {} 失败，降级第三方: {}", what, e);
+            crate::util::note(&format!("  [verbose] fqapi {} 失败，降级第三方: {}", what, e));
         }
     }
 
@@ -769,7 +769,7 @@ impl Client {
 
     fn parse_search_results(text: &str, verbose: bool) -> Result<Vec<Book>, String> {
         let root: Value = serde_json::from_str(text).map_err(|e| {
-            if verbose { eprintln!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, text); }
+            if verbose { crate::util::note(&format!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, text)); }
             format!("JSON: {}", e)
         })?;
         let mut books = vec![];
@@ -817,7 +817,7 @@ impl Client {
 
     fn parse_catalog(&self, text: &str) -> Result<Vec<Chapter>, String> {
         let root: Value = serde_json::from_str(text).map_err(|e| {
-            if self.verbose { eprintln!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, text); }
+            if self.verbose { crate::util::note(&format!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, text)); }
             format!("JSON: {}", e)
         })?;
         let mut chapters = vec![];
@@ -884,7 +884,7 @@ impl Client {
             util::with_retry_async(|| self.http_get(url), 2).await
         }, &format!("content {}", &url[..url.len().min(60)]), self.verbose).await?;
         let root: Value = serde_json::from_str(&raw).map_err(|e| {
-            if self.verbose { eprintln!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, raw); }
+            if self.verbose { crate::util::note(&format!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, raw)); }
             format!("JSON: {}", item_id)
         })?;
         let content = root.pointer("/data/content").and_then(|v| v.as_str()).unwrap_or("");
@@ -896,7 +896,7 @@ impl Client {
     }
 
     pub async fn http_get(&self, url: &str) -> Result<String, String> {
-        if self.verbose { eprintln!("  [verbose] GET {}", url); }
+        if self.verbose { crate::util::note(&format!("  [verbose] GET {}", url)); }
         let resp = self.reqwest_client
             .get(url)
             .send()
@@ -940,12 +940,12 @@ impl Client {
             util::with_retry_async(|| self.http_get(url), 2).await
         }, &format!("audio_url {}", &item_id[..item_id.len().min(16)]), self.verbose).await?;
         let root: Value = serde_json::from_str(&raw).map_err(|e| {
-            if self.verbose { eprintln!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, raw); }
+            if self.verbose { crate::util::note(&format!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, raw)); }
             format!("JSON: {}", item_id)
         })?;
         let audio_url = root.pointer("/data/content").and_then(|v| v.as_str()).unwrap_or("");
         if !audio_url.is_empty() {
-            if self.verbose { eprintln!("  [verbose] audio URL: {}b", audio_url.len()); }
+            if self.verbose { crate::util::note(&format!("  [verbose] audio URL: {}b", audio_url.len())); }
             return Ok(audio_url.to_string());
         }
         let msg = root.pointer("/message").and_then(|v| v.as_str()).unwrap_or("");
@@ -958,7 +958,7 @@ impl Client {
             util::with_retry_async(|| self.http_get(&url), 2).await
         }, &format!("detail {}", book_id), self.verbose).await?;
         let root: Value = serde_json::from_str(&raw).map_err(|e| {
-            if self.verbose { eprintln!("  [verbose] JSON: {}\n  {}", e, raw); }
+            if self.verbose { crate::util::note(&format!("  [verbose] JSON: {}\n  {}", e, raw)); }
             format!("JSON: {}", e)
         })?;
         let title = root.pointer("/data/data/book_name")
@@ -994,7 +994,7 @@ impl Client {
                         util::with_retry_async(|| self.http_get(&url), 2).await
                     }, &format!("batch {} chapters", chunk.len()), self.verbose).await?;
                     let root: Value = serde_json::from_str(&raw).map_err(|e| {
-                        if self.verbose { eprintln!("  [verbose] JSON: {}\n  {}", e, raw); }
+                        if self.verbose { crate::util::note(&format!("  [verbose] JSON: {}\n  {}", e, raw)); }
                         format!("JSON: {}", e)
                     })?;
                     let mut map = HashMap::new();
