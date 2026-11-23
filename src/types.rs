@@ -55,6 +55,7 @@ impl ChapterRange {
     }
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub concurrent: usize,
     pub format: String,
@@ -80,6 +81,10 @@ pub struct Config {
     pub tts_pitch: String,
     pub abr: u32,
     pub post_process: String,
+    /// 音频保持 m4a 原样不转 MP3
+    pub audio_keep_m4a: bool,
+    /// 音频嵌入书籍封面到 MP3 ID3 APIC
+    pub audio_cover: bool,
     pub custom_commands: std::collections::HashMap<String, String>,
     /// info 概览：目录显示前 N 章（0=不显示）
     pub info_top_chapters: usize,
@@ -160,6 +165,8 @@ impl Default for Config {
             tts_pitch: "+0Hz".into(),
             abr: 0,
             post_process: String::new(),
+            audio_keep_m4a: false,
+            audio_cover: false,
             custom_commands: std::collections::HashMap::new(),
             info_top_chapters: 10,
             info_top_comments: 3,

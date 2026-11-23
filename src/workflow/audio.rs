@@ -93,7 +93,7 @@ pub async fn run(book_id: Option<&str>, output: Option<&str>, range: Option<&str
             p.push("Audio");
             p
         });
-    run_download(&chs, &api, &out, bid, tone, &cfg.audio_tone_fallbacks, abr_val, speed, normalize, post_cmd, lrc_mode, force, &cfg.filename_template, vb).await;
+    run_download(&chs, &api, &out, bid, tone, &cfg.audio_tone_fallbacks, abr_val, speed, normalize, post_cmd, lrc_mode, force, &cfg.filename_template, vb, cfg.audio_keep_m4a, cfg.audio_cover).await;
 }
 
 #[allow(clippy::too_many_arguments, dead_code)]
@@ -144,13 +144,14 @@ async fn run_dir(path: &std::path::Path, range: Option<&str>, tone: usize, abr: 
     } else {
         cfg.audio_tone_fallbacks.clone()
     };
-    run_download(&new_chs, &api, &audio_dir, &bid, tone, &fallbacks, abr, speed, normalize, post_cmd, lrc_mode, force, &cfg.filename_template, vb).await;
+    run_download(&new_chs, &api, &audio_dir, &bid, tone, &fallbacks, abr, speed, normalize, post_cmd, lrc_mode, force, &cfg.filename_template, vb, cfg.audio_keep_m4a, cfg.audio_cover).await;
 }
 
 #[allow(clippy::too_many_arguments, dead_code)]
 async fn run_download(chs: &[&crate::types::Chapter], api: &Client, out: &std::path::Path,
                 book_id: &str, tone: usize, fallbacks: &[usize], abr: u32, speed: Option<f32>,
-                normalize: bool, post_cmd: &str, lrc_mode: &str, force: bool, ft: &str, vb: bool) {
+                normalize: bool, post_cmd: &str, lrc_mode: &str, force: bool, ft: &str, vb: bool,
+                keep_m4a: bool, cover: bool) {
     let fb = if fallbacks.is_empty() {
         vec![2, 4, 5, 6, 74, 91]
     } else {
@@ -163,6 +164,7 @@ async fn run_download(chs: &[&crate::types::Chapter], api: &Client, out: &std::p
             ft: ft.to_string(), force, verbose: vb,
             abr, speed, normalize,
             post_cmd: post_cmd.to_string(), lrc_mode: lrc_mode.to_string(),
+            keep_m4a, cover, cover_img: None,
         },
     );
     dler.run(chs, None).await;

@@ -22,6 +22,12 @@ pub struct AudioParams {
     pub normalize: bool,
     pub post_cmd: String,
     pub lrc_mode: String,
+    /// 解密产物为 MP4 时保持 .m4a 原样不转 MP3
+    pub keep_m4a: bool,
+    /// 是否获取书籍封面（--cover / audio.cover）
+    pub cover: bool,
+    /// 运行时获取的封面字节，run 下发给各章嵌入 ID3 APIC
+    pub cover_img: Option<std::sync::Arc<Vec<u8>>>,
 }
 
 pub struct TtsParams {
@@ -73,7 +79,7 @@ impl AudioDownloader {
 
         let api = self.api.clone();
         let od = self.out_dir.clone();
-        let p = AudioParams { ..self.p.clone() };
+        let mut p = AudioParams { ..self.p.clone() };
 
         // 批量预取 playinfo（单请求逗号多 id）；失败退化为空表，逐章兜底
         util::progress(&format!("批量获取音频信息（{} 章）", pending.len()));
@@ -84,6 +90,22 @@ impl AudioDownloader {
             eprintln!("  [verbose] audio: 批量 playinfo 命中 {}/{} 章", pre_map.len(), ids.len());
         }
         let pre = std::sync::Arc::new(pre_map);
+
+        // --cover：整本书取一次封面，各章嵌入 ID3 APIC；失败降级不阻塞下载
+        if p.cover {
+            util::progress("获取书籍封面");
+            let r = fetch_book_cover(&api, &p.book_id).await;
+            util::clear_progress();
+            match r {
+                Ok(bytes) => {
+                    if p.verbose {
+                        eprintln!("  [verbose] audio: 封面 {} 字节", bytes.len());
+                    }
+                    p.cover_img = Some(std::sync::Arc::new(bytes));
+                }
+                Err(e) => warn_fallback(&format!("  warn 封面获取失败，跳过嵌入: {}", e)),
+            }
+        }
 
         let max_jobs = default_concurrent();
         let pending_n = pending.len();
@@ -217,6 +239,69 @@ fn existing_audio(out_dir: &Path, stem: &str) -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
+/// 获取书籍封面图片字节（详情 thumb_url → HTTP 下载）
+///
+/// 被 `AudioDownloader::run` 在 `--cover` 时调用一次，结果放入
+/// `AudioParams::cover_img` 下发各章；失败由调用方降级提示，不阻塞下载。
+async fn fetch_book_cover(api: &Client, book_id: &str) -> Result<Vec<u8>, String> {
+    // 走 fqapi 主通道（与 info cover 同源）；fetch_detail 的第三方降级可能返回非 JSON
+    let v = crate::fqapi::get_json(&format!("/api/v1/books/{}", book_id), "")
+        .await
+        .map_err(|e| format!("详情请求失败: {}", e))?;
+    let url = [
+        "/data/thumb_url",
+        "/data/detail_page_thumb_url",
+        "/thumb_url",
+        "/detail_page_thumb_url",
+    ]
+    .iter()
+    .find_map(|p| v.pointer(p).and_then(|x| x.as_str()))
+    .unwrap_or("");
+    if url.is_empty() {
+        return Err("详情无封面字段".into());
+    }
+    let resp = api
+        .reqwest_client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("封面请求失败: {}", e))?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("封面读取失败: {}", e))?;
+    if bytes.len() < 100 {
+        return Err("封面数据过小".into());
+    }
+    Ok(bytes.to_vec())
+}
+
+/// 把书籍封面写入 MP3 的 ID3v2 APIC 帧
+///
+/// 被 `dl_one` 在 post_process 之后调用（abr 压缩重写文件会丢先前的
+/// ID3，必须后写）；已有 CoverFront 先移除再写，幂等。
+/// 仅接受 JPEG/PNG，其余格式返回 Err。
+fn embed_cover(mp3: &Path, img: &[u8]) -> Result<(), String> {
+    use id3::TagLike;
+    let mime = if img.starts_with(&[0xFF, 0xD8]) {
+        "image/jpeg"
+    } else if img.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        "image/png"
+    } else {
+        return Err("不支持的封面格式".into());
+    };
+    let mut tag = id3::Tag::read_from_path(mp3).unwrap_or_else(|_| id3::Tag::new());
+    tag.remove_picture_by_type(id3::frame::PictureType::CoverFront);
+    tag.add_frame(id3::frame::Picture {
+        mime_type: mime.into(),
+        picture_type: id3::frame::PictureType::CoverFront,
+        description: "cover".into(),
+        data: img.to_vec(),
+    });
+    tag.write_to_path(mp3, id3::Version::Id3v24)
+        .map_err(|e| format!("写入 ID3 失败: {}", e))
+}
+
 // ── Download single chapter ─────────────────────────────────
 
 async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
@@ -287,7 +372,7 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                 // 番茄音源解密后是 MP4(Opus)，普通播放器不支持 → 有 ffmpeg 就转 MP3
                 let mut ext = detect_audio_ext(&work);
                 let mut src = work.clone();
-                if ext == ".m4a" {
+                if ext == ".m4a" && !p.keep_m4a {
                     if ffmpeg_available() {
                         let mp3_tmp = out_dir.join(format!("{}.download.mp3", name));
                         match transcode_to_mp3(&work, &mp3_tmp) {
@@ -323,6 +408,16 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                     continue;
                 }
                 post_process(&final_path, p.abr, p.speed, p.normalize, &p.post_cmd, p.verbose);
+                // 封面必须在 post_process 之后写：abr 压缩重写文件会丢掉先前的 ID3
+                if let Some(img) = &p.cover_img {
+                    if final_path.extension().and_then(|e| e.to_str()) == Some("mp3") {
+                        if let Err(e) = embed_cover(&final_path, img) {
+                            warn_fallback(&format!("  warn 封面嵌入失败: {}", e));
+                        }
+                    } else {
+                        warn_fallback("  warn 非 MP3 格式跳过封面嵌入");
+                    }
+                }
                 let content = api.fetch_content(&ch.item_id).await.ok();
                 handle_lrc(&final_path, ch, &p.lrc_mode, p.verbose, content.as_deref());
                 return Ok(());

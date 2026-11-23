@@ -45,6 +45,8 @@ impl Config {
                         "tts_pitch" => cfg.tts_pitch = v.into(),
                         "abr" => cfg.abr = v.parse().unwrap_or(0),
                         "post_process" => cfg.post_process = v.into(),
+                        "audio_keep_m4a" => cfg.audio_keep_m4a = v == "true",
+                        "audio_cover" => cfg.audio_cover = v == "true",
                         "info_top_chapters" => cfg.info_top_chapters = v.parse().unwrap_or(10),
                         "info_top_comments" => cfg.info_top_comments = v.parse().unwrap_or(3),
                         "info_hot" => cfg.info_hot = v != "false",
@@ -125,6 +127,10 @@ audio_tone_fallbacks = 2,4,5,6,74,91
 abr = 0
 # 后处理命令模板，{input} {output} 为占位符
 post_process =
+# 保持 m4a 原样不转 MP3，true/false
+audio_keep_m4a = false
+# 下载时嵌入书籍封面到 MP3，true/false
+audio_cover = false
 
 ## TTS
 [tts]
@@ -218,6 +224,8 @@ pub const KEYS: &[KeyEntry] = &[
     ("audio.tone_fallbacks", "audio_tone_fallbacks", "audio", Kind::Str, |c| c.audio_tone_fallbacks.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")),
     ("audio.abr", "abr", "audio", Kind::Int, |c| c.abr.to_string()),
     ("audio.post_process", "post_process", "audio", Kind::Str, |c| c.post_process.clone()),
+    ("audio.keep_m4a", "audio_keep_m4a", "audio", Kind::Bool, |c| c.audio_keep_m4a.to_string()),
+    ("audio.cover", "audio_cover", "audio", Kind::Bool, |c| c.audio_cover.to_string()),
     ("tts.rate", "tts_rate", "tts", Kind::Str, |c| c.tts_rate.clone()),
     ("tts.volume", "tts_volume", "tts", Kind::Str, |c| c.tts_volume.clone()),
     ("tts.pitch", "tts_pitch", "tts", Kind::Str, |c| c.tts_pitch.clone()),
@@ -254,6 +262,8 @@ const CONFIG_HELP: &[(&str, &str, &str)] = &[
     ("audio.tone_fallbacks", "音色回退列表", "主音色失败时依次尝试的编号"),
     ("audio.abr", "MP3 压缩码率", "0=不重编码；32/64/128 kbps"),
     ("audio.post_process", "后处理命令模板", "{input} {output} 占位；如 lame --abr 32 {input} {output}"),
+    ("audio.keep_m4a", "保持 m4a 原样", "true=不解码重编码；默认 false 有 ffmpeg 即转 MP3；audio --keep-m4a 同义覆盖"),
+    ("audio.cover", "嵌入书籍封面", "true=新下载 MP3 写入 ID3 APIC；audio --cover 同义覆盖"),
     ("tts.rate", "Edge-TTS 语速", "如 +0% / +10%；audio --tts 时生效"),
     ("tts.volume", "Edge-TTS 音量", "如 +0% / -20%"),
     ("tts.pitch", "Edge-TTS 音调", "如 +0Hz / +5Hz"),

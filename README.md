@@ -46,12 +46,20 @@ fqdt a <book_id>                    # 简写
 fqdt a <book_id> -r 1-50 -j 6       # 范围+并发
 fqdt a <book_id> --tone 5           # 指定音色
 fqdt a <book_id> --lrc embed        # 歌词嵌入（降级 m4a 自动改为外置 .lrc）
+fqdt a <book_id> --keep-m4a         # 保持 m4a 原样，不转码 MP3
+fqdt a <book_id> --cover            # 每章 MP3 嵌入书籍封面 ID3 APIC
 ```
 
 > 输出统一为 `.mp3`：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，
 > 安装了 ffmpeg 时自动转码 MP3（libmp3lame 64k，全平台可播）。未安装
 > ffmpeg 时降级保存 `.m4a`——仅 VLC/mpv/Android 10+ 等支持 Opus-in-MP4
-> 的播放器可播，转码缺失会在下载时提示一次。
+> 的播放器可播，转码缺失会在下载时提示一次。`--keep-m4a` 跳过转码保留
+> 原容器；`--cover` 整本书取一次封面并写入每章 APIC，仅对新下载的 MP3
+> 生效。两 flag 同义配置键 `audio.keep_m4a` / `audio.cover`。
+>
+> 计划中：默认输出将改为 Ogg Opus——ffmpeg `-c copy` 直接改容器，
+> 零转码零损失，9 分钟章约 1.6 秒（转 MP3 约 16 秒）；代价是 iOS 与
+> Windows Media Player 不支持 Ogg，届时会提供 MP3 反向选项。
 
 ## update — 增量更新（简写 u）
 

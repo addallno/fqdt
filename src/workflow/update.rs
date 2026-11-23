@@ -131,6 +131,7 @@ async fn update_dir(path: &std::path::Path, range: Option<&str>, force: bool, au
             ft: cfg.filename_template.clone(), force, verbose: vb,
             abr: cfg.abr, speed: None, normalize: false,
             post_cmd: cfg.post_process.clone(), lrc_mode: "external".into(),
+            keep_m4a: cfg.audio_keep_m4a, cover: cfg.audio_cover, cover_img: None,
         });
         dler.run(&new_chs, Some(&btitle)).await;
         return;
@@ -221,6 +222,7 @@ async fn update_audio(book_id: &str, all: &[crate::types::Chapter], out_dir: &st
             ft: cfg.filename_template.clone(), force, verbose: vb,
             abr: cfg.abr, speed: None, normalize: false,
             post_cmd: cfg.post_process.clone(), lrc_mode: "external".into(),
+            keep_m4a: cfg.audio_keep_m4a, cover: cfg.audio_cover, cover_img: None,
         },
     );
     dler.run(&new_chs, None).await;
