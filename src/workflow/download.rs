@@ -138,7 +138,7 @@ pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {
                         ft: cfg.filename_template.clone(), force: p.force, verbose: vb,
                         abr: p.abr, speed: None, normalize: false,
                         post_cmd: String::new(), lrc_mode: p.lrc.clone(),
-                        keep_m4a: cfg.audio_keep_m4a, cover: cfg.audio_cover, cover_img: None,
+                        keep_m4a: cfg.audio_keep_m4a, mp3: cfg.audio_mp3, cover: cfg.audio_cover, cover_img: None,
                     });
                     dler.run(&new_chs, Some(&btitle)).await;
                 }
@@ -179,7 +179,7 @@ pub async fn fetch_and_dl_audio(book_id: &str, audio_dir: &Path, range: &Option<
                 ft: cfg.filename_template.clone(), force, verbose: vb,
                 abr, speed: None, normalize: false,
                 post_cmd: String::new(), lrc_mode: lrc.into(),
-                keep_m4a: cfg.audio_keep_m4a, cover: cfg.audio_cover, cover_img: None,
+                keep_m4a: cfg.audio_keep_m4a, mp3: cfg.audio_mp3, cover: cfg.audio_cover, cover_img: None,
             });
             dler.run(&chs, None).await;
         }

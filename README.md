@@ -3,7 +3,7 @@
 番茄小说（FanqieNovel）命令行下载器：正文 / 有声书 / 书架 / 阅读数据，一条命令离线归档。
 
 - **正文**：txt / epub，批量并发、增量更新、章节范围
-- **有声书**：官方音源 CENC 解密，默认转码 MP3（可播优先），`--keep-m4a` 保原容器，`--cover` 嵌封面
+- **有声书**：官方音源 CENC 解密，默认 remux Ogg Opus（零转码可播优先），`--mp3` 转 MP3，`--keep-m4a` 保原容器，`--cover` 嵌封面
 - **发现**：搜索、首页推荐、分类、书评、作者书单
 - **书架**：本地 / 云端（需登录 Cookie），分组、过滤、一键更新
 - **阅读数据**：进度时间线、阅读历史、云端文件夹、划线笔记
@@ -43,7 +43,7 @@ fqdt --help                       # 全部命令
 | `search <关键词>` | | 搜索列表（`-D N` 顺带下载第 N 本） |
 | `info <section> [id]` | `i` | 书籍信息与个人数据（见下） |
 | `download <id\|书名>` | `d` | 下载正文 txt/epub |
-| `audio <id\|书名>` | `a` | 下载有声书（`--real/--ai/--tts` 三模式） |
+| `audio <id\|书名>` | `a` | 下载有声书（`--real/--ai/--tts` 三模式，默认 Ogg，`--mp3` 转 MP3） |
 | `update <id\|目录>` | `u` | 增量更新已下载的书 |
 | `tts <txt\|目录>` | `t` | edge-tts 文本转语音 |
 | `shelf <子命令>` | `s` | 书架管理（list/add/remove/move/download） |
@@ -73,13 +73,13 @@ fqdt a <book_id> --real             # 真人讲书
 fqdt a <book_id> --ai --tone 6      # AI 朗读（fqdt info audio <id> 查可用音色）
 fqdt a <book_id> --tts --voice zh-CN-XiaoxiaoNeural   # Edge-TTS（需本机 edge-tts）
 fqdt a <book_id> --lrc embed        # 歌词嵌入（非 MP3 自动退化为外置 .lrc）
-fqdt a <book_id> --keep-m4a         # 保持 m4a 原样，不转码 MP3
+fqdt a <book_id> --mp3              # 输出转 MP3（默认是 Ogg Opus）
+fqdt a <book_id> --keep-m4a         # 保持 m4a 原样，不转码
 fqdt a <book_id> --cover            # 新下载的 MP3 嵌入书籍封面
 ```
 
-> **输出格式**：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，装有 ffmpeg 时自动转码 MP3（libmp3lame 64k，全平台可播），无 ffmpeg 则降级保留 `.m4a`（仅 VLC/mpv/Android 10+ 等可播，下载时提示一次）。`--keep-m4a` 跳过转码；`--cover` 整本书取一次封面写入每章 APIC，仅对新下载的 MP3 生效；同义配置键 `audio.keep_m4a` / `audio.cover`。
+> **输出格式**：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，装有 ffmpeg 时默认 `ffmpeg -c copy` remux 为 Ogg Opus（零转码、秒级、通用可播），`--mp3` 改走 libmp3lame 64k 转码（iOS/Windows Media Player 兼容），无 ffmpeg 则降级保留 `.m4a`（仅 VLC/mpv/Android 10+ 等可播，下载时提示一次）。`--keep-m4a` 跳过转码；`--cover` 整本书取一次封面写入每章 APIC，仅对新下载的 MP3 生效；同义配置键 `audio.mp3` / `audio.keep_m4a` / `audio.cover`。
 >
-> **计划**：默认输出将改为 Ogg Opus——`ffmpeg -c copy` 零转码改容器（9 分钟章约 1.6s，转 MP3 约 16s），代价是 iOS / Windows Media Player 不支持，届时提供 MP3 反向选项。
 
 ## update — 增量更新
 

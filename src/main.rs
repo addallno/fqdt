@@ -112,8 +112,10 @@ enum Cmd {
         tts: bool,
         #[arg(long, hide = true, default_value = "zh-CN-XiaoxiaoNeural", help = "语音名")]
         voice: String,
-        #[arg(long, help = "保持 m4a 原样不转 MP3")]
+        #[arg(long, conflicts_with = "mp3", help = "保持 m4a 原样不转码")]
         keep_m4a: bool,
+        #[arg(long, conflicts_with = "keep_m4a", help = "转码 MP3 而非默认 Ogg Opus")]
+        mp3: bool,
         #[arg(long, help = "新下载 MP3 嵌入书籍封面")]
         cover: bool,
     },
@@ -837,9 +839,9 @@ async fn main() {
             dispatch_info(cmd, verbose, &cfg).await,
         Cmd::Download { book_id, output, range, format, jobs, force, interval } =>
             dispatch_download(book_id, output, range, format, jobs, force, verbose, interval, &cfg).await,
-        Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval, real, ai, tts, voice, keep_m4a, cover } =>
+        Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval, real, ai, tts, voice, keep_m4a, mp3, cover } =>
             dispatch_audio(book_id, output, range, tone, lrc, jobs, force, verbose, interval,
-                real, ai, tts, &voice, keep_m4a, cover, &cfg).await,
+                real, ai, tts, &voice, keep_m4a, mp3, cover, &cfg).await,
         Cmd::Update { target, output, jobs, force, interval } =>
             dispatch_update(target, output, jobs, force, verbose, interval, &cfg).await,
         Cmd::Tts { path, voice, jobs } =>
@@ -954,11 +956,12 @@ async fn dispatch_download(target: String, output: Option<String>, range: Option
 #[allow(clippy::too_many_arguments)]
 async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<String>,
     tone: usize, lrc: Option<String>, _jobs: Option<usize>, force: bool, verbose: bool,
-    _interval: u64, real: bool, ai: bool, tts: bool, voice: &str, keep_m4a: bool, cover: bool,
-    base_cfg: &Config) {
+    _interval: u64, real: bool, ai: bool, tts: bool, voice: &str, keep_m4a: bool, mp3: bool,
+    cover: bool, base_cfg: &Config) {
     // flag 优先于 config 键：置位后以克隆配置下发到全部下游
     let mut cfg2 = base_cfg.clone();
     if keep_m4a { cfg2.audio_keep_m4a = true; }
+    if mp3 { cfg2.audio_mp3 = true; }
     if cover { cfg2.audio_cover = true; }
     let cfg = &cfg2;
     let vb = verbose || cfg.verbose;

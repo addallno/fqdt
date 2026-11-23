@@ -83,6 +83,8 @@ pub struct Config {
     pub post_process: String,
     /// 音频保持 m4a 原样不转 MP3
     pub audio_keep_m4a: bool,
+    /// --mp3：转码 MP3 而非默认 remux Ogg Opus
+    pub audio_mp3: bool,
     /// 音频嵌入书籍封面到 MP3 ID3 APIC
     pub audio_cover: bool,
     pub custom_commands: std::collections::HashMap<String, String>,
@@ -166,6 +168,7 @@ impl Default for Config {
             abr: 0,
             post_process: String::new(),
             audio_keep_m4a: false,
+            audio_mp3: false,
             audio_cover: false,
             custom_commands: std::collections::HashMap::new(),
             info_top_chapters: 10,

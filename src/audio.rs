@@ -22,8 +22,10 @@ pub struct AudioParams {
     pub normalize: bool,
     pub post_cmd: String,
     pub lrc_mode: String,
-    /// 解密产物为 MP4 时保持 .m4a 原样不转 MP3
+    /// 解密产物为 MP4 时保持 .m4a 原样不转码
     pub keep_m4a: bool,
+    /// `--mp3`：转码 MP3 而非默认 remux 为 Ogg Opus
+    pub mp3: bool,
     /// 是否获取书籍封面（--cover / audio.cover）
     pub cover: bool,
     /// 运行时获取的封面字节，run 下发给各章嵌入 ID3 APIC
@@ -174,8 +176,13 @@ impl AudioDownloader {
 fn detect_audio_ext(path: &Path) -> &'static str {
     let mut buf = [0u8; 12];
     if let Ok(mut f) = fs::File::open(path) {
-        if f.read_exact(&mut buf).is_ok() && &buf[4..8] == b"ftyp" {
-            return ".m4a";
+        if f.read_exact(&mut buf).is_ok() {
+            if &buf[4..8] == b"ftyp" {
+                return ".m4a";
+            }
+            if &buf[0..4] == b"OggS" {
+                return ".ogg";
+            }
         }
     }
     ".mp3"
@@ -232,9 +239,33 @@ fn transcode_to_mp3(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// MP4(Opus) → Ogg(Opus) 容器 remux（`-c copy` 不重编码，秒级、无损）。
+/// 默认输出路径（`--mp3` 走 transcode_to_mp3，`--keep-m4a` 保留原样）。
+fn remux_ogg(src: &Path, dst: &Path) -> Result<(), String> {
+    let out = std::process::Command::new("ffmpeg")
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
+        .arg(src)
+        .args(["-vn", "-map_metadata", "-1", "-c", "copy"])
+        .arg(dst)
+        .output()
+        .map_err(|e| format!("ffmpeg 执行失败: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "ffmpeg remux 失败 (exit={}): {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let size = fs::metadata(dst).map(|m| m.len()).unwrap_or(0);
+    if size <= 1000 {
+        return Err(format!("remux 输出过小 ({}b)", size));
+    }
+    Ok(())
+}
+
 /// 查找已存在的音频文件（兼容旧 `.mp3` 与新 `.m4a`）。
 fn existing_audio(out_dir: &Path, stem: &str) -> Option<PathBuf> {
-    ["m4a", "mp3"].iter()
+    ["m4a", "mp3", "ogg"].iter()
         .map(|ext| out_dir.join(format!("{}.{}", stem, ext)))
         .find(|p| p.exists())
 }
@@ -369,24 +400,37 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                     last_err = format!("tone={} 解密失败: {}", t, e);
                     continue;
                 }
-                // 番茄音源解密后是 MP4(Opus)，普通播放器不支持 → 有 ffmpeg 就转 MP3
+                // 番茄音源解密后是 MP4(Opus)，普通播放器不支持 →
+                // 默认 remux Ogg(Opus)；--mp3 转码 MP3；--keep-m4a 保留原样
                 let mut ext = detect_audio_ext(&work);
                 let mut src = work.clone();
                 if ext == ".m4a" && !p.keep_m4a {
                     if ffmpeg_available() {
-                        let mp3_tmp = out_dir.join(format!("{}.download.mp3", name));
-                        match transcode_to_mp3(&work, &mp3_tmp) {
+                        let (tmp_ext, tmp_path) = if p.mp3 {
+                            (".mp3", out_dir.join(format!("{}.download.mp3", name)))
+                        } else {
+                            (".ogg", out_dir.join(format!("{}.download.ogg", name)))
+                        };
+                        let step = if p.mp3 {
+                            transcode_to_mp3(&work, &tmp_path)
+                        } else {
+                            remux_ogg(&work, &tmp_path)
+                        };
+                        match step {
                             Ok(()) => {
                                 let _ = fs::remove_file(&work);
-                                src = mp3_tmp;
-                                ext = ".mp3";
+                                src = tmp_path;
+                                ext = tmp_ext;
                             }
                             Err(e) => {
-                                let _ = fs::remove_file(&mp3_tmp);
+                                let _ = fs::remove_file(&tmp_path);
                                 if p.verbose {
-                                    warn_fallback(&format!("  warn 转码 MP3 失败，保留 .m4a: {}", e));
+                                    warn_fallback(&format!(
+                                        "  warn 音频转换失败，保留 .m4a: {}",
+                                        e
+                                    ));
                                 } else {
-                                    warn_fallback("  warn 转码 MP3 失败，保留 .m4a（普通播放器可能无法播放）");
+                                    warn_fallback("  warn 音频转换失败，保留 .m4a（普通播放器可能无法播放）");
                                 }
                             }
                         }
@@ -396,7 +440,7 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                 }
                 let final_path = out_dir.join(format!("{}{}", name, ext));
                 // 清掉同章另一扩展名的旧文件，避免残留两份
-                for other in ["mp3", "m4a"] {
+                for other in ["mp3", "m4a", "ogg"] {
                     let p_other = out_dir.join(format!("{}.{}", name, other));
                     if p_other != final_path {
                         let _ = fs::remove_file(&p_other);
