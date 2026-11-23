@@ -1,162 +1,153 @@
-# fqdt — 番茄小说下载器
+# fqdt — A Rust FanqieNovel CLI
+
+番茄小说（FanqieNovel）命令行下载器：正文 / 有声书 / 书架 / 阅读数据，一条命令离线归档。
+
+- **正文**：txt / epub，批量并发、增量更新、章节范围
+- **有声书**：官方音源 CENC 解密，默认转码 MP3（可播优先），`--keep-m4a` 保原容器，`--cover` 嵌封面
+- **发现**：搜索、首页推荐、分类、书评、作者书单
+- **书架**：本地 / 云端（需登录 Cookie），分组、过滤、一键更新
+- **阅读数据**：进度时间线、阅读历史、云端文件夹、划线笔记
+- **透传**：`fqdt api <path>` 直达任意端点，`serve` 起本地 HTTP 服务
+- **TTS**：edge-tts 把正文合成为语音
+
+目标环境 Android Termux（aarch64），也提供 x86_64 Linux 静态二进制。
 
 ## 安装
 
 ```sh
-# 从 GitHub Releases 下载
-curl -L https://github.com/addallno/fqdt/releases/download/v0.5.1/fqdt-aarch64-linux -o ~/fqdt
+# 从 GitHub Releases 下载（x86_64；aarch64 用 fqdt-aarch64-linux-musl）
+curl -L https://github.com/addallno/fqdt/releases/latest/download/fqdt-x86_64-linux-musl -o ~/fqdt
 chmod +x ~/fqdt
-
-# 初始化配置
-~/fqdt init
+~/fqdt --version
 ```
 
-## 用法一览
+首次运行自动生成 `~/.config/fqdt/config.ini`（分节、每键带中文注释）。配置说明见 [CONFIG-INI.md](CONFIG-INI.md)，完整命令参考见运行时生成的 `~/.config/fqdt/help.txt`。
+
+## 快速上手
+
+```sh
+fqdt search 诡秘之主              # 搜索
+fqdt download 7185478854738185271 # 下载正文（纯数字 = book_id）
+fqdt download 诡秘之主            # 书名关键词 → 交互选书
+fqdt download <id> -t epub -r 1-50 -j 8
+fqdt audio <id> --ai --tone 6     # 有声书：AI 朗读指定音色
+fqdt info overview <id>           # 概览：热度 / 简介 / 前几章 / 书评
+fqdt shelf list                   # 书架（登录后为云端）
+fqdt --help                       # 全部命令
+```
+
+## 命令一览
 
 | 命令 | 别名 | 功能 |
 |------|------|------|
-| `search` | | 搜索 + 交互下载 |
-| `download` | `d` | 下载正文 |
-| `audio` | `a` | 下载语音 |
-| `update` | `u` | 增量更新 |
-| `tts` | `t` | 文本转语音 |
-| `info` | `i` | 查看目录/内容 |
-| `shelf` | `s` | 书架管理 |
-| `function` | `fn` | 原子函数 + 管道 |
-| `init` | | 生成默认配置 |
+| `search <关键词>` | | 搜索列表（`-D N` 顺带下载第 N 本） |
+| `info <section> [id]` | `i` | 书籍信息与个人数据（见下） |
+| `download <id\|书名>` | `d` | 下载正文 txt/epub |
+| `audio <id\|书名>` | `a` | 下载有声书（`--real/--ai/--tts` 三模式） |
+| `update <id\|目录>` | `u` | 增量更新已下载的书 |
+| `tts <txt\|目录>` | `t` | edge-tts 文本转语音 |
+| `shelf <子命令>` | `s` | 书架管理（list/add/remove/move/download） |
+| `login [COOKIE]` | | 登录态（`--check`/`--clear`） |
+| `config <子命令>` | | 查看/修改配置（`init`/`--list`/`<键> <值>`） |
+| `serve` | | 本地 HTTP 服务（默认 127.0.0.1:18921） |
+| `api <路径>` | | 端点透传（`--list`/`-X`/`-q`/`--jq`） |
+| `version` | | 显示版本号 |
 
----
+`info` 子命令：`overview`（默认）/ `chapters` / `intro` / `author` / `comments` / `cover` / `relative` / `audio`；发现类 `recommend` / `category`；个人数据 `folders` / `history` / `progress` / `user` / `highlights`（需登录，均可 `--json`）。
 
-## download — 下载正文（简写 d）
+## download — 下载正文
 
 ```sh
-fqdt download <book_id>
-fqdt d <book_id>                    # 简写
-fqdt d <book_id> -o ./books -t epub -j 8   # 输出+格式+并发
-fqdt d <book_id> -r 1-100                 # 章节范围
-fqdt d <book_id> -r=-10                   # 前10章
+fqdt d <book_id>
+fqdt d <book_id> -o ./books -t epub -j 8   # 输出 + 格式 + 并发
+fqdt d <book_id> -r 1-100                 # 章节范围（-r=-10 前 10 章）
 fqdt d <book_id> -f                       # 强制覆盖
+fqdt d <书名>                             # 关键词交互选书
 ```
 
-## audio — 下载语音（简写 a）
+## audio — 下载有声书
 
 ```sh
-fqdt audio <book_id>
-fqdt a <book_id>                    # 简写
-fqdt a <book_id> -r 1-50 -j 6       # 范围+并发
-fqdt a <book_id> --tone 5           # 指定音色
-fqdt a <book_id> --lrc embed        # 歌词嵌入（降级 m4a 自动改为外置 .lrc）
+fqdt a <book_id> -r 1-50 -j 6       # 范围 + 并发
+fqdt a <book_id> --real             # 真人讲书
+fqdt a <book_id> --ai --tone 6      # AI 朗读（fqdt info audio <id> 查可用音色）
+fqdt a <book_id> --tts --voice zh-CN-XiaoxiaoNeural   # Edge-TTS（需本机 edge-tts）
+fqdt a <book_id> --lrc embed        # 歌词嵌入（非 MP3 自动退化为外置 .lrc）
 fqdt a <book_id> --keep-m4a         # 保持 m4a 原样，不转码 MP3
-fqdt a <book_id> --cover            # 每章 MP3 嵌入书籍封面 ID3 APIC
+fqdt a <book_id> --cover            # 新下载的 MP3 嵌入书籍封面
 ```
 
-> 输出统一为 `.mp3`：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，
-> 安装了 ffmpeg 时自动转码 MP3（libmp3lame 64k，全平台可播）。未安装
-> ffmpeg 时降级保存 `.m4a`——仅 VLC/mpv/Android 10+ 等支持 Opus-in-MP4
-> 的播放器可播，转码缺失会在下载时提示一次。`--keep-m4a` 跳过转码保留
-> 原容器；`--cover` 整本书取一次封面并写入每章 APIC，仅对新下载的 MP3
-> 生效。两 flag 同义配置键 `audio.keep_m4a` / `audio.cover`。
+> **输出格式**：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，装有 ffmpeg 时自动转码 MP3（libmp3lame 64k，全平台可播），无 ffmpeg 则降级保留 `.m4a`（仅 VLC/mpv/Android 10+ 等可播，下载时提示一次）。`--keep-m4a` 跳过转码；`--cover` 整本书取一次封面写入每章 APIC，仅对新下载的 MP3 生效；同义配置键 `audio.keep_m4a` / `audio.cover`。
 >
-> 计划中：默认输出将改为 Ogg Opus——ffmpeg `-c copy` 直接改容器，
-> 零转码零损失，9 分钟章约 1.6 秒（转 MP3 约 16 秒）；代价是 iOS 与
-> Windows Media Player 不支持 Ogg，届时会提供 MP3 反向选项。
+> **计划**：默认输出将改为 Ogg Opus——`ffmpeg -c copy` 零转码改容器（9 分钟章约 1.6s，转 MP3 约 16s），代价是 iOS / Windows Media Player 不支持，届时提供 MP3 反向选项。
 
-## update — 增量更新（简写 u）
+## update — 增量更新
 
 ```sh
-fqdt update <book_id>               # 按ID更新
-fqdt update ./output                # 按目录自动检测
-fqdt u ./output -j 4                # 指定并发
+fqdt u <book_id>               # 按 ID 更新
+fqdt u ./output                # 按目录自动检测（info.list）
+fqdt u ./output -j 4
 ```
 
-## tts — 文本转语音（简写 t）
+## info — 书籍信息与个人数据
 
 ```sh
-fqdt tts novel.txt                  # 单文件
-fqdt tts novel_dir/                 # 整个目录
-fqdt tts file.txt --voice zh-CN-XiaoxiaoNeural
+fqdt i overview <id>           # 概览（默认，直接 fqdt i <id> 等价）
+fqdt i chapters <id> -r 1-50   # 目录（含 item_id）
+fqdt i intro / author / comments / cover / relative / audio <id>
+fqdt i recommend               # 首页推荐流
+fqdt i category --tab 1        # 分类（1 男频 / 2 女频 / 3 出版 / 4 听书）
+fqdt i progress                # 阅读进度时间线（需登录）
+fqdt i history / folders / user / highlights
+fqdt i overview <id> --add     # 概览后直接收藏进云端书架
 ```
 
-## search — 搜索并下载
+`<id>` 支持 book_id / 章节 item_id / 作者 id（`N_` 前缀）/ 读者 uid，自动识别。
+
+## shelf — 书架管理
 
 ```sh
-fqdt search 凡人修仙传               # 搜索并交互选择
-fqdt search 凡人 -D 1               # 自动下载第1本
-fqdt search 凡人 -p 2 -D 3          # 第2页第3本
-fqdt search 凡人 --dry-run          # 仅搜索
+fqdt s list                    # 未登录=本地，已登录=云端
+fqdt s list 已读                # 指定分组
+fqdt s list --local --search 词 --author --json
+fqdt s add <book_id>[:标题]
+fqdt s remove <编号>
+fqdt s move <book_id> <组名>   # 组不存在则自动建组
+fqdt s download 1              # 下载书架第 1 本
 ```
 
-## info — 查看目录（简写 i）
+## login / config / api / serve
 
 ```sh
-fqdt info <book_id>
-fqdt i <book_id>                    # 简写
-fqdt i <book_id> -r 1-5 -s          # 章节范围+显示正文
+fqdt login '<Cookie>'          # 浏览器复制 Cookie；--check 验证；--clear 清除
+fqdt config --list             # 全部键与当前值
+fqdt config download.format epub
+fqdt config download.format --help   # 单键详情
+
+fqdt api --list                # 常用端点清单
+fqdt api /api/v1/search -q query=诡秘 -q tab_type=3
+fqdt api /api/v1/books/<id> --jq data.book_name
+fqdt serve --port 18999 --lan  # 局域网 HTTP 服务
 ```
 
-## shelf — 书架管理（简写 s）
+## 智能特性
 
-```sh
-fqdt s                              # 列出
-fqdt shelf -a <ID>:<标题>          # 添加
-fqdt shelf -d <编号>               # 删除
-fqdt shelf -D <编号>               # 下载
-fqdt shelf -U                       # 一键更新所有
-```
-
-## function — 原子函数 + 管道（简写 fn）
-
-```sh
-fqdt fn fetch-catalog <book_id>
-fqdt fn fetch-content <item_id>
-fqdt fn search "凡人"
-fqdt fn compress audio.mp3 --abr 32
-fqdt fn embed-lrc audio.mp3
-fqdt fn save output.txt             # 管道保存到文件
-
-# 管道组合
-fqdt fn fetch-catalog <id> \; fetch-content {}
-fqdt fn search "凡人" \; fetch-detail {}
-fqdt fn ... \; save result.txt      # 保存管道输出
-```
-
-## 自定义命令
-
-在 `~/.config/fqdt/config.ini` 添加：
-
-```ini
-[workflow_cmd]
-echo = echo 你输入了: {}
-decode = python3 ~/decode_woff.py {}
-```
-
-使用：
-
-```sh
-fqdt echo 你好世界
-fqdt decode font.woff
-```
-
-## 智能功能
-
-- **智能源切换**: 自动按成功率+延迟排序 API 源，失败 URL 自动降级
-- **自动并发**: 根据 CPU 核心自动选择并发数（核心×2，最高 32）
-- **哈希增量**: `--force` 时对比已有内容，相同则跳过写入
-- **书架一键更新**: `fqdt shelf -U` 更新所有收藏书籍
+- **主通道 + 降级**：fqapi-core 进程内直调官方接口（签名 + 设备池），失败自动轮换第三方源
+- **自动并发**：0 = CPU 核数 × 2，上限 32
+- **增量**：`update` 按 info.list 比对，只补缺失章节
+- **缓存**：目录/详情文件缓存（TTL 可配）
+- **静态构建**：musl 静态链接，Android 上自带根证书与进程内 DNS，无系统依赖
 
 ## 输出结构
 
 ```
 output/
 ├── info.list
-├── 0001_第一章_穿越.txt
-├── 0002_第二章_奇遇.txt
-├── 书名.epub
-└── Audio/
+├── 0001_第一章_穿越.txt        # 或 .epub
+└── Audio/                     # 书籍目录场景下的音频子目录
     ├── info.list
-    ├── 0001_第一章_穿越.mp3     # 第三方源（明文，真MP3）
-    ├── 0002_第二章_奇遇.mp3     # 番茄官方源（ffmpeg 从 Opus-in-MP4 转码）
-    ├── 0002_第二章_奇遇.lrc
+    ├── 0001_第一章_穿越.mp3
+    ├── 0001_第一章_穿越.lrc
     └── ...
 ```
 
@@ -164,4 +155,9 @@ output/
 
 ```sh
 cargo build --release
+# CI（GitHub Actions）产出 x86_64 + aarch64 musl 静态二进制并附到 Release
 ```
+
+## 许可
+
+GPL-3.0。核心 `crates/fqapi-core/` 源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)。
