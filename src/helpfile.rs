@@ -60,15 +60,20 @@ fn render_args(cmd: &Command, pad: &str, out: &mut String) {
     if !pos.is_empty() {
         out.push_str(&format!("{}参数:\n", pad));
         for a in pos {
-            if let Some(l) = arg_line(a) { out.push_str(&format!("{}  {}\n", pad, l)); }
+            if let Some(l) = arg_line(a) { out.push_str(&format!("{}{}\n", pad, l)); }
         }
     }
-    let opts: Vec<&clap::Arg> = cmd.get_arguments()
-        .filter(|a| !a.is_positional() && !a.is_hide_set()).collect();
+    let opts: Vec<&clap::Arg> = cmd.get_arguments().filter(|a| !a.is_positional()).collect();
     if !opts.is_empty() {
         out.push_str(&format!("{}选项:\n", pad));
         for a in opts {
-            if let Some(l) = arg_line(a) { out.push_str(&format!("{}  {}\n", pad, l)); }
+            let long = a.get_long().unwrap_or("");
+            let is_sub = crate::SUBITEMS.iter().any(|(_, ch)| ch.contains(&long));
+            if a.is_hide_set() && !is_sub { continue; }
+            if let Some(l) = arg_line(a) {
+                let l = if is_sub { format!("  {l}") } else { l };
+                out.push_str(&format!("{}{}\n", pad, l));
+            }
         }
     }
 }
@@ -86,7 +91,7 @@ fn render_subs(cmd: &Command, pad: &str, label: &str, out: &mut String) {
 }
 
 /// 格式行：取 clap usage，去掉 `Usage: ` 前缀并补全父命令路径。
-fn usage_of(cmd: &Command, full: &str) -> String {
+pub(crate) fn usage_of(cmd: &Command, full: &str) -> String {
     let u = cmd.clone().render_usage().to_string();
     let u = u.lines().find(|l| l.contains("Usage:"))
         .map(|l| l.trim_start().trim_start_matches("Usage: ").to_string())
@@ -99,16 +104,15 @@ fn usage_of(cmd: &Command, full: &str) -> String {
     }
 }
 
-/// 单条参数行：`-r, --range <RANGE>   作用`；隐藏/自动 flag 跳过。
-fn arg_line(a: &clap::Arg) -> Option<String> {
+/// flag 左列签名：`-r, --range <RANGE> `（尾随单空格）；无短名用 6 空格对齐。
+pub(crate) fn arg_left(a: &clap::Arg) -> String {
     use clap::ArgAction;
-    if a.is_hide_set() || matches!(a.get_action(), ArgAction::Help | ArgAction::Version) { return None; }
     let mut left = String::new();
     match (a.get_short(), a.get_long()) {
-        (Some(s), Some(l)) => left.push_str(&format!("-{}, --{} ", s, l)),
+        (Some(s), Some(l)) => left.push_str(&format!("  -{}, --{} ", s, l)),
         (None, Some(l)) => left.push_str(&format!("      --{} ", l)),
-        (Some(s), None) => left.push_str(&format!("-{} ", s)),
-        (None, None) => {}
+        (Some(s), None) => left.push_str(&format!("  -{} ", s)),
+        (None, None) => left.push_str("  "),
     }
     let takes_val = !matches!(a.get_action(), ArgAction::SetTrue | ArgAction::SetFalse | ArgAction::Count);
     if takes_val {
@@ -116,6 +120,14 @@ fn arg_line(a: &clap::Arg) -> Option<String> {
             left.push_str(&format!("<{}> ", v));
         }
     }
+    left
+}
+
+/// 单条参数行：`-r, --range <RANGE>   作用`；自动 help/version flag 跳过（hide 过滤在调用方）。
+fn arg_line(a: &clap::Arg) -> Option<String> {
+    use clap::ArgAction;
+    if matches!(a.get_action(), ArgAction::Help | ArgAction::Version) { return None; }
+    let left = arg_left(a);
     let help = a.get_help().or_else(|| a.get_long_help()).map(|h| h.to_string()).unwrap_or_default();
     let first = help.lines().next().unwrap_or("").trim().to_string();
     Some(format!("{:<36} {}", left.trim_end(), first).trim_end().to_string())

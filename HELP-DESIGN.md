@@ -76,6 +76,13 @@ flag 详情层教"这个取值是什么"。每层不越界——顶层不列 fla
 - **节名本身保持小写英文**（`[download]`…）——必须与 `KEYS` 各条目节一致，改大小写会导致 `ini_write` 产生重复节（DEFAULT_INI 顶部注释有警告）；
 - **每个键上方一行中文注释**说明作用与取值（配置说明唯一来源 = 本文件 + `CONFIG_HELP`，help 正文不列配置键）。
 
+### 1.4 子项缩进（SUBITEMS + 自定义渲染，v0.26.1）
+
+- **子项** = 挂在某 flag 下的附属 flag（如 `--tone` 隶属 `--ai`、`--voice` 隶属 `--tts`），不是独立配置，help 中必须**缩进 +2 挂父下**，禁止当描述文本塞进父 flag 的多行 help（用户：作描述放那里=错误）。
+- 实现：`SUBITEMS: &[(&str, &[&str])]`（main.rs）声明归属；`fqdt <子命令> --help` / `fqdt help <子命令>` 由 `render_sub_help()` 自定义渲染（about/Usage/Arguments/Commands/Options/尾部），`option_rows()` 让子项行 = 父行 +2 缩进、help 列按最长左列对齐；`Cli` 的 `global=true` flag（--timeout/-v）自动追加。
+- `helpfile.rs`（help.txt）同步：`arg_left` 自含 2 空格前导，子项行缩进 +2，隐藏 flag 除非是子项否则跳过。
+- **审查原则**：新增"父 flag + 附属 flag"结构必须登记进 `SUBITEMS`，两侧（自定义 help、help.txt）同步；`fqdt <cmd> <flag> --help` 详情拦截（FLAG_HELP）优先级更高，不受影响。
+
 ## 3. 机制（代码里的四张表 + 拦截链）
 
 ### 3.1 四表分工

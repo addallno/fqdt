@@ -103,14 +103,14 @@ enum Cmd {
         lrc: Option<String>,
         #[arg(long, help = "真人讲书版", conflicts_with_all = ["ai", "tts"])]
         real: bool,
-        // --tone 嵌套展示于 --ai 之下（--ai 多行 help + --tone 隐藏独立行），解析不受影响
-        #[arg(long, conflicts_with = "tts", help = "智能朗读\n    --tone <N>  AI 音色编号，默认 1，fqdt info audio <id> 查可用")]
+        // --tone/--voice 为 --ai/--tts 的子项：help 单行，Options 中缩进挂父下（SUBITEMS）
+        #[arg(long, conflicts_with = "tts", help = "智能朗读")]
         ai: bool,
-        #[arg(long, hide = true, default_value = "1", help = "")]
+        #[arg(long, hide = true, default_value = "1", help = "AI 音色编号，fqdt info audio <id> 查可用")]
         tone: usize,
-        #[arg(long, help = "Edge-TTS 本地合成\n    --voice <名>  语音名，默认 zh-CN-XiaoxiaoNeural")]
+        #[arg(long, help = "Edge-TTS 本地合成")]
         tts: bool,
-        #[arg(long, hide = true, default_value = "zh-CN-XiaoxiaoNeural", help = "")]
+        #[arg(long, hide = true, default_value = "zh-CN-XiaoxiaoNeural", help = "语音名")]
         voice: String,
         #[arg(long, help = "保持 m4a 原样不转 MP3")]
         keep_m4a: bool,
@@ -527,6 +527,145 @@ fn scan_config_key(args: &[String]) -> Option<String> {
     args.iter().skip(1).find(|a| !a.starts_with('-')).cloned()
 }
 
+
+// ===== 子命令 help 自定义渲染（子项缩进，v0.26.1） =====
+
+/// 子项归属：(父 flag 长名, 子 flag 长名列表)。子项在 Options 中缩进 +2 挂父下，不独立成行。
+pub(crate) const SUBITEMS: &[(&str, &[&str])] = &[("ai", &["tone"]), ("tts", &["voice"])];
+
+/// 子命令 help 请求：`<path...> --help|-h` 或 `help <path...>`；返回子命令路径。
+/// 路径中含非子命令 token（如未知 flag）时不拦截，交 clap / flag 详情。
+fn sub_help_requested(args: &[String]) -> Option<Vec<String>> {
+    let toks: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let path: &[&str] = if toks.first() == Some(&"help") {
+        &toks[1..]
+    } else {
+        match toks.last() {
+            Some(&"--help") | Some(&"-h") => &toks[..toks.len() - 1],
+            _ => return None,
+        }
+    };
+    if path.is_empty() { return None; }
+    let mut cur = Cli::command();
+    for t in path {
+        let next = cur.find_subcommand(t)?.clone();
+        cur = next;
+    }
+    Some(path.iter().map(|s| s.to_string()).collect())
+}
+
+/// flag 右列说明：help 首行 + `[default: ...]` 后缀；-h/-V 给中文文案。
+fn flag_help_text(a: &clap::Arg) -> String {
+    match a.get_long() {
+        Some("help") => return "查看帮助".to_string(),
+        Some("version") => return "显示版本".to_string(),
+        _ => {}
+    }
+    let help = a.get_help().or_else(|| a.get_long_help()).map(|h| h.to_string()).unwrap_or_default();
+    let first = help.lines().next().unwrap_or("").trim().to_string();
+    match a.get_default_values().first() {
+        Some(d) if !first.is_empty() => format!("{} [default: {}]", first, d.to_string_lossy()),
+        Some(d) => format!("[default: {}]", d.to_string_lossy()),
+        None => first,
+    }
+}
+
+/// Options 行集：(左列, 说明)。子项缩进 +2 紧跟父 flag，隐藏 flag 除非是子项否则跳过。
+fn option_rows(cmd: &clap::Command) -> Vec<(String, String)> {
+    let mut rows = Vec::new();
+    for a in cmd.get_arguments() {
+        if a.is_positional() { continue; }
+        let long = a.get_long().unwrap_or("");
+        let is_sub = SUBITEMS.iter().any(|(_, ch)| ch.contains(&long));
+        if is_sub { continue; }
+        if a.is_hide_set() { continue; }
+        rows.push((crate::helpfile::arg_left(a), flag_help_text(a)));
+        for (parent, children) in SUBITEMS {
+            if *parent != long { continue; }
+            for c in cmd.get_arguments() {
+                if let Some(cl) = c.get_long() {
+                    if children.contains(&cl) {
+                        rows.push((format!("  {}", crate::helpfile::arg_left(c)), flag_help_text(c)));
+                    }
+                }
+            }
+        }
+    }
+    rows
+}
+
+/// 两列对齐输出行集：左列最大宽 + 2 为说明列。
+fn emit_rows(rows: &[(String, String)]) {
+    if rows.is_empty() { return; }
+    let width = rows.iter().map(|(l, _)| l.chars().count()).max().unwrap_or(0) + 2;
+    for (left, help) in rows {
+        crate::emit_line(&format!("{left:<width$}{help}"));
+    }
+}
+
+/// Options 段（子项缩进挂父下）+ 顶层 global flag（--timeout/-v 等）。
+fn render_options(cmd: &clap::Command) {
+    let mut rows = option_rows(cmd);
+    for a in Cli::command().get_arguments() {
+        let Some(long) = a.get_long() else { continue };
+        if !a.is_global_set() { continue; }
+        if rows.iter().any(|(l, _)| l.contains(&format!("--{long}"))) { continue; }
+        rows.push((crate::helpfile::arg_left(a), flag_help_text(a)));
+    }
+    if rows.iter().all(|(l, _)| !l.contains("--help")) {
+        rows.push(("  -h, --help ".to_string(), "查看帮助".to_string()));
+    }
+    crate::emit_line(&format!("{TITLE}Options:{RST}"));
+    emit_rows(&rows);
+}
+
+/// Arguments 段：位置参数两列对齐。
+fn render_pos_args(cmd: &clap::Command) {
+    let rows: Vec<(String, String)> = cmd.get_positionals().filter(|a| !a.is_hide_set()).map(|a| {
+        let name = a.get_value_names().and_then(|v| v.first())
+            .map(|s| s.to_string()).unwrap_or_else(|| a.get_id().to_string());
+        (format!("  <{name}> "), flag_help_text(a))
+    }).collect();
+    if rows.is_empty() { return; }
+    crate::emit_line(&format!("{TITLE}Arguments:{RST}"));
+    emit_rows(&rows);
+}
+
+/// Commands 段：子命令名 + 一句话目的（跳过 clap 自动 help 子命令）。
+fn render_commands(cmd: &clap::Command) {
+    let subs: Vec<&clap::Command> = cmd.get_subcommands()
+        .filter(|s| s.get_name() != "help" && !s.is_hide_set()).collect();
+    if subs.is_empty() { return; }
+    crate::emit_line(&format!("{TITLE}Commands:{RST}"));
+    let width = subs.iter().map(|s| s.get_name().chars().count()).max().unwrap_or(0) + 2;
+    for s in subs {
+        let about = s.get_about().map(|a| a.to_string()).unwrap_or_default();
+        let first = about.lines().next().unwrap_or("").trim();
+        crate::emit_line(&format!("  {:<width$}{}", s.get_name(), first));
+    }
+}
+
+/// 自定义子命令 help：about / Usage / Arguments / Commands / Options（子项缩进）/ 尾部。
+fn render_sub_help(path: &[String], examples: bool) {
+    let mut cmd = Cli::command();
+    for t in path { cmd = cmd.find_subcommand(t).expect("path validated").clone(); }
+    let about = cmd.get_about().map(|a| a.to_string()).unwrap_or_default();
+    crate::emit_line(about.lines().next().unwrap_or("").trim());
+    crate::emit_line("");
+    let usage = crate::helpfile::usage_of(&cmd, &path.join(" "));
+    crate::emit_line(&format!("{TITLE}Usage:{RST} {usage}"));
+    crate::emit_line("");
+    let pos: Vec<&clap::Arg> = cmd.get_positionals().filter(|a| !a.is_hide_set()).collect();
+    if !pos.is_empty() { render_pos_args(&cmd); crate::emit_line(""); }
+    if cmd.has_subcommands() { render_commands(&cmd); crate::emit_line(""); }
+    render_options(&cmd);
+    let tail = help_tail_text(path.last().map(|s| s.as_str()).unwrap_or(""), examples);
+    if !tail.is_empty() {
+        crate::emit_line("");
+        for l in tail.lines() { crate::emit_line(l); }
+    }
+}
+
 // ===== 顶层分组 help（v0.24.0，49④） =====
 
 /// 顶层分组：(组名, 子命令)。clap 模板无分组能力，手写渲染（FLAG_HELP 先例）。
@@ -625,22 +764,25 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("serve", "", ""),
 ];
 
-/// 注入 help 底部：配置对应段恒开；示例段受 `ui.help_examples` 控制（false 关闭）。
+/// help 尾部文本（conf 恒开 + examples 开关；Examples 标题套 TITLE 样式）。clap 与自定义渲染共用。
+fn help_tail_text(name: &str, examples: bool) -> String {
+    let Some((_, conf, ex)) = HELP_TAILS.iter().find(|e| e.0 == name) else { return String::new(); };
+    let mut tail = String::new();
+    if !conf.is_empty() { tail.push_str(conf); }
+    if examples && !ex.is_empty() {
+        if !tail.is_empty() { tail.push_str("\n\n"); }
+        tail.push_str(ex);
+    }
+    tail.replace("Examples:", &format!("{TITLE}Examples:{RST}"))
+}
+
+/// 注入 help 底部（clap 路径）：配置对应段恒开；示例段受 `ui.help_examples` 控制（false 关闭）。
 fn apply_help_tails(cmd: &mut clap::Command, examples: bool) {
     let set_tail = |c: &mut clap::Command, name: &str| {
-        if let Some((_, conf, ex)) = HELP_TAILS.iter().find(|e| e.0 == name) {
-            let mut tail = String::new();
-            if !conf.is_empty() { tail.push_str(conf); }
-            if examples && !ex.is_empty() {
-                if !tail.is_empty() { tail.push_str("\n\n"); }
-                tail.push_str(ex);
-            }
-            if !tail.is_empty() {
-                // 示例段标题与 clap 段落标题一致：加粗 + 下划线
-                tail = tail.replace("Examples:", &format!("{TITLE}Examples:{RST}"));
-                let old = std::mem::replace(c, clap::Command::new("_"));
-                *c = old.after_help(tail);
-            }
+        let tail = help_tail_text(name, examples);
+        if !tail.is_empty() {
+            let old = std::mem::replace(c, clap::Command::new("_"));
+            *c = old.after_help(tail);
         }
     };
     set_tail(cmd, "");
@@ -663,6 +805,10 @@ async fn main() {
     let top_args: Vec<String> = std::env::args().skip(1).collect();
     if top_help_requested(&top_args) {
         render_top_help();
+        return;
+    }
+    if let Some(path) = sub_help_requested(&top_args) {
+        render_sub_help(&path, cfg.ui_help_examples);
         return;
     }
     let cli = Cli::from_arg_matches(&cmd.get_matches()).unwrap_or_else(|e| e.exit());

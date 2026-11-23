@@ -1616,7 +1616,7 @@ fn decrypt_cenc_mp4(data: &mut [u8], content_key: &[u8]) -> Result<(), String> {
         let chunk_offsets = parse_chunk_offsets(data, chunk_box);
         let stsc_entries = parse_stsc(data, stsc_boxes[0]);
         let samples = sample_offsets(&stsc_entries, &chunk_offsets, &sample_sizes);
-        let mut iv_size = track_iv_size(data, &boxes);
+        let mut iv_size = track_iv_size(data, boxes);
         if iv_size == 0 {
             iv_size = 8;
         }
