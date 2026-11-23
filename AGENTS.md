@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.28.0（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.29.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -535,71 +535,16 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 | **配置** | INI 解析 + 书架 | ✅ |
 | **CI** | GitHub Actions cross 编译 | ✅ |
 
-### 7.2 待办（按优先级）
+### 7.2 待办 → `TODO.md`（独立文件，省 token）
 
-1. **⚡ 代码拆分** — 将当前 `download()`、`update()`、`audio_dl()` 等大函数拆成基本函数
-2. **⚡ 高阶函数提取** — 实现 `with_retry`、`with_cache`、`with_progress`、`with_verbose`、`with_filter`、`with_output`
-3. **⚡ workflow 模块** — 创建 `src/workflow/`，将预编译工作流从 main.rs 移出
-4. **📦 function 子命令扩展** — 为每个基本函数添加 `FunctionCmd` 变体（已废弃：function 于 v0.24.0 删除）
-5. **📦 配置驱动扩展** — 实现 `[function]`、`[workflow]`、`[workflow_cmd]` 节
-6. **📦 高阶 verbose** — 用 `with_verbose` 替换所有 `if verbose { ... }` 散落代码
-7. **🔍 API 探索** — 探索是否有新的官方/第三方 API 端点
-8. **💡 智能 `--force`** — 内容哈希比对，相同则跳过
-9. **💡 Rust 原生 lame** — 用 `lame-rs` 消除外部依赖
-10. **🧹 clippy 清理** — 解决 31 个 warnings
-11. **⚡ vendor fqapi-core** — 从 fanqie-lite-api 复制 `crates/fqapi-core/` 入仓，fqdt 改 workspace，reqwest 对齐 0.13 ✅
-12. **⚡ 运行时单例** — `src/fqapi.rs` 提供 `ensure_runtime()`，数据目录 `~/.local/share/fqdt/`（pool.key/设备池/媒体缓存） ✅
-13. **⚡ 主通道切换** — search/info/catalog/download/audio 改走 fqapi 进程内直调；第三方 URL 源降级为备选（fqapi 失败时 fallback），源轮换逻辑保留给降级路径 ✅
-14. **⚡ `fqdt api` 透传** — gh api 式：46 端点全覆盖，`-X`/`--data`/`--jq`，默认 JSON 管道友好 ✅ v0.7.0
-15. **📦 封装子命令扩展** — recommend/category/comments/author 表格+`--json`（`src/workflow/discover.rs`）；rank 响应无实体书单，改走 `fqdt api` 透传；**不做漫画/短剧封装** ✅ v0.8.0
-16. **📦 `fqdt serve`** — 对外 HTTP 服务模式（复用 `runtime::server` + `ListenMode`），默认端口 18921，`--lan` 监听局域网，Ctrl-C 退出刷盘 ✅ v0.9.0
-17. **🧹 LICENSE** — 添加 GPL-3.0 全文 + AGENTS 注明核心 fqapi-core 源自 Maicy0609/fanqie-lite-api ✅ v0.9.0
-18. **📦 部署自动化** — 每次版本更新（tag v*）将 aarch64 musl 二进制推送到 47.95.13.125:48022 的 `~/cmd/fqdt`（CI release job ssh/scp，deploy key 走 GH secret） ✅ v0.8.0（run 41776280009）
-19. **🐛 静态构建系统 CA 修复** — 静态 musl 二进制无系统证书，reqwest 默认 native-certs 在 Android panic（`No CA certificates were loaded`）；`src/api.rs::tls_builder` 用内置 webpki 根证书预配置 TLS（同 core `build_tls_config`）✅ v0.9.0
-20. **🐛 静态构建系统 DNS 修复** — 静态 musl 的 getaddrinfo 只读 `/etc/resolv.conf`，Android 上不存在 → 所有域名解析失败（`dns error: Try again`，device_register 等全部走不通）；新增 `upstream/dns.rs` 进程内解析（`FQDT_DNS` env → `getprop net.dns1/2` → `/proc/net/route` 网关 → 223.5.5.5/119.29.29.29 兜底，手写 UDP A 查询零依赖），挂到 core HttpTransport、`streaming_client`、fqdt `tls_builder` 三处 client ✅ v0.9.1
-21. **🎨 输出精简 + 日志开关** — core 日志（`[I] core: ...`）默认不打印（仍落盘 rust.log），全局 `-v/--verbose` 才开 console 镜像（子命令级 -v 改为全局 flag）；search 列表 4 行/本 → 1 行/本（去简介/空行），下载总结合并单行，ANSI 样式常量集中到 util（TUI.md 设计规范落地） ✅ v0.10.0
-22. **🐛 下载慢/章节失败修复** — 四个根因：① DNS 探测链把 WSL 网关当 nameserver（双重重试最坏 12s/主机，api 单请求 25s）→ `dns.rs` 改 `FQDT_DNS` 短路 + `/etc/resolv.conf` 优先 + 去 `lookup_a` 外层重试（search 13.7s→1.8s）；② `get_json_timeout` 走 `runtime::request` bridge 挂死 → 改 `call()` dispatch + `tokio::time::timeout`；③ core batch 返回 object map 而 `parse_batch` 只吃数组 → 兼容两形态并跳过 `content="Invalid"`；④ 无熔断+全量 item_ids 拼单 → 100/块 JoinSet 分块、`source_dead` 熔断（ok=0 且 fail≥2）、reqwest 8s/内容 retry 2/单章 10s 超时、stats 按模板记键使 sort_urls 生效、第三方源全灭时给出明确错误。冒烟：10 章 `-j 4` 20.5s 全成功（修复前 3 章 1m52s 全败）。✅ v0.11.0
-23. **🎨 全子命令 UI 重写** — 按新版 tui-design-pro skill（web 调研 clig.dev/TUIkit/Tufte/VT-HIG 等）重写全部子命令输出：过程进度一律 `util::progress/clear_progress`（stderr 仅 TTY）、结果收据单行（`ok N 章 · 跳过 x 章`/`新增 N 章 · 已有 x/y 章`）、失败用 `util::print_failures`（≤3 条+计数+重跑提示）、提示/交互全部 stderr、`Color` 改 Display 静态 + `init_color()`（NO_COLOR/CLICOLOR=0/非 TTY 纯文本）、info show 40 行折叠+`function fetch-content` 逃生口、shelf 尾注单行、discover 书评单行。TUI.md 已同步。✅ v0.11.0
-24. **🐛 batch 端点对匿名设备无效 → full mget 替代** — `batch_full/v` 对匿名设备恒回 `content="Invalid"`（book_id 注入/`req_type=0`/去 `novel_text_type` 三变体均无效）。**已解决（v0.13.1）**：`core_content_batch` 首选 `/api/v1/chapters/full`（novelfm playerapi mget，匿名可用，`data.item_infos.{id}.content` 已解密明文，单次≤3000章），失败才回退 batch_full；`parse_batch` 兼容 `data.item_infos` 形态。实测 10 章 4.9s（逐章 20.5s，4 倍）。✅ v0.13.1
-25. **📦 audio 三模式 + search 纯搜索 + download 关键词** — ① `audio` 新增 `--real`（真人讲书，`resolve_audio_book` 经 related_audio_bookids 选 book_type=1 且 listen_count 最大的真人主版）/`--ai`（智能朗读，related_novel_bookid 转回文字版后按 `--tone` 取 AI 音色）/`--tts`（Edge-TTS：先下正文 txt 再 `run_tts` 合成）/`--voice`，real/ai/tts 互斥；② `search` 改纯搜索（`print_list` 一行一本组织化展示 + 尾注指引，不再交互选中，`-D N` 保留自动下载）；③ `download` 接受书名关键词（`workflow::search::pick` 交互选序号，非 TTY 报错指引，选中自动加书架）。edge-tts 需 `pip install --user --break-system-packages edge-tts` 且 PATH 含 ~/.local/bin。✅ v0.12.0
-26. **📦 info section 扩展（breaking）** — `fqdt info <book_id> [SECTION]`：`chapters`（目录含 item_id）、`intro`（完整简介）、`author`（id 取 detail `author_id` **原样含 `N_` 前缀**，裸数字会错拿他人）、`comments`（count=20）、`cover`（thumb_url）；无 section=概览+sections 尾注。**顶层 `comments`/`author` 命令删除**（discover.rs 函数保留由 info 调用）；hots/shelf 用户暂缓。✅ v0.13.0
-27. **📋 info 概览默认行为改版** — 默认 `info <id>` 不再全量列章节：标题/作者 + 热度行（`read_cnt_text`·评分·收藏，评分与收藏是 JSON 字符串需 parse）+ 简介截断 + 前 N 章（超出尾注跳 chapters）+ 前 N 条书评；条数与开关由 config.ini `[info]` 节控制（`info_top_chapters=10`/`info_top_comments=3`/`info_hot=true`/`info_intro_len=120`，0=关闭该项），不同 action 全可配。完整列表仍在各自 section。`[x]` ✅ v0.15.0
-28. **📦 下载增强批次** — ① EPUB O(n) 重构：删 `generate`+`update_chapter`（旧每章全量重写 zip，1928章≈7GB写放大），新 `epub::write_book(title, &[(Chapter, Option<String>)], path)` 单遍一次落盘；`do_epub` 改批量取正文（fetch_content_batch + Arc<Mutex<HashMap>> 收集，失败章占位"获取失败"）。② 进度系统：`bar_style` 加 `{spinner} {percent}` + braille tick_chars；`progress()` 升级 braille 动画线程（120ms，非TTY静默）；pb `enable_steady_tick(120ms)`；阶段文案（启动 core/批量获取正文/批量获取音频信息/生成 EPUB 等）。③ 音频 playinfo 批量：`fetch_audio_batch`（逗号多 id 单请求，上游行按请求顺序对应、行内 item_id 统一填末 id 不可用→zip 匹配），`dl_one` 主音色查 `pre` 表兜底逐章；实测 3/3 命中。④ 发版清理规范 AGENTS 8.2.1。`[x]` ✅ v0.14.0
-29. **🎨 help 重整 + info related/audio + 色彩分层 + config 子命令** — ① help：全子命令 doc/flag 重写（search 去"并下载"、--tone 1-91 说明、flag 可操作语义），`HELP_TAILS`+`apply_help_tails` 底部 gh 式（配置段恒开、示例受 `ui.help_examples=false` 关闭），顶部注明 flag>config 优先级，简介绍不枚举子项；行为变更当次同步 help。② info 新增 `related`（相关书 CYAN/MAGENTA/BLUE + misc `真人听书版 N · AI 音色 N`）与 `audio`（AI 音色列表 + 听书版主播阵容）。③ 色彩 8 色语义分层（util 加 GREEN/BLUE/RED；ok 绿/err 红/#id 蓝/热度黄），TUI.md §2/§2.1 已同步。④ git 式 `fqdt config --list/<key>/<key> <value>/--unset`（30 键点号映射表 KEYS、ini_write 保留注释、EPIPE 走 emit_line）；新增 `ui.help_examples` 键。`[x]` ✅ v0.16.0
-30. **📖 逐 flag 详情 help + login/account + related 杂项** — ① help 逐 flag 详情：`fqdt audio --tone --help`、`fqdt help audio --lrc`、`fqdt download -r --help`、`fqdt config tone --help` 四场景拦截渲染格式化详情（`FLAG_HELP` 表 main.rs + `CONFIG_HELP` 表 config.rs；flag 短 help 去括号长注释，内容移详情）；`--tone 1 --help` 走 clap 原生子命令 help。② `fqdt login [COOKIE]`（--check/--clear，cookie 存 `~/.config/fqdt/cookie` 独立文件防 --list 泄露；上游无账号密码登录，登录态=浏览器复制 Cookie）。③ `fqdt account [shelf|folders|history|progress|user]`：core account 端点封装（cookie 鉴权只读），info 保持 book 语义不塞个人数据；ENDPOINTS 补两条 account。④ info related misc 行扩展杂项（字数/章数/分类/听书量/起书时间）。`[x]` ✅ v0.17.0
-31. **🔍 网页端点逆向 + account user/highlights 真资料** — 不依赖上游现成端点，自行逆向探索（来源 fysh1010/mcp-server-fanqie、naiyQAQ/fanqie-assistant、hesan1232/fanqie.koplugin）：① `api.rs` 加 `http_get_cookie`（共享 web client：webpki+进程内 DNS，Cookie 走 header）；② `account user` 从"能力说明"升级为真实资料——`/api/user/info/v2`（昵称/id/简介）+ `/reading/user/basic_info/get/v`（粉丝/关注/已读本数/累计分钟/是否作者）；③ `login --check` 只信 user/info/v2（实测假 Cookie 下 core library 也回 code:0，回退会误报成功，已去回退）；④ 新 section `account highlights`——`/reading/reader/bookmark/personal_list` 有划线的书（划线/书签/笔记计数；**遗留：未登录实测回 101003 PARAM_INVALID，盲试参数无解，待真 Cookie 验证**）。`[x]` ✅ v0.18.0
-32. **🔍 info 智能 ID 识别** — `fqdt info <id>` 自动识别四类 ID（信号全部实测）：① `_` 前缀（N_/2_）→ 作者直达 `discover::author`；② 纯数字依次探测 detail（code0+book_name=书，章节 id 回 101109 BOOK_REMOVE）→ items（有 item_id+title=章节，返回章节+所属书全量：title/book_id/order/word_number/tones/abstract）→ authors（is_author=true=作者；user_name 非"用户{id前8位}"占位=读者 uid 公开资料卡；占位=无效）；③ 章节卡片含所属书跳转指引、`--show` 正文预览（40 行折叠）；④ 无效 id 友好报错列支持形态。**遗留：真实读者裸 uid 无样本（占位保护已备），待真机验证**。`[x]` ✅ v0.18.0
-33. **📦 account shelf 网页通道 + 书架增删** — ① `account shelf` 升级网页端点（`/reading/bookapi/bookshelf/info/v` + `/api/reader/book/progress` + `POST /api/bookshelf/multidetail` 合并）：每行显示书名/**当前章节**/进度%（real_chapter_order/serial_count 优先，read_progress 万分比兜底，koplugin 算法），失败回退 core 通道；② 书架写操作：`fqdt account --add <book_id>` / `--remove <book_id>`（`POST /reading/bookapi/bookshelf/add/v|delete/v`，body `identify_data`，毫秒 modify_time）+ `--check <book_id>`（`GET .../check/v`，data=1/0），三 flag clap 互斥；③ api.rs 新增 `http_post_cookie`，account.rs 抽 `page_check`/`page_post` 统一判定。逆向源 naiyQAQ/fanqie-assistant bookshelf.ts + hesan1232/fanqie.koplugin bookshelf.lua；远端真 cookie 实测：info/progress/multidetail/simple-info/check/add/delete 全通、写端点往返（check1→add→check1→delete→check0）。**遗留：作者列**（网页无批量作者端点：simple/info/multidetail 均无 author，`/api/v1/books/{id}` 网页域回 HTML，逐本 core detail N 请求成本高暂不做）。`[x]` ✅ v0.19.0
-34. **📦 书架整理三连（info 收藏 / shelf 过滤 / 分组移动）** — ① `fqdt info <id> --add`：概览展示后直接收藏（复用 shelf_op add）；② `fqdt account shelf --search <词>`：书名本地模糊过滤（147 本大书架可用性，收据显示 `n/总数`，--json 同步过滤）；③ `fqdt account --move <book_id> --to <group>`：分组移动（`POST /reading/bookapi/bookshelf/update/v?aid=1967`，body `book_data[{asterisked,book_id,book_type,group_name,has_shown,is_pin,modify_time}]`，两 flag clap 互 requires，**实测 group_name 为目标组名、组不存在服务端自动建组**（响应 `new_booklist_name_id_map`），测试书 Reading→Done→Reading 往返通过）；④ help 示例段补 account 写操作与 info --add。**遗留：account 参数改 `AccountArgs` struct 收拢（7 参数签名爆炸）**。`[x]` ✅ v0.20.0
-35. **📦 shelf 分组视图 + 作者列 + highlights 修复** — ① shelf 按 `group` 分节渲染（`【组名】` 分区头，TUI.md §5，保持首次出现顺序，多组时尾行加 `· N 组`）；② 作者列：`fqdt account shelf --author` 才拉——core detail 第二段（`书名|作者|...`）逐本并发（JoinSet 分批 10、8s 超时降级不带作者），本地缓存 `~/.config/fqdt/authors.json`（{id:{a,t}}，TTL 30 天，config.rs `authors_path()`），行内 `CYAN书名 MAGENTA作者`；③ highlights 101003 **结论：非参数问题**——真 cookie 下现有 URL 直接 `code:0`（21 本划线，结构 `{bookmark_num/underline_num/notes_num, data:{book_id,book_name,author}}` 与 render_highlights 已匹配），101003 是未登录态的登录检测，**零代码改动，仅需真机验证**。`[x]` ✅ v0.21.0
-36. **📦 统一存储 store.json** — 运行时状态收进单一 JSON（`~/.config/fqdt/store.json`，0600，原子写 tmp+rename）：① cookie（{value,saved_at}，替代纯文本 cookie 文件）；② 本地书架 bookmarks（替代 `books.txt` 的 `id:title` 行格式）；③ 作者缓存 authors（替代 authors.json）；④ **shelf 快照**（{books,fetched_at}，TTL 600s——离线可看上次书架+秒开，网络成功时刷新）。新模块 `src/store.rs`：`load()/save()` 首启自动迁移旧格式（旧文件改 `.bak` 备份），损坏时回退默认不崩溃。**不收**：config.ini（人手编+git式子命令已成熟）、cache/（性能层）、info.list（跟书目录走）。收益：单点管理、权限统一、后续新状态字段直接加 key。`[x]` ✅ v0.22.0
-37. **📦 account progress 网页化** — `fqdt account progress` 从 core `progress_list` 升级网页 `GET /api/reader/book/progress`（实测 26 本在读，字段 `book_id/item_id/read_progress万分比/read_timestamp秒/genre_type/index`）：按 `read_timestamp` **降序时间线**渲染 `MM-DD HH:MM 书名 · 章节 · pct% #id`（书名/章节优先取 store shelf 快照 map，缺的书 multidetail 批量补）；网页失败回退 core 通道。收益：阅读时间线（shelf 无时间维度）。`[x]` ✅ v0.23.0
-38. **🎨 help 全面去括号 + tone 音色标注** — ① 所有面向用户的 help（clap doc/`help=`、FLAG_HELP/CONFIG_HELP 详情、HELP_TAILS）删除括号及其内容（用户明确不要括号注释；纯代码注释与运行输出不动）；② `--tone` 取值行标注数字→音色名（权威端点逆向：`GET /reading/bookapi/audio/toneinfo/?book_id={id}&aid=1967` 无需登录，`data.tts_tones[] {id,title,description}`，逐书可用集不同）；③ `info <id> audio` 升级带名渲染（tone_names 端点失败回退 core id 列表）。`[x]` ✅ v0.23.0
-39. **🧹 子命令去重精简** — 删 `get`（hide=true 兼容残留，=download+audio+update 合体；变体/match 臂/dispatch_get 全清，别名与 HELP_TAILS 本无引用）。**修正决策：`tts` 保留**——`fqdt tts <本地txt>` 与 `fqdt audio --tts <book_id>` 输入源不同非重复。`shelf`（本地）vs `account shelf`（云端）、`function` vs `api`（管道 vs 透传）语义不同均保留。`[x]` ✅ v0.23.0
-40. **📖 TUI 阅读器** — `fqdt read <book_id>` 真 TUI 连贯阅读一整本书（章节切换/j-k 滚动/进度记忆进 store/与 download·shelf·account 联动）。**UI 层直接抄现成实现**（用户明确要求：自己写容易出各种问题）——调研成熟 Rust TUI 阅读器/阅读器类开源项目（Ratatui 生态）抄其布局与事件循环，业务层接 fqdt fetch_content。备选：调用外部 pager（less）降级。`[ ]`
-41. **📦 account 列表搜索扩展 + 机器可解析输出** — ① `--search` 从 shelf 扩到 progress/history/folders（新 `match_item`：book_name/title/author/chapter 小写包含；render_section/render_progress 带 search 参数，json+search 出过滤数组，尾行 `{n}/{total} 项`；render_shelf 匹配统一用 match_item 后作者/章节也能搜）；② 机器解析指引：HELP_TAILS account 第二列 `解析: fqdt account <section> --json | jq`，`--search` doc 更新覆盖范围。`[x]` ✅ v0.23.0
-42. **📐 shelf/account/info 结构重构** — ① 云端书架番茄原生一层：顶层只列**未分组书 + 分组条目**（已分组的书不直接显示，显示整个分组）；`shelf list [组名]` 无参显示第一层、指定组名显示该组内所有书；② 顶层 `fqdt shelf` 子命令化：**裸输入 shelf 直接报错要求输入子命令**（现有 -a/-d/-D/-U flag 改子命令），`list` 为书架入口——未登录显示本地书架，已登录显示云端、加 flag 显示本地书架；③ account 只读功能（folders/history/progress/user/highlights，**不含 shelf**）迁入 `fqdt info` 作为 subcommands；account sections 也从位置参数变 subcommands；④ 未来预留：查看类子命令加 flags（如 `dump` 打印到终端）、`shelf view <路径|书名>`（路径或书名在书架内搜索查看，暂不做，设计留口）。`[x]` ✅ v0.24.0
-43. **✏️ related → relative 更名** — `fqdt info <id> related` 子命令改名 `relative`（main.rs help/FLAG_HELP --real 查询行、info.rs SECTIONS/match/fn `related`→`relative`、`related_misc`→`relative_misc` 同步改；HTTP 路径 `/related` 与 API 字段 `related_*` 不动；AGENTS 1.5.1 section 表已同步）。`[x]` ✅ v0.25.0
-44. **🔊 audio 目录规则** — 下载音频/保存 tts 落点（已定案并验证）：**`fqdt audio <book_id>`（直接书籍 ID，含关键词选书）→ 不建 Audio 子文件夹**，mp3 直接落目标目录（`-o dir` → dir 根；无 -o → output_dir 根）；**`audio --tts` 无 -o（存储书籍目录）→ 仍建 `<out>/Audio/`（现状）**，`-o dir` → 直接落 dir 根；**书籍目录场景不变**（`audio <目录>`、`update` → path/Audio）。改动点：dispatch_audio out 计算去 join("Audio")、tts 分支 run_tts 传 output.as_deref()、download.rs:56 按 p.output 条件 join（该分支现为不可达死代码，download 无 --audio flag；main.rs 旧997 function read-audio-info 已随 function 删除消失）。六场景隔离实测通过。`[x]` ✅ v0.25.0
-45. **🐛 进度条双行 bug** — 已定位修复（script pty 字节流证实）：进度行（Braille 帧 / indicatif pb）不以换行结束，**进度期间的插入输出（-v core_log 镜像、verbose eprintln）直接拼在进度行尾部**，其 `\n` 把光标推到下一行 → 下一帧与 `clear_progress` 的 `\x1b[2K` 都作用于新行，旧进度行从未被清 → 残留双行。修复：① util.rs 新增 `pub fn note(line)` 统一出口（ACTIVE_PB → pb.println 自带清行重画；Braille 运行中 → PAUSE 暂停协议擦行后输出；否则 eprintln），`with_verbose_async`、core_log 镜像（fqapi_core `set_console_hook`，main.rs 注册）、进度期间的 eprintln 全部走 note（download.rs 3 处 / api.rs 9 处 / src/audio.rs 15 处）；② pty 实测 -v download 与 audio 双场景“帧后直接拼日志”=0、收据前均 `[2K` 擦行；③ TUI.md §2/§8 已加纪律。`[x]` ✅ v0.25.0
-46. **🧹 输出整洁（用户：别 tips 乱信息）** — ① 结构重构落地后 `fqdt account` 移除**不打任何"已移除/请改用 xxx"迁移提示**（直接走未知命令 err 或隐藏兼容）；② 各命令运行输出删指引类 tips 尾行（能力:/查询:/获取:/查看:/验证: 等 DIM 行），错误一行一记录为主，仅未登录/未设置 Cookie 保留单行指引。`[x]` ✅ v0.24.0
-47. **🎨 help 精简（用户批次：m0105/m0117/m0118）** — ① `--search-url/--catalog-url/--content-url` 等 `--*url` 只在 `fqdt --help` 顶层出现，子命令 help 不再显示（去掉 `global=true`，仅顶层解析传 `apply_cli_overrides`；`-v/timeout` 仍 global）；② 删 HELP_TAILS 中 `flag 详情: ...` 与 `配置: ...` 尾行（示例段保留、仍受 `ui.help_examples` 控制）——帮助里不再教人用 help、不再列配置键；③ `--tone` 在 help 中作 `--ai` 的下级展示（声明紧跟 `--ai`，缩进/树符号表达从属，`fqdt help audio --tone` 详情不变）；④ 顺带排查其他可归组的 flag（如 `--voice` 归 `--tts`）。`[x]` v0.24.0 ✅
-48. **📄 config.ini 分节模板（m0118）** — `save_default` 重写：**按子命令分节**（[search]/[download]/[audio]/[tts]/[info]/[ui]/[shelf]…），每节列出该子命令全部相关键（预留/空值或默认值），**每个键上方一行中文注释说明作用**；help 不再承载配置说明，配置说明唯一来源=config.ini 注释（与 `fqdt config <key> --help` CONFIG_HELP 并存）。旧键名与解析逻辑不变。`[x]` v0.24.0 ✅
-49. **📐 子命令大重构（breaking，m0128+m0105）** — ① **删 `function` 子命令**（用户判定 worthless：Cmd::Function/run_function/别名 `fn`/HELP_TAILS/别名映射/601 提示全清；管道需求由 `api`/既有命令覆盖）；② `init` 并入 config：`fqdt config init`（顶层 Init 删）；③ `recommend`/`category` 并入 info（`fqdt info recommend`、`fqdt info category`——info 的 book_id 改 Option，无 id 且 section 为二者时走 discover，实现时核对参数形态）；④ **顶层子命令重排分组**：查询(search, info) / 下载(download, audio, update) / 管理(shelf, tts, login, config) / 服务(serve, api…) / help, version——按序 `display_order`，分组标题自定义顶层 help（clap 模板无分组能力，参照 FLAG_HELP 先例手写渲染）；`version` 补为子命令；⑤ **account 移除**（m0105 用户重申）：只读 sections 迁 `info` 子命令、云端书架写操作（--add/--remove/--move/--check/--author/--search）迁 `shelf` 子命令——即待办 42 的落地并入本项。`[x]` ✅ v0.24.0
-50. **🤔 download+audio 合并评估（m0130）** — 结论：**不合并命令，仅共享选书逻辑**（已执行）。利弊：① 复用面——二者已共享 `fetch_catalog`/`Downloader`/`AudioDownloader`/`run_dir`/range/tone/abr 参数与 `workflow::search::pick`（仅 download 用），进一步合并只省一个 match 臂；② 参数面——download 有 `-t txt/epub`、audio 有三模式（`--real/--ai/--tts`）+`--lrc`+`--tone/--voice`，合并后 15+ flag、互斥组（format vs lrc vs real/ai/tts）复杂，与 47 help 精简方向相悖；③ 用户心智——"下载正文"与"下载有声书"是两个清晰动词，按媒体类型分命令；④ 与 49 分组关系——下载组 `download, audio, update` 三子命令正好成组，合并后组内只剩 update 显得失衡；⑤ 先例反证——v0.13.0 删 `get`（download+audio+update 合体，待办 39），合体命令已被否决过一次，合并是走回头路。**已执行部分**：`audio` 位置参数支持书名关键词（与 download 同规则：纯数字≥10 位=book_id，否则 `workflow::search::pick` 交互选书并自动加书架），help 文案同步"book_id 或书名关键词"。`[x]` ✅ v0.24.0
-51. **📚 help 设计指南（m0132，本批最后做）** — 全部 help/子命令重构完成后，写 `HELP-DESIGN.md`（项目根）：面向其他 agent 的 help 消息设计与重写规范——结构（顶层分组/子命令段/flag 段/示例段）、文案（去括号、不教 help、不列配置、动词化 flag）、机制（FLAG_HELP/HELP_TAILS/CONFIG_HELP 三表分工、clap 拦截点）、评审 checklist；含联网调研的优秀 CLI help 写法要点（clig.dev 等）。`[x]` ✅ v0.24.0
-52. **🧭 help 输出重构 + info 子命令化（m0049 用户全量反馈）** — ① **紧凑布局**：短介绍不另起一行，直接空几格接在 flag/子命令名后；flag/subcommand 之间不强制回车空行；消除 clap long_about 触发的长格式。② **info 的 section 改真子命令**（clap subcommand，各自专属 flag）：overview/chapters/intro/author/comments/cover/relative/audio/recommend/category/folders/history/progress/user/highlights；通用 flag（--timeout/-v 等全局）留父级，专属 flag 归各自子命令；其他命令层级同理。③ 顶层 help **去掉板块标题**（查询/下载/… 组名不显示），直接按分类顺序列出子命令；选项段标题改 **Options**（英文）。④ `ui.help_examples` **默认改为关闭**。⑤ 配置文件目录下生成 **help.txt** 完整参考：所有命令/子命令/子子命令 + flags 通用用法与目的；**API 子命令着重说明如何请求**（路径/-X/-q/-d/--jq/--status/--list/示例/常用端点）。启动时确保存在，版本变化才重写。⑥ **config.ini 模板**：分板块 + 英文标题（`## Download` 式）+ 每键中文注释说明作用。⑦ 同步 `HELP-DESIGN.md`。`[x] ✅ v0.26.0`
-53. **🔊 音频 CENC sample entry 类型修复（外部 issue）** — 番茄音源实为 Opus-in-MP4，`rewrite_encrypted_sample_entries` 硬编码 enca→mp4a 且文件固定命名 .mp3，播放器解析失败（mpv 靠探测偶尔能播）。修复：① endpoints/video.rs 按内层 codec box（dOps/esds/avcC/hvcC）还原真实明文 sample entry 类型，sinf 改写为 free；② audio.rs 按 ftyp 魔数定扩展名（.m4a/.mp3）、下载走 .download 临时文件、existing_audio 双扩展名探测、lrc 对非 mp3 退化 external、post_process 非 mp3 跳过 lame；③ update.rs 扫描兼容 .m4a 后缀；④ README 同步。实测 PyAV 解码 opus 帧数与 senc sample_count 完全一致。`[x] ✅ v0.26.1`
-54. **🔊 音频输出转 MP3 + CENC 残留清理（v0.26.1 遗留，m0121/m0159）** — 用户反馈 .m4a 普通播放器仍播不了（"mpv 可以…一般播放器读到 mp4 容器放不出来"）：① **主因 H1** Android ≤9/iOS 系统 extractor 不支持 Opus-in-MP4（LineageOS cm-14.1 `MPEG4Extractor.cpp` FourCC2MIME 无 Opus 分支 default CHECK 崩，官方表要求 Android 10+）——解密后有 ffmpeg 即 `ffmpeg -c:a libmp3lame -b:a 64k` 转码 MP3（恢复 ID3 嵌入/封面/abr 整条特性链），无 ffmpeg 或转码失败降级保留 .m4a 并单次 warn；② **结构残留 H2**（v0.26.1 引入）：sinf→free 误把 size 改 8 留下孤儿零字节（改为保留原 size 仅改类型+清载荷）、解密后 senc/saio/saiz 改 free 清除（size 不变不移字节，无需修正 stco）；③ 转码加 `-map_metadata -1` 清除 mp4 残留标签（major_brand/compatible_brands 等），ID3 只留标准 TSSE。**实测**：book 7706844630989425689 48 章全 mp3（0 m4a/0 残留），file/mediainfo/ffprobe/ffmpeg 全解码/lame --decode/mplayer(mpg123 插件) 六重验证全过。遗留未实测：无 ffmpeg 降级路径（本机有 ffmpeg）。`[x]`
-55. **🎛️ audio --keep-m4a / --cover 双 flag（m0218）** — ① `--keep-m4a`：解密产物为 MP4 时保持 .m4a 原样不转码（默认有 ffmpeg 即转 MP3；config `audio.keep_m4a` 同义可配，flag 优先）；② `--cover`：下载前取详情 thumb_url 一次，把书籍封面嵌入每个**新下载** MP3 的 ID3 APIC 帧（id3 `add_frame(Picture)`，JPEG/PNG 自动识别 mime，必须在 post_process 之后写入避免 abr 重写丢失；非 mp3 跳过并单次提示；封面获取失败不阻塞下载；config `audio.cover`）；③ 附带实测 m4a 轻量可播方案耗时并给出结论。**实测**（9min 章，本机 A53 load 7-16）：`--keep-m4a` 原样输出 .m4a ✓；`--cover` 封面 902KB PNG 嵌入 APIC，ffprobe 视角 `png,600,800` 全解码通过 ✓；config 键 set/get/ini 落盘 ✓；耗时 **remux Ogg Opus 1.63s（零转码，最快10倍）/ 转 AAC 11.83s / 转 MP3 16.24s**。**结论：m4a 原样在普通播放器无解**（Android ≤9 extractor 无 Opus 分支，容器层面无简单办法），比转 MP3 快的可行方案是 **remux Ogg Opus**（无损、Android 5+/VLC/mpv 可播、iOS/WMP 不支持）；转 AAC 仅快 27%。Ogg 输出已定案为默认（见待办 56）。`[x]`
-56. **🎵 音频默认输出改 Ogg Opus（m0285 用户定案：仅记录，未实现，交给后续 Agent）** — **决策**：`fqdt audio` 默认输出从「转 MP3」改为「remux Ogg Opus」（`ffmpeg -c copy` 零转码、零音质损失）。背景数据（9min 章实测）：remux Ogg **1.63s** vs 转 AAC 11.83s vs 转 MP3 **16.24s**（10 倍差）；m4a 原样在 Android ≤9/iOS 无解。**实现要点**：① `dl_one`：解密后 MP4 且有 ffmpeg → `ffmpeg -c copy` remux 成 `.ogg`（不再 libmp3lame 转码）；② `detect_audio_ext` 加 `OggS` 魔数分支、`existing_audio`/清旧文件循环/info.list 扫描（`update.rs` strip 后缀）兼容 `.ogg`；③ 降级链：无 ffmpeg → 现状保留 `.m4a` 单次 warn；`--keep-m4a` 语义不变；是否加反向 `--mp3` 选项（iOS/WMP 用户兜底）实现时问用户；④ **特性链变化**：Ogg 无 ID3——`--lrc embed`/`--cover` APIC/`abr` lame 对 `.ogg` 不可用，须降级 external/跳过并单次提示（`handle_lrc` 对非 mp3 的 m4a 降级已有先例）；⑤ 转码函数 `transcode_to_mp3` 保留（反向选项可能复用）或由 `remux_ogg` 替代；⑥ README 输出说明、AGENTS 7.3 同步；⑦ 验收：重下一章 `ffprobe` format=ogg codec=opus、ffmpeg/mplayer 解码通过、0 残留 .m4a、`cargo test --workspace` 全绿。`[ ]`
-57. **🪜 子项缩进（m0055-m0068 用户反馈）** — `--tone`/`--voice` 作为 `--ai`/`--tts` 子项在 help 中缩进 +2 挂父下，不再当父 flag 多行描述文本（"作描述放那里=错误"，需层次感+美观）；实现 `SUBITEMS` 表 + `render_sub_help()` 自定义子命令 help 渲染（global flag 自动追加、[default] 后缀、-h 中文），helpfile.rs 同步子项缩进；`fqdt <cmd> <flag> --help` 详情拦截优先。全库挂靠子项审查：仅 ai→tone、tts→voice 两对。`[x] ✅ v0.28.0`
-58. **📖 README 重写（m0109/m0115）** — 面向 GitHub 的 repo intro：标题 `fqdt — A Rust FanqieNovel CLI`、特性亮点、安装段修正（latest release 资产 `fqdt-x86_64-linux-musl`、删过时 init）、快速上手、当前命令一览（删 function/init、shelf 子命令化、info 15 子命令）、audio 输出格式说明保留 Ogg 计划、编译/许可。`[x] ✅ v0.28.0（随下批发版）`
+- **全部待办与用户要求总录在仓库根 [`TODO.md`](TODO.md)**（1-60 号条目，只增不删）
+- 何时读/写：**收到新要求、开始新任务、完成任务打标、状态不明需恢复上下文**时打开 TODO.md；日常编码不必读
+- 细则见 8.1（读写时机与流程）
 
 ### 7.3 已知问题
 
 - 第三方 API 不稳定（偶发 5xx）→ **已解决（v0.6.0）**：vendor fqapi-core（签名+设备池直连官方）为主通道，第三方源降级备选
-- ~~番茄官方音频 Opus-in-MP4~~ —— 普通播放器不支持 MP4 封装 Opus（Android ≤9 extractor 无 Opus 分支、iOS 不支持）已由**解密后转 MP3** 根治（有 ffmpeg 默认输出 .mp3；无 ffmpeg 降级保留 .m4a 并单次提示）；旧 .m4a 需删除后重下（`-f` 大小比对不会自动升级）；H2 结构残留（sinf free 尺寸、senc/saio/saiz）同步修复
+- **Opus-in-MP4**：番茄官方源解密后为 MP4(Opus)；默认 `ffmpeg -c copy` remux Ogg(Opus)（v0.29.0，零转码秒级），`--mp3` 转码 MP3，`--keep-m4a` 保原容器，无 ffmpeg 降级保留 .m4a
 - edge-tts 需要 Python 环境
 - 编译只能用 rustls（Termux 无 libssl-dev）
 - 本地 `cargo build` 为 debug 模式（release 需 cross，耗时长）
@@ -614,13 +559,16 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 - **任何涉及 help 文案/子命令结构的改动，必须先读项目根 `HELP-DESIGN.md` 并遵守**（四层结构、去括号/不教 help/不列配置、四表分工、checklist）
 - 颜色常量只能来自 `src/util.rs`（RST/DIM/CYAN/YELLOW/MAGENTA），禁止裸写 ANSI
 
-### 8.1 To-Do 管理
+### 8.1 To-Do 管理与要求落盘（强制）
 
-- **永远保留原有待办项**，新需求追加到末尾
-- 用户提出需求 → **先更新 AGENTS.md 待办** → 再实现代码
-- 待办状态标记：`[ ]` 未开始 / `[x]` 已完成 / `[-]` 进行中
-- 每完成一项，在 `### 7.2 待办` 对应项后加 `✅`
+**核心规则：用户提出的任何要求（功能/修复/设计/行为标准/探索方向，无论大小）→ 先落盘写入 `TODO.md` → 再开始实现。禁止"先干后补"。**
 
+- **落盘时机**：① 收到用户新要求立即追加 TODO.md（从大到小、所有要求，编号顺延）；② 开始新任务前先读 TODO.md 定位相关项；③ 完成任务后立即改标记（`[ ]`→`[-]`→`[x]` + ✅ + 版本号）；④ 长会话/新会话恢复上下文以 TODO.md 为准
+- **从大到小**：大到项目方向、小到一条输出格式偏好，全部落盘；能回想起的历史遗漏要求也补录（带 mXXXX 来源标注）
+- **行动标准/设计要求**：用户给出的通用行为规范（发版流程、输出风格、交互约定等）落 AGENTS.md 第 8 节对应小节（如 8.2 发版、8.3 交互）；一次性任务要求落 TODO.md
+- **发版不确认**：一次完整任务（质量门三绿 → commit → push → 发版链走完）完成后**直接发版，不向用户询问确认**，随后继续下一项任务（用户 m0137 授权）
+- **状态标记**：`[ ]` 未开始 / `[-]` 进行中 / `[x]` 已完成（后缀 ✅ vA.B.C）；待办只增不删
+- **虚标零容忍**：标 `[x]` 前必须有验收证据（测试/实测输出）；存疑项标 `[?]` 注明原因，不得默认已完成
 ### 8.2 版本管理
 
 - 每次发布前更新 `Cargo.toml` 的 `version`
@@ -691,7 +639,7 @@ df -h /                          # 确认释放
 - 依赖是否过时？（检查 `cargo outdated`）
 - 能否用 `clap` 的 `value_parser` 做更严格的参数校验？
 
-**发现任何上述问题 → 立即更新 7.2 待办 → 再实施修复。**
+**发现任何上述问题 → 立即写入 TODO.md → 再实施修复。**
 
 ---
 
@@ -748,5 +696,5 @@ df -h /                          # 确认释放
 4. **解析辅助集中** — `api.rs` 的 `find_items`/`find_str`/`parse_*` 与 `util::jq_extract` 是唯一 JSON 提取入口，禁止各处手写路径遍历。
 5. **运行时单一入口** — 对 core 的调用一律经 `src/fqapi.rs`（`ensure_runtime`/`call`/`get`/`get_json_timeout`），不直接依赖 `fqapi_core::runtime` 细节。
 6. **re-vendor 流程** — 上游 fanqie-lite-api 更新时，替换 `crates/fqapi-core` 后跑 `cargo test --workspace` 与冒烟（search/catalog/content/audio），并在本节记录本地改动。目前本地改动六处：① `core_log.rs` 日志改走 stderr（防污染 JSON 管道）；② `endpoints/video.rs` 导出 `needs_cenc_decrypt`/`decrypt_cenc_content` 包装、`streaming_client` 挂 `DnsResolver`；③ 新增 `upstream/dns.rs`（进程内 DNS：探测 nameserver + 手写 UDP A 查询，静态 musl Android 无 /etc/resolv.conf）并在 `upstream/http.rs` 挂 `DnsResolver`、网络错误改 `format!("{e:?}")` 展开 source 链；④ （fqdt 侧非 vendor）`src/api.rs::tls_builder` webpki 根证书 + `DnsResolver`；⑤ `upstream/dns.rs` 探测顺序改 `FQDT_DNS` 短路 → `/etc/resolv.conf` 优先 → getprop/网关（WSL 网关不答 DNS 白等 12s/主机），`lookup_a` 去外层双重重试（v0.11.0）；⑥ `endpoints/content.rs::handle_batch` 接受真实 `book_id` 替换 URL 中 `book_id=0`（v0.11.0，batch 对匿名仍回元数据 Invalid，逐章 full 兜底）。
-7. **新增功能落地顺序** — 更新 7.2 待办 → 加 ENDPOINTS 索引 → 实现提取/渲染 → 单测 → 手测 → 同步本文件。
+7. **新增功能落地顺序** — 更新 TODO.md → 加 ENDPOINTS 索引 → 实现提取/渲染 → 单测 → 手测 → 同步本文件。
 8. **版本节奏** — 新增 CLI 能力升 MINOR，重构/修复升 PATCH；`Cargo.toml` 与本文件版本号同步。
