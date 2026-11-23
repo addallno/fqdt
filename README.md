@@ -45,11 +45,13 @@ fqdt audio <book_id>
 fqdt a <book_id>                    # 简写
 fqdt a <book_id> -r 1-50 -j 6       # 范围+并发
 fqdt a <book_id> --tone 5           # 指定音色
-fqdt a <book_id> --lrc embed        # 歌词嵌入（仅MP3，M4A自动改为外置.lrc）
+fqdt a <book_id> --lrc embed        # 歌词嵌入（降级 m4a 自动改为外置 .lrc）
 ```
 
-> 输出格式按容器自动判定：第三方源为 `.mp3`；番茄官方源实际是 Opus 编码的
-> MP4，保存为 `.m4a`（VLC/foobar2000/mpv/Android 等可正常播放）。
+> 输出统一为 `.mp3`：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，
+> 安装了 ffmpeg 时自动转码 MP3（libmp3lame 64k，全平台可播）。未安装
+> ffmpeg 时降级保存 `.m4a`——仅 VLC/mpv/Android 10+ 等支持 Opus-in-MP4
+> 的播放器可播，转码缺失会在下载时提示一次。
 
 ## update — 增量更新（简写 u）
 
@@ -145,7 +147,7 @@ output/
 └── Audio/
     ├── info.list
     ├── 0001_第一章_穿越.mp3     # 第三方源（明文，真MP3）
-    ├── 0002_第二章_奇遇.m4a     # 番茄官方源（Opus编码，MP4容器）
+    ├── 0002_第二章_奇遇.mp3     # 番茄官方源（ffmpeg 从 Opus-in-MP4 转码）
     ├── 0002_第二章_奇遇.lrc
     └── ...
 ```

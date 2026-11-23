@@ -1,6 +1,6 @@
 # fqdt — 番茄小说下载器
 
-- **版本**: v0.26.1（`Cargo.toml` 中定义，每次变更更新）
+- **版本**: v0.27.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
 - **运行**: Android Termux (aarch64)
 - **许可**: GPL-3.0（见 LICENSE）；核心部分源自 [Maicy0609/fanqie-lite-api](https://github.com/Maicy0609/fanqie-lite-api)（`crates/fqapi-core/`）
@@ -590,11 +590,12 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 51. **📚 help 设计指南（m0132，本批最后做）** — 全部 help/子命令重构完成后，写 `HELP-DESIGN.md`（项目根）：面向其他 agent 的 help 消息设计与重写规范——结构（顶层分组/子命令段/flag 段/示例段）、文案（去括号、不教 help、不列配置、动词化 flag）、机制（FLAG_HELP/HELP_TAILS/CONFIG_HELP 三表分工、clap 拦截点）、评审 checklist；含联网调研的优秀 CLI help 写法要点（clig.dev 等）。`[x]` ✅ v0.24.0
 52. **🧭 help 输出重构 + info 子命令化（m0049 用户全量反馈）** — ① **紧凑布局**：短介绍不另起一行，直接空几格接在 flag/子命令名后；flag/subcommand 之间不强制回车空行；消除 clap long_about 触发的长格式。② **info 的 section 改真子命令**（clap subcommand，各自专属 flag）：overview/chapters/intro/author/comments/cover/relative/audio/recommend/category/folders/history/progress/user/highlights；通用 flag（--timeout/-v 等全局）留父级，专属 flag 归各自子命令；其他命令层级同理。③ 顶层 help **去掉板块标题**（查询/下载/… 组名不显示），直接按分类顺序列出子命令；选项段标题改 **Options**（英文）。④ `ui.help_examples` **默认改为关闭**。⑤ 配置文件目录下生成 **help.txt** 完整参考：所有命令/子命令/子子命令 + flags 通用用法与目的；**API 子命令着重说明如何请求**（路径/-X/-q/-d/--jq/--status/--list/示例/常用端点）。启动时确保存在，版本变化才重写。⑥ **config.ini 模板**：分板块 + 英文标题（`## Download` 式）+ 每键中文注释说明作用。⑦ 同步 `HELP-DESIGN.md`。`[x] ✅ v0.26.0`
 53. **🔊 音频 CENC sample entry 类型修复（外部 issue）** — 番茄音源实为 Opus-in-MP4，`rewrite_encrypted_sample_entries` 硬编码 enca→mp4a 且文件固定命名 .mp3，播放器解析失败（mpv 靠探测偶尔能播）。修复：① endpoints/video.rs 按内层 codec box（dOps/esds/avcC/hvcC）还原真实明文 sample entry 类型，sinf 改写为 free；② audio.rs 按 ftyp 魔数定扩展名（.m4a/.mp3）、下载走 .download 临时文件、existing_audio 双扩展名探测、lrc 对非 mp3 退化 external、post_process 非 mp3 跳过 lame；③ update.rs 扫描兼容 .m4a 后缀；④ README 同步。实测 PyAV 解码 opus 帧数与 senc sample_count 完全一致。`[x] ✅ v0.26.1`
+54. **🔊 音频输出转 MP3 + CENC 残留清理（v0.26.1 遗留，m0121/m0159）** — 用户反馈 .m4a 普通播放器仍播不了（"mpv 可以…一般播放器读到 mp4 容器放不出来"）：① **主因 H1** Android ≤9/iOS 系统 extractor 不支持 Opus-in-MP4（LineageOS cm-14.1 `MPEG4Extractor.cpp` FourCC2MIME 无 Opus 分支 default CHECK 崩，官方表要求 Android 10+）——解密后有 ffmpeg 即 `ffmpeg -c:a libmp3lame -b:a 64k` 转码 MP3（恢复 ID3 嵌入/封面/abr 整条特性链），无 ffmpeg 或转码失败降级保留 .m4a 并单次 warn；② **结构残留 H2**（v0.26.1 引入）：sinf→free 误把 size 改 8 留下孤儿零字节（改为保留原 size 仅改类型+清载荷）、解密后 senc/saio/saiz 改 free 清除（size 不变不移字节，无需修正 stco）；③ 转码加 `-map_metadata -1` 清除 mp4 残留标签（major_brand/compatible_brands 等），ID3 只留标准 TSSE。**实测**：book 7706844630989425689 48 章全 mp3（0 m4a/0 残留），file/mediainfo/ffprobe/ffmpeg 全解码/lame --decode/mplayer(mpg123 插件) 六重验证全过。遗留未实测：无 ffmpeg 降级路径（本机有 ffmpeg）。`[x]`
 
 ### 7.3 已知问题
 
 - 第三方 API 不稳定（偶发 5xx）→ **已解决（v0.6.0）**：vendor fqapi-core（签名+设备池直连官方）为主通道，第三方源降级备选
-- 番茄官方音频实为 **Opus-in-MP4**（enca/dOps），旧版硬编码 enca→mp4a + 固定 .mp3 后缀导致播放器无法解码——已修复（v0.26.1）：按内层 codec box 还原 sample entry 类型、按 ftyp 魔数定 .m4a/.mp3；旧坏 .mp3 需 `-f` 重下；iOS 原生播放器不支持 MP4 封装 Opus（VLC/mpv/Android 正常）
+- ~~番茄官方音频 Opus-in-MP4~~ —— 普通播放器不支持 MP4 封装 Opus（Android ≤9 extractor 无 Opus 分支、iOS 不支持）已由**解密后转 MP3** 根治（有 ffmpeg 默认输出 .mp3；无 ffmpeg 降级保留 .m4a 并单次提示）；旧 .m4a 需删除后重下（`-f` 大小比对不会自动升级）；H2 结构残留（sinf free 尺寸、senc/saio/saiz）同步修复
 - edge-tts 需要 Python 环境
 - 编译只能用 rustls（Termux 无 libssl-dev）
 - 本地 `cargo build` 为 debug 模式（release 需 cross，耗时长）

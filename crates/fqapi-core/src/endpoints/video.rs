@@ -1595,8 +1595,9 @@ fn decrypt_cenc_mp4(data: &mut [u8], content_key: &[u8]) -> Result<(), String> {
     if content_key.len() != 16 && content_key.len() != 24 && content_key.len() != 32 {
         return Err("invalid CENC content key length".to_string());
     }
-    for boxes in mp4_track_boxes(data) {
-        rewrite_encrypted_sample_entries(data, &boxes);
+    let tracks = mp4_track_boxes(data);
+    for boxes in &tracks {
+        rewrite_encrypted_sample_entries(data, boxes);
         let senc_boxes = boxes.get(b"senc").cloned().unwrap_or_default();
         let stsz_boxes = boxes.get(b"stsz").cloned().unwrap_or_default();
         let stsc_boxes = boxes.get(b"stsc").cloned().unwrap_or_default();
@@ -1649,6 +1650,25 @@ fn decrypt_cenc_mp4(data: &mut [u8], content_key: &[u8]) -> Result<(), String> {
             ctr_crypt_ranges(data, content_key, &entry.iv, &ranges)?;
         }
     }
+    // 解密完成后清除 CENC 辅助盒：senc/saio/saiz 描述的是已解密的密文，
+    // 残留会让严格解析器误判文件仍被加密。仅改类型为 free 并清零载荷、
+    // 保持 size 不变，不移动任何字节，因此无需修正 stco/co64 偏移。
+    for boxes in &tracks {
+        for typ in [*b"senc", *b"saio", *b"saiz"] {
+            let Some(list) = boxes.get(&typ) else { continue };
+            for b in list {
+                if b.off + 8 > data.len() {
+                    continue;
+                }
+                data[b.off + 4..b.off + 8].copy_from_slice(b"free");
+                let start = b.off + 8;
+                let end = (b.off + b.size).min(data.len());
+                for byte in &mut data[start..end] {
+                    *byte = 0;
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1681,8 +1701,10 @@ fn rewrite_encrypted_sample_entries(data: &mut [u8], boxes: &HashMap<[u8; 4], Ve
                 data[b.off + 4..b.off + 8].copy_from_slice(&replacement);
             }
             if let Some(child) = sinf {
+                // 保留原 size、仅改类型为 free 并清零载荷。若把 size 改成 8，
+                // 被丢弃的字节会变成不属于任何盒的孤儿数据，解析器在下一个
+                // size=0 处按 ISO 规定视为"延伸到文件尾"而报错。
                 if child.off + 8 <= data.len() {
-                    data[child.off..child.off + 4].copy_from_slice(&8u32.to_be_bytes());
                     data[child.off + 4..child.off + 8].copy_from_slice(b"free");
                 }
                 let start = child.off + 8;

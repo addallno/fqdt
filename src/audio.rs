@@ -147,8 +147,8 @@ impl AudioDownloader {
 
 /// 依容器魔数判断音频实际扩展名：MP4（`ftyp`）→ `.m4a`，其余按 MP3。
 ///
-/// 番茄音频解密后仍是 MP4 容器（Opus 编码），写成 `.mp3` 会让普通播放器
-/// 按扩展名选错解码器而无法播放。
+/// 番茄音频解密后仍是 MP4 容器（Opus 编码）；`dl_one` 有 ffmpeg 时会再
+/// 把它转码成 MP3 落盘，`.m4a` 仅在无 ffmpeg/转码失败时作为降级输出。
 fn detect_audio_ext(path: &Path) -> &'static str {
     let mut buf = [0u8; 12];
     if let Ok(mut f) = fs::File::open(path) {
@@ -157,6 +157,57 @@ fn detect_audio_ext(path: &Path) -> &'static str {
         }
     }
     ".mp3"
+}
+
+/// ffmpeg 是否可用（进程内只探测一次）。
+fn ffmpeg_available() -> bool {
+    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OK.get_or_init(|| {
+        std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+}
+
+/// 降级提示（每次运行只提示一次，避免进度期间刷屏）。
+fn warn_fallback(msg: &str) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static ONCE: AtomicBool = AtomicBool::new(false);
+    if !ONCE.swap(true, Ordering::Relaxed) {
+        util::note(msg);
+    }
+}
+
+/// 把 Opus-in-MP4 转码为 MP3（libmp3lame 64k）。
+///
+/// 番茄官方音源是 Opus 编码的 MP4，Android ≤9 与 iOS 的系统播放器不支持
+/// 该组合；转成 MP3 后全平台可播，并恢复 ID3 嵌入/封面/abr 特性链。
+/// 由 `dl_one` 在解密落盘前调用。
+fn transcode_to_mp3(src: &Path, dst: &Path) -> Result<(), String> {
+    let out = std::process::Command::new("ffmpeg")
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
+        .arg(src)
+        // 清除输入（mp4 容器）残留元数据，避免 major_brand/compatible_brands 等垃圾标签写入 ID3
+        .args(["-map_metadata", "-1", "-vn", "-c:a", "libmp3lame", "-b:a", "64k"])
+        .arg(dst)
+        .output()
+        .map_err(|e| format!("ffmpeg 执行失败: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "ffmpeg 转码失败 (exit={}): {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let size = fs::metadata(dst).map(|m| m.len()).unwrap_or(0);
+    if size <= 1000 {
+        return Err(format!("转码输出过小 ({}b)", size));
+    }
+    Ok(())
 }
 
 /// 查找已存在的音频文件（兼容旧 `.mp3` 与新 `.m4a`）。
@@ -233,7 +284,31 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                     last_err = format!("tone={} 解密失败: {}", t, e);
                     continue;
                 }
-                let ext = detect_audio_ext(&work);
+                // 番茄音源解密后是 MP4(Opus)，普通播放器不支持 → 有 ffmpeg 就转 MP3
+                let mut ext = detect_audio_ext(&work);
+                let mut src = work.clone();
+                if ext == ".m4a" {
+                    if ffmpeg_available() {
+                        let mp3_tmp = out_dir.join(format!("{}.download.mp3", name));
+                        match transcode_to_mp3(&work, &mp3_tmp) {
+                            Ok(()) => {
+                                let _ = fs::remove_file(&work);
+                                src = mp3_tmp;
+                                ext = ".mp3";
+                            }
+                            Err(e) => {
+                                let _ = fs::remove_file(&mp3_tmp);
+                                if p.verbose {
+                                    warn_fallback(&format!("  warn 转码 MP3 失败，保留 .m4a: {}", e));
+                                } else {
+                                    warn_fallback("  warn 转码 MP3 失败，保留 .m4a（普通播放器可能无法播放）");
+                                }
+                            }
+                        }
+                    } else {
+                        warn_fallback("  warn 未检测到 ffmpeg，番茄音频保留 .m4a（Android ≤9/iOS 等播放器可能无法播放）");
+                    }
+                }
                 let final_path = out_dir.join(format!("{}{}", name, ext));
                 // 清掉同章另一扩展名的旧文件，避免残留两份
                 for other in ["mp3", "m4a"] {
@@ -242,8 +317,8 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                         let _ = fs::remove_file(&p_other);
                     }
                 }
-                if let Err(e) = fs::rename(&work, &final_path) {
-                    let _ = fs::remove_file(&work);
+                if let Err(e) = fs::rename(&src, &final_path) {
+                    let _ = fs::remove_file(&src);
                     last_err = format!("重命名音频失败: {}", e);
                     continue;
                 }
