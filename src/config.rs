@@ -1,5 +1,5 @@
 use crate::types::{Config, get_home};
-use crate::util::{CYAN, DIM, GREEN, RST, YELLOW};
+use crate::util::{CYAN, DIM, GREEN, RED, RST, YELLOW};
 use std::fs;
 use std::path::PathBuf;
 
@@ -65,11 +65,12 @@ impl Config {
         cfg
     }
 
-    pub fn save_default() -> Result<(), String> {
+    /// 生成默认 config.ini；force=false 时已存在则不动（不覆盖用户改动）。
+    pub fn save_default(force: bool) -> Result<(), String> {
         let d = get_home().join(".config/fqdt");
         fs::create_dir_all(&d).map_err(|e| e.to_string())?;
         let path = d.join("config.ini");
-        if path.exists() { return Ok(()); }
+        if path.exists() && !force { return Ok(()); }
         fs::write(&path, Self::DEFAULT_INI).map_err(|e| e.to_string())
     }
 
@@ -96,16 +97,16 @@ verbose = false
 
 ## Cache
 [cache]
-# 目录/详情文件缓存开关
+# true=启用目录/详情缓存（减少上游请求），false=每次请求上游
 cache_enabled = true
 # 缓存有效期秒，过期条目下次请求时刷新
 cache_ttl = 86400
 
 ## API
 [api]
-# 请求超时秒，全局默认；单章下载另有 10s 内层超时
+# 请求超时秒数（全局默认 15）；单章下载另有 10s 内层超时
 timeout = 15
-# 第三方搜索降级源，逗号分隔从前往后尝试，{} 换关键词与页码
+# 第三方搜索降级源（主源失败时用），逗号分隔按序尝试；{} 依次换关键词与页码
 search_url = https://novel.snssdk.com/api/novel/channel/homepage/search/search/v1/?aid=1967&q={}&offset={},http://101.35.133.34:5000/api/search?key={}&offset={}
 # 第三方目录降级源，{} 换 book_id
 catalog_url = https://fanqienovel.com/api/reader/directory/detail?bookId={},http://101.35.133.34:5000/api/book?book_id={},http://101.35.133.34:5000/api/directory?book_id={}
@@ -120,13 +121,13 @@ audio_content_url = http://101.35.133.34:5000/api/content?tab=听书&item_id={}&
 
 ## Audio
 [audio]
-# 默认 AI 音色编号 1-91，fqdt info audio <id> 查本书可用集合
+# 默认音色编号（AI 音色 1-91；真人讲书用 --real 选集内音色），fqdt info audio <id> 查本书可用集合
 audio_tone = 1
 # 音色回退列表，主音色失败时依次尝试
 audio_tone_fallbacks = 2,4,5,6,74,91
 # MP3 压缩码率 kbps，0=不重编码，可选 32/64/128
 abr = 0
-# 后处理命令模板，{input} {output} 为占位符
+# 下载后处理命令模板（如 ffmpeg 转码），{input} {output} 为占位符，留空=不执行
 post_process =
 # 保持 m4a 原样不转 MP3，true/false
 audio_keep_m4a = false
@@ -150,7 +151,7 @@ tts_pitch = +0Hz
 info_top_chapters = 10
 # 概览显示前 N 条书评，0=关闭
 info_top_comments = 3
-# 概览热度行开关，false 隐藏阅读量/评分/收藏
+# true=显示热度行（阅读量/评分/收藏），false=隐藏
 info_hot = true
 # 简介截断字数，0=不显示简介
 info_intro_len = 80
@@ -163,9 +164,9 @@ info_author_count = 20
 [ui]
 # 评论/摘要/相关书作者名截断字数，0=不截断
 ui_clip_len = 40
-# 彩色输出开关，false 等价 NO_COLOR=1
+# true=彩色输出，false=纯文本（等价 NO_COLOR=1）
 ui_color = true
-# help 底部示例段开关，默认关闭，true 开启
+# false=help 不带 Examples 段（默认），true=各命令 help 底部追加示例
 ui_help_examples = false
 ";
 
@@ -358,15 +359,21 @@ pub fn cookie_has_session(c: &str) -> bool {
 }
 
 /// `fqdt config --list` | `<key>` | `<key> <value>` | `--unset <key>`（git config 式）。
-pub fn run_cmd(key: Option<String>, value: Option<String>, list: bool, unset: bool) {
+pub fn run_cmd(key: Option<String>, value: Option<String>, list: bool, unset: bool, force: bool) {
     if list {
         for (dotted, _, _, _, get) in KEYS { crate::emit_line(&format!("{}={}", dotted, get(&Config::load()))); }
         return;
     }
-    // `fqdt config init`：生成默认配置文件（原顶层 init 命令并入）
+    // `fqdt config init [--force]`：生成默认配置文件；--force 覆盖旧模板（键说明升级用）
     if key.as_deref() == Some("init") && value.is_none() && !unset {
-        Config::save_default().ok();
-        crate::emit_line(&format!("{GREEN}ok{RST} ~/.config/fqdt/config.ini"));
+        let existed = get_home().join(".config/fqdt/config.ini").exists();
+        match Config::save_default(force) {
+            Ok(()) if existed && !force => {
+                crate::emit_line(&format!("  {DIM}已存在，未覆盖；fqdt config init --force 用新模板（含键说明）重建{RST}"));
+            }
+            Ok(()) => crate::emit_line(&format!("{GREEN}ok{RST} ~/.config/fqdt/config.ini")),
+            Err(e) => eprintln!("  {RED}err{RST} {e}"),
+        }
         return;
     }
     let Some(k) = key else {

@@ -719,7 +719,9 @@ async fn render_user() {
     let name = d.and_then(|x| x.get("name")).and_then(|x| x.as_str()).unwrap_or("?");
     let id = id_str(d);
     let desc = d.and_then(|x| x.get("desc")).and_then(|x| x.as_str()).unwrap_or("");
-    let mut head = format!("{GREEN}ok{RST} {CYAN}{name}{RST} · {BLUE}#{id}{RST}");
+    // 行1 仅昵称；行2 起身份与量（单行不超宽，m0131：从 uid 起换行）
+    crate::emit_line(&format!("{CYAN}{name}{RST}"));
+    let mut row = format!("  {BLUE}#{id}{RST}");
     if let Ok(b) = &basic {
         let g = |k: &str| b.pointer(&format!("/data/{k}")).and_then(|x| x.as_i64()).unwrap_or(0);
         let fans = g("fans_num");
@@ -727,17 +729,35 @@ async fn render_user() {
         let read_num = g("read_book_num");
         let minutes = b.pointer("/data/user_read_time_tag/read_minute_total")
             .and_then(|x| x.as_i64()).unwrap_or(0);
-        if fans + follow > 0 { head += &format!(" · 粉丝 {YELLOW}{fans}{RST} · 关注 {YELLOW}{follow}{RST}"); }
-        if read_num > 0 { head += &format!(" · 已读 {YELLOW}{read_num}{RST} 本"); }
-        if minutes > 0 { head += &format!(" · 累计 {YELLOW}{minutes}{RST} 分钟"); }
+        if fans + follow > 0 { row += &format!(" · 粉丝 {YELLOW}{fans}{RST} 人 · 关注 {YELLOW}{follow}{RST} 人"); }
         if b.pointer("/data/is_author").and_then(|x| x.as_bool()) == Some(true) {
-            head += &format!(" · {MAGENTA}作者{RST}");
+            row += &format!(" · {MAGENTA}作者{RST}");
         }
+        crate::emit_line(&row);
+        // 行3 阅读量：本数 + 时长转可读（167274 分钟 → 约 116 天，m0131 要求明白）
+        let mut row2 = String::new();
+        if read_num > 0 { row2 += &format!("  已读 {YELLOW}{read_num}{RST} 本书"); }
+        if minutes > 0 {
+            let readable = if minutes >= 1440 {
+                format!("约 {} 天", minutes / 1440)
+            } else if minutes >= 60 {
+                format!("约 {} 小时", minutes / 60)
+            } else {
+                format!("{minutes} 分钟")
+            };
+            if !row2.is_empty() { row2 += " · "; }
+            row2 += &format!("累计阅读 {YELLOW}{readable}{RST}（{minutes} 分钟）");
+        }
+        if !row2.is_empty() { crate::emit_line(&row2); }
+    } else {
+        crate::emit_line(&row);
     }
-    crate::emit_line(&head);
-    if !desc.is_empty() {
-        let desc: String = desc.chars().take(60).collect();
-        crate::emit_line(&format!("  {DIM}{desc}{RST}"));
+    // 简介：逐行 trim + 统一缩进对齐（原数据多行/空白导致失齐，m0131）
+    for line in desc.lines() {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        let clipped: String = line.chars().take(60).collect();
+        crate::emit_line(&format!("  {DIM}{clipped}{RST}"));
     }
 }
 

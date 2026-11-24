@@ -176,6 +176,8 @@ enum Cmd {
         list: bool,
         #[arg(long, help = "删除该键")]
         unset: bool,
+        #[arg(long, help = "config init 时覆盖已存在文件（升级键说明模板）")]
+        force: bool,
     },
     /// 透传调用 fqapi 端点
     #[command(display_order = 41)]
@@ -837,7 +839,7 @@ async fn main() {
     if let Some(to) = cli.timeout { cfg.timeout = to; }
     cfg.ensure_dirs();
     cfg.validate();
-    Config::save_default().ok();
+    Config::save_default(false).ok(); // 启动自动 init：永不覆盖
     crate::helpfile::ensure_help_file();
 
     // 全局 -v：core 日志 stderr 镜像 + workflow 请求详情（日志默认静默，仍落盘 rust.log）
@@ -868,8 +870,8 @@ async fn main() {
         }
         Cmd::Login { cookie, check, clear } =>
             workflow::account::login(cookie, check, clear).await,
-        Cmd::Config { key, value, list, unset } =>
-            crate::config::run_cmd(key, value, list, unset),
+        Cmd::Config { key, value, list, unset, force } =>
+            crate::config::run_cmd(key, value, list, unset, force),
         Cmd::Api { path, method, query, data, jq, status, list } =>
             run_api(path, method, query, data, jq, status, list).await,
         Cmd::Serve { port, lan } => run_serve(port, lan).await,
