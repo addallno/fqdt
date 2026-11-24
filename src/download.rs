@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 
 pub type InfoList = (String, String, String, Vec<(usize, String, String)>);
 pub type AudioInfoList = (String, String, Vec<(usize, String, String)>);
+/// 宽松音频 info.list：(book_id 可空, book_title, tone, chapters)
+pub type AudioInfoListLoose = (String, String, usize, Vec<(usize, String, String)>);
 
 pub struct Downloader {
     pub api: Client,
@@ -216,4 +218,34 @@ pub fn read_audio_info_list(dir: &std::path::Path) -> Result<AudioInfoList, Stri
     }
     if book_id.is_empty() { return Err("Audio/info.list 缺少 book_id".into()); }
     Ok((book_id, book_title, chapters))
+}
+
+/// 宽松读取音频 info.list：不要求 book_id（存量纯 audio 目录兼容），并返回 tone。
+/// 返回 (book_id 可为空, book_title, tone, chapters)。
+pub fn read_audio_list_loose(dir: &std::path::Path)
+    -> Result<AudioInfoListLoose, String>
+{
+    let text = fs::read_to_string(dir.join("info.list")).map_err(|e| format!("读 info.list: {}", e))?;
+    let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("JSON: {}", e))?;
+    let book_id = root["book_id"].as_str().unwrap_or("").to_string();
+    let book_title = root["book_title"].as_str().unwrap_or("").to_string();
+    let tone = root["tone"].as_u64().unwrap_or(1) as usize;
+    let mut chapters = vec![];
+    if let Some(arr) = root["chapters"].as_array() {
+        for item in arr {
+            chapters.push((
+                item["idx"].as_u64().unwrap_or(0) as usize,
+                item["title"].as_str().unwrap_or("").to_string(),
+                item["file"].as_str().unwrap_or("").to_string(),
+            ));
+        }
+    }
+    Ok((book_id, book_title, tone, chapters))
+}
+
+/// info.list 是否为音频形态（含 tone 键；正文 info.list 无 tone）。
+pub fn info_list_is_audio(dir: &std::path::Path) -> bool {
+    fs::read_to_string(dir.join("info.list")).ok().and_then(|t| {
+        serde_json::from_str::<serde_json::Value>(&t).ok()
+    }).is_some_and(|root| root.get("tone").is_some())
 }

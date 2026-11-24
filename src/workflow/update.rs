@@ -83,6 +83,93 @@ pub async fn run(book_id: Option<&str>, output: Option<&str>, concurrent: Option
     dler.run(&new_chs, concurrent.unwrap_or(cfg.concurrent)).await;
 }
 
+/// 音频目录增量：info.list 宽松读取（存量目录可无 book_id → 按书名搜索解析），
+/// 按原 tone 补下缺失章节。dir 为 info.list 所在目录（Audio/ 或纯音频根目录）。
+async fn update_audio_dir(dir: &std::path::Path, range: Option<&str>, force: bool,
+                          vb: bool, cfg: &Config) {
+    let (mut bid, btitle, tone, existing) = match download::read_audio_list_loose(dir) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("  err {}", e);
+            return;
+        }
+    };
+    if bid.is_empty() {
+        let Some(resolved) = resolve_bid_by_title(&btitle, cfg, vb).await else { return };
+        bid = resolved;
+    }
+    let api = Client::from_config(cfg, vb);
+    util::progress("获取目录");
+    let all = match api.fetch_catalog(&bid).await {
+        Ok(c) => c,
+        Err(e) => {
+            util::clear_progress();
+            eprintln!("  err {}", e);
+            return;
+        }
+    };
+    util::clear_progress();
+    let r = range.and_then(ChapterRange::parse);
+    let new_chs: Vec<&crate::types::Chapter> = all.iter()
+        .filter(|c| !existing.iter().any(|(idx, _, _)| *idx == c.index))
+        .filter(|c| r.as_ref().is_none_or(|x| x.contains(c.index)))
+        .collect();
+    if new_chs.is_empty() {
+        println!("  音频已是最新 · 共 {} 章", all.len());
+        return;
+    }
+    println!("  新增 {} 章音频 · 已有 {}/{} 章", new_chs.len(), existing.len(), all.len());
+    let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
+        vec![2, 4, 5, 6, 74, 91]
+    } else {
+        cfg.audio_tone_fallbacks.clone()
+    };
+    let dler = audio::AudioDownloader::new(api, dir.to_path_buf(), audio::AudioParams {
+        book_id: bid, tone, fallbacks,
+        ft: cfg.filename_template.clone(), force, verbose: vb,
+        abr: cfg.abr, speed: None, normalize: false,
+        post_cmd: cfg.post_process.clone(), lrc_mode: "external".into(),
+        keep_m4a: cfg.audio_keep_m4a, mp3: cfg.audio_mp3, cover: cfg.audio_cover, cover_img: None,
+    });
+    dler.run(&new_chs, Some(&btitle)).await;
+}
+
+/// 存量目录 info.list 无 book_id：按书名搜索取首结果解析。
+/// 必须标题匹配（互含）才接受——实测模糊词首结果会误配完全不同的书（481 章下错教训）。
+async fn resolve_bid_by_title(title: &str, cfg: &Config, vb: bool) -> Option<String> {
+    if title.is_empty() || title == "未知" {
+        eprintln!("  err info.list 缺少 book_id 且无书名可解析");
+        return None;
+    }
+    let norm = |s: &str| s.chars()
+        .filter(|c| !c.is_whitespace() && !"《》·:：!！,，.。-—".contains(*c))
+        .collect::<String>();
+    let want = norm(title);
+    let api = Client::from_config(cfg, vb);
+    match api.search(title, 1).await {
+        Ok(books) => {
+            let hit = books.iter().find(|b| {
+                let got = norm(&b.title);
+                !want.is_empty() && !got.is_empty() && (got.contains(&want) || want.contains(&got))
+            });
+            match hit {
+                Some(b) => {
+                    println!("  按书名解析 book_id {}（{}）", b.book_id, b.title);
+                    Some(b.book_id.clone())
+                }
+                None => {
+                    eprintln!("  err 书名搜索无精确匹配（防误下错书），请手动在 info.list 补 book_id 后重试");
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("  err 搜索解析 book_id 失败: {}", e);
+            None
+        }
+    }
+}
+
 async fn update_dir(path: &std::path::Path, range: Option<&str>, force: bool, audio: bool,
               vb: bool, cfg: &Config, concurrent: Option<usize>) {
     if audio {
@@ -91,52 +178,12 @@ async fn update_dir(path: &std::path::Path, range: Option<&str>, force: bool, au
             eprintln!("  err Audio/ 目录不存在");
             return;
         }
-        let (bid, btitle, existing) = match download::read_audio_info_list(&audio_dir) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("  err {}", e);
-                return;
-            }
-        };
-        let api = Client::from_config(cfg, vb);
-        util::progress("获取目录");
-        let all = match api.fetch_catalog(&bid).await {
-            Ok(c) => c,
-            Err(e) => {
-                util::clear_progress();
-                eprintln!("  err {}", e);
-                return;
-            }
-        };
-        util::clear_progress();
-
-        let r = range.and_then(ChapterRange::parse);
-        let new_chs: Vec<&crate::types::Chapter> = all.iter()
-            .filter(|c| !existing.iter().any(|(idx, _, _)| *idx == c.index))
-            .filter(|c| r.as_ref().is_none_or(|x| x.contains(c.index)))
-            .collect();
-        if new_chs.is_empty() {
-            println!("  音频已是最新 · 共 {} 章", all.len());
-            return;
-        }
-        println!("  新增 {} 章音频 · 已有 {}/{} 章", new_chs.len(), existing.len(), all.len());
-        let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
-            vec![2, 4, 5, 6, 74, 91]
-        } else {
-            cfg.audio_tone_fallbacks.clone()
-        };
-        let dler = audio::AudioDownloader::new(api, audio_dir, audio::AudioParams {
-            book_id: bid.clone(),
-            tone: cfg.audio_tone, fallbacks,
-            ft: cfg.filename_template.clone(), force, verbose: vb,
-            abr: cfg.abr, speed: None, normalize: false,
-            post_cmd: cfg.post_process.clone(), lrc_mode: "external".into(),
-            keep_m4a: cfg.audio_keep_m4a, mp3: cfg.audio_mp3, cover: cfg.audio_cover, cover_img: None,
-        });
-        dler.run(&new_chs, Some(&btitle)).await;
-        return;
+        return update_audio_dir(&audio_dir, range, force, vb, cfg).await;
     }
-
+    // 纯音频目录（info.list 含 tone、无正文）直接走音频增量，不强制要求 book_id
+    if download::info_list_is_audio(path) {
+        return update_audio_dir(path, range, force, vb, cfg).await;
+    }
     let (bid, btitle, fmt, existing) = match download::read_info_list(path) {
         Ok(v) => v,
         Err(e) => {
