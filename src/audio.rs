@@ -139,8 +139,10 @@ impl AudioDownloader {
     fn write_info_list(&self, chapters: &[&Chapter], book_title: Option<&str>) {
         let path = self.out_dir.join("info.list");
         let title = book_title.unwrap_or("未知");
-        let mut json = format!("{{\n  \"book_title\": \"{}\",\n  \"tone\": {},\n  \"chapters\": [\n",
-            title.replace('\\', "\\\\").replace('"', "\\\""), self.p.tone);
+        // book_id 必写：update 依赖它查云端增量（存量旧目录无此字段走书名解析兜底）
+        let mut json = format!(
+            "{{\n  \"book_id\": \"{}\",\n  \"book_title\": \"{}\",\n  \"tone\": {},\n  \"chapters\": [\n",
+            self.p.book_id, title.replace('\\', "\\\\").replace('"', "\\\""), self.p.tone);
         for (i, ch) in chapters.iter().enumerate() {
             let file = self.file_name(ch);
             let comma = if i + 1 < chapters.len() { "," } else { "" };
@@ -346,7 +348,8 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
             let lrc_path = existing.with_extension("lrc");
             if p.lrc_mode != "off" && !lrc_path.exists() {
                 let content = api.fetch_content(&ch.item_id).await.ok();
-                handle_lrc(&existing, ch, &p.lrc_mode, p.verbose, content.as_deref());
+                let timeline = fetch_timeline(&ch.item_id).await;
+                handle_lrc(&existing, ch, &p.lrc_mode, p.verbose, content.as_deref(), timeline.as_deref());
             }
             return Ok(());
         }
@@ -365,7 +368,8 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                         if new_size == old_size && new_size > 1000 {
                             if p.verbose { crate::util::note(&format!("  {:04} {} 不变 ✓", ch.index, ch.title)); }
                             let content = api.fetch_content(&ch.item_id).await.ok();
-                            handle_lrc(&existing, ch, &p.lrc_mode, p.verbose, content.as_deref());
+                            let timeline = if p.lrc_mode != "off" { fetch_timeline(&ch.item_id).await } else { None };
+                            handle_lrc(&existing, ch, &p.lrc_mode, p.verbose, content.as_deref(), timeline.as_deref());
                             return Ok(());
                         }
                     }
@@ -463,7 +467,9 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                     }
                 }
                 let content = api.fetch_content(&ch.item_id).await.ok();
-                handle_lrc(&final_path, ch, &p.lrc_mode, p.verbose, content.as_deref());
+                // 听书时间轴（真实毫秒时间戳 LRC）；文字章/失败返回 None 退化估算
+                let timeline = if p.lrc_mode != "off" { fetch_timeline(&ch.item_id).await } else { None };
+                handle_lrc(&final_path, ch, &p.lrc_mode, p.verbose, content.as_deref(), timeline.as_deref());
                 return Ok(());
             }
             Err(e) => {
@@ -601,11 +607,44 @@ pub fn gen_lrc_text_full(ch: &Chapter, content: &str) -> String {
     out
 }
 
-pub fn write_lrc_file(path: &Path, ch: &Chapter, content: Option<&str>) -> Result<(), String> {
+/// 听书章节时间轴：GET /api/v1/chapters/{item_id}/timeline 的 speech_text。
+/// 普通文字章节（code 1301008 no available speech text）/ 空/失败 → None。
+pub async fn fetch_timeline(item_id: &str) -> Option<String> {
+    if item_id.is_empty() { return None; }
+    let v = crate::fqapi::get_json(&format!("/api/v1/chapters/{}/timeline", item_id), "").await.ok()?;
+    if v.get("code").and_then(|c| c.as_i64()) != Some(0) { return None; }
+    let s = v.get("data")?.get("speech_text")?.as_str()?;
+    (!s.trim().is_empty()).then(|| s.to_string())
+}
+
+/// 听书 speech_text → LRC 文本。行格式 `[4450,0]<4450,0,0>文本`（毫秒时间戳）→ `[mm:ss.xx]文本`。
+pub fn speech_to_lrc(ch: &Chapter, speech: &str) -> String {
+    let heading = util::chapter_heading(ch);
+    let mut out = format!("[ti:{}]\n[ar:fqdt]\n", heading);
+    for line in speech.lines() {
+        let t = line.trim();
+        let Some(head) = t.strip_prefix('[') else { continue };
+        let Some((ts, body)) = head.split_once(']') else { continue };
+        let Some(ms) = ts.split(',').next().and_then(|x| x.parse::<u64>().ok()) else { continue };
+        let Some(text) = body.find('>').map(|i| &body[i + 1..]) else { continue };
+        let text = text.trim();
+        if text.is_empty() { continue; }
+        out.push_str(&format!("[{:02}:{:02}.{:02}]{}\n",
+            ms / 60_000, (ms / 1000) % 60, (ms % 1000) / 10, text));
+    }
+    out
+}
+
+pub fn write_lrc_file(path: &Path, ch: &Chapter, content: Option<&str>,
+                      timeline: Option<&str>) -> Result<(), String> {
     let lrc_path = path.with_extension("lrc");
-    let text = match content {
-        Some(c) => gen_lrc_text_full(ch, c),
-        None => gen_lrc_text(ch),
+    // 听书时间轴优先（真实时间戳），退化到正文估算/标题占位
+    let text = match timeline {
+        Some(s) => speech_to_lrc(ch, s),
+        None => match content {
+            Some(c) => gen_lrc_text_full(ch, c),
+            None => gen_lrc_text(ch),
+        },
     };
     fs::write(&lrc_path, &text).map_err(|e| format!("写入 LRC: {}", e))?;
     if text.lines().count() < 2 {
@@ -614,13 +653,17 @@ pub fn write_lrc_file(path: &Path, ch: &Chapter, content: Option<&str>) -> Resul
     Ok(())
 }
 
-pub fn embed_lrc(mp3_path: &Path, ch: &Chapter, verbose: bool, content: Option<&str>) {
+pub fn embed_lrc(mp3_path: &Path, ch: &Chapter, verbose: bool, content: Option<&str>,
+                 timeline: Option<&str>) {
     use id3::frame::Lyrics;
     use id3::{Content, Frame, Tag, TagLike};
 
-    let lrc_text = match content {
-        Some(c) => gen_lrc_text_full(ch, c),
-        None => gen_lrc_text(ch),
+    let lrc_text = match timeline {
+        Some(s) => speech_to_lrc(ch, s),
+        None => match content {
+            Some(c) => gen_lrc_text_full(ch, c),
+            None => gen_lrc_text(ch),
+        },
     };
     let mut tag = match Tag::read_from_path(mp3_path) {
         Ok(t) => t,
@@ -638,7 +681,8 @@ pub fn embed_lrc(mp3_path: &Path, ch: &Chapter, verbose: bool, content: Option<&
     }
 }
 
-fn handle_lrc(path: &Path, ch: &Chapter, mode: &str, verbose: bool, content: Option<&str>) {
+fn handle_lrc(path: &Path, ch: &Chapter, mode: &str, verbose: bool, content: Option<&str>,
+              timeline: Option<&str>) {
     // MP4/m4a 不能用 ID3 嵌入歌词，embed/both 退化为外置 .lrc，避免写坏容器
     let is_mp3 = path.extension()
         .map(|e| e.eq_ignore_ascii_case("mp3"))
@@ -652,11 +696,11 @@ fn handle_lrc(path: &Path, ch: &Chapter, mode: &str, verbose: bool, content: Opt
         }
     };
     match effective {
-        "external" => { if let Err(e) = write_lrc_file(path, ch, content) { crate::util::note(&format!("  err LRC: {}", e)); } }
-        "embed" => embed_lrc(path, ch, verbose, content),
+        "external" => { if let Err(e) = write_lrc_file(path, ch, content, timeline) { crate::util::note(&format!("  err LRC: {}", e)); } }
+        "embed" => embed_lrc(path, ch, verbose, content, timeline),
         "both" => {
-            if let Err(e) = write_lrc_file(path, ch, content) { crate::util::note(&format!("  err LRC: {}", e)); }
-            embed_lrc(path, ch, verbose, content);
+            if let Err(e) = write_lrc_file(path, ch, content, timeline) { crate::util::note(&format!("  err LRC: {}", e)); }
+            embed_lrc(path, ch, verbose, content, timeline);
         }
         _ => {}
     }
@@ -683,7 +727,7 @@ pub fn convert_tts_file(input: &Path, output_dir: Option<PathBuf>, p: &TtsParams
         return;
     }
     post_process(&out_path, p.abr, p.speed, p.normalize, &p.cmd, p.verbose);
-    handle_lrc(&out_path, &Chapter { index: 0, title: name.into(), item_id: String::new() }, &p.lrc_mode, p.verbose, Some(&text));
+    handle_lrc(&out_path, &Chapter { index: 0, title: name.into(), item_id: String::new() }, &p.lrc_mode, p.verbose, Some(&text), None);
 }
 
 pub fn convert_tts_dir(input: &Path, output_dir: Option<PathBuf>, params: &TtsParams) {
@@ -722,7 +766,7 @@ pub fn convert_tts_dir(input: &Path, output_dir: Option<PathBuf>, params: &TtsPa
             failed += 1;
         } else {
             post_process(&out_path, params.abr, params.speed, params.normalize, &params.cmd, params.verbose);
-            handle_lrc(&out_path, &Chapter { index: 0, title: name.clone(), item_id: String::new() }, &params.lrc_mode, params.verbose, Some(&text));
+            handle_lrc(&out_path, &Chapter { index: 0, title: name.clone(), item_id: String::new() }, &params.lrc_mode, params.verbose, Some(&text), None);
         }
         pb.inc(1);
         thread::sleep(std::time::Duration::from_millis(100));
