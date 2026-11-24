@@ -27,7 +27,7 @@ fn deflated_opts() -> FileOptions<'static, ()> {
 /// - `download::Downloader::do_epub` — EPUB 模式下载
 ///
 /// # CLI 调用
-/// - `fqdt download <book_id> -f epub`
+/// - `fqdt download <id> -f epub`
 pub fn write_book(title: &str, items: &[(Chapter, Option<String>)], path: &Path) -> Result<(), String> {
     let f = fs::File::create(path).map_err(|e| format!("创建 EPUB: {}", e))?;
     let mut z = ZipWriter::new(f);

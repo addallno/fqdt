@@ -178,32 +178,32 @@ const API_TAIL: &str = "
 fqdt search <关键词> -p N
   GET /api/v1/search?query=<关键词>&page=<N>&tab_type=1     综合搜索，tab_type 1综合 3小说 2听书
 
-fqdt info overview <book_id>
+fqdt info overview <id>
   GET /api/v1/books/{book_id}/detail                       书籍详情：标题/作者/热度/简介
   GET /api/v1/books/{book_id}/directory                    章节目录，概览取前 N 章
   GET /api/v1/books/{book_id}/reviews                      书评，概览取前 N 条
 
-fqdt info chapters <book_id> [-r 范围]
+fqdt info chapters <id> [-r 范围]
   GET /api/v1/books/{book_id}/directory                    全量目录含 item_id，本地按范围筛选
 
-fqdt info intro <book_id>
+fqdt info intro <id>
   GET /api/v1/books/{book_id}/detail                       完整简介字段
 
-fqdt info author <book_id>
+fqdt info author <id>
   GET /api/v1/books/{book_id}/detail                       取 author_id，含 N_ 前缀原样使用
   GET /api/v1/authors/{author_id}                          作者资料
   GET /api/v1/authors/{author_id}/bookshelf                作者推荐书单
 
-fqdt info comments <book_id>
+fqdt info comments <id>
   GET /api/v1/books/{book_id}/reviews                      书评列表
 
-fqdt info cover <book_id>
+fqdt info cover <id>
   GET /api/v1/books/{book_id}/detail                       封面 thumb_url 字段
 
-fqdt info relative <book_id>
+fqdt info relative <id>
   GET /api/v1/books/{book_id}/related                      相关推荐书单与杂项
 
-fqdt info audio <book_id>
+fqdt info audio <id>
   GET /api/v1/books/{book_id}/tones                        本书可用 AI 音色集合
 
 fqdt info recommend [--tab-type N] [--tab-index N] [--offset N]
@@ -225,7 +225,7 @@ fqdt info user
 fqdt info highlights
   GET /reading/reader/bookmark/personal_list/              划线书单，需 Cookie
 
-fqdt download <book_id> [-r 范围]
+fqdt download <id> [-r 范围]
   GET /api/v1/books/{book_id}/directory                    取目录与 item_id
   GET /api/v1/chapters/full?book_id=&item_ids=             批量正文，每 100 章一块
   GET /api/v1/chapters/{item_id}                           单章正文，批量失败逐章回退
@@ -233,7 +233,7 @@ fqdt download <book_id> [-r 范围]
 fqdt update <已下载目录>
   同 download：先 directory 再补缺失章节，即增量更新
 
-fqdt audio <book_id> [--real|--ai|--tts]
+fqdt audio <id> [--real|--ai|--tts]
   GET /api/v1/books/{book_id}/tones                        音色列表与回退
   GET /api/v1/audio/play?item_ids=&book_id=                播放源，返回地址与解密 key
   GET /api/v1/chapters/{item_id}                           --ai/--tts 的文本来源
@@ -250,7 +250,7 @@ fqdt shelf list / add / remove / move / download
 fqdt login [COOKIE] / --check
   GET /api/user/info/v2                                    验证 Cookie 是否有效
 
-fqdt info overview <book_id> --add / shelf add <book_id>
+fqdt info overview <id> --add / shelf add <id>
   POST /reading/bookapi/bookshelf/add/v                    收藏到云端书架
 
 fqdt api <路径>

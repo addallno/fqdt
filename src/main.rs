@@ -16,7 +16,7 @@ use crate::util::{CYAN, DIM, GREEN, RST, TITLE, YELLOW};
 use std::path::Path;
 
 #[derive(Parser)]
-#[command(name = "fqdt", version, about = "番茄小说下载器")]
+#[command(name = "fqdt", version, about = "番茄小说下载器", subcommand_help_heading = "Sub commands")]
 struct Cli {
     // 仅顶层出现（不进子命令 help）；须置于子命令前：fqdt --catalog-url X search …
     #[arg(long, help = "搜索 API 源")]
@@ -60,15 +60,16 @@ enum Cmd {
     /// 查看书籍信息
     #[command(alias = "i")]
     #[command(display_order = 11)]
+    #[command(subcommand_help_heading = "Sub commands")]
     Info {
         #[command(subcommand)]
-        cmd: Option<InfoCmd>,
+        cmd: InfoCmd,
     },
     /// 下载正文
     #[command(alias = "d")]
     #[command(display_order = 20)]
     Download {
-        #[arg(help = "book_id 或书名关键词")]
+        #[arg(value_name = "id", help = "id 或书名关键词")]
         book_id: String,
         #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
@@ -87,7 +88,7 @@ enum Cmd {
     #[command(alias = "a")]
     #[command(display_order = 21)]
     Audio {
-        #[arg(help = "book_id 或书名关键词")]
+        #[arg(value_name = "id", help = "id 或书名关键词")]
         book_id: String,
         #[arg(short='o', long, help = "输出目录")]
         output: Option<String>,
@@ -146,6 +147,7 @@ enum Cmd {
     /// 书架管理
     #[command(alias = "s")]
     #[command(display_order = 30)]
+    #[command(subcommand_help_heading = "Sub commands")]
     Shelf {
         #[command(subcommand)]
         cmd: Option<ShelfCmd>,
@@ -220,7 +222,8 @@ enum Cmd {
 enum InfoCmd {
     /// 概览：标题/热度/简介 + 前 N 章 + 前 N 条书评
     Overview {
-        /// book_id / 章节 item_id / 作者 id / 读者 uid
+        /// id 或书名关键词
+        #[arg(value_name = "id")]
         book_id: String,
         #[arg(short = 'r', long, help = "章节范围")]
         range: Option<String>,
@@ -231,24 +234,24 @@ enum InfoCmd {
     },
     /// 目录（含 item_id）
     Chapters {
-        #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String,
+        #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String,
         #[arg(short = 'r', long, help = "章节范围")]
         range: Option<String>,
         #[arg(long, help = "加入云端书架")]
         add: bool,
     },
     /// 完整简介
-    Intro { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Intro { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 作者资料与书单
-    Author { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Author { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 书评
-    Comments { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Comments { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 封面图 URL
-    Cover { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Cover { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 相关推荐
-    Relative { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Relative { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 本书可用 AI 音色
-    Audio { #[arg(help = "book_id / 章节 item_id / 作者 id / 读者 uid")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Audio { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 首页推荐
     Recommend {
         #[arg(long, default_value = "2", help = "区块类型")]
@@ -296,26 +299,26 @@ enum ShelfCmd {
         #[arg(long, help = "输出原始 JSON")]
         json: bool,
     },
-    /// 加书：本地 <ID>:<标题> 含冒号，云端纯 <ID>
+    /// 加书：本地 <id>:<标题> 含冒号，云端纯 <id>
     Add {
-        #[arg(help = "<ID>:<标题> 本地 · <ID> 云端")]
+        #[arg(help = "<id>:<标题> 本地 · <id> 云端")]
         book: String,
     },
     /// 从云端书架移出
     Remove {
-        #[arg(help = "book_id")]
+        #[arg(value_name = "id", help = "id")]
         book_id: String,
     },
     /// 移动云端书到分组，组不存在时自动建组
     Move {
-        #[arg(help = "book_id")]
+        #[arg(value_name = "id", help = "id")]
         book_id: String,
         #[arg(help = "目标分组名")]
         group: String,
     },
     /// 检查是否在云端书架
     Check {
-        #[arg(help = "book_id")]
+        #[arg(value_name = "id", help = "id")]
         book_id: String,
     },
     /// 删除本地书架条目
@@ -638,7 +641,7 @@ fn render_commands(cmd: &clap::Command) {
     let subs: Vec<&clap::Command> = cmd.get_subcommands()
         .filter(|s| s.get_name() != "help" && !s.is_hide_set()).collect();
     if subs.is_empty() { return; }
-    crate::emit_line(&format!("{TITLE}Commands:{RST}"));
+    crate::emit_line(&format!("{TITLE}Sub commands:{RST}"));
     let width = subs.iter().map(|s| s.get_name().chars().count()).max().unwrap_or(0) + 2;
     for s in subs {
         let about = s.get_about().map(|a| a.to_string()).unwrap_or_default();
@@ -647,7 +650,7 @@ fn render_commands(cmd: &clap::Command) {
     }
 }
 
-/// 自定义子命令 help：about / Usage / Arguments / Commands / Options（子项缩进）/ 尾部。
+/// 自定义子命令 help：about / Usage / Arguments / Sub commands / Options（子项缩进）/ 尾部。
 fn render_sub_help(path: &[String], examples: bool) {
     let mut cmd = Cli::command();
     for t in path { cmd = cmd.find_subcommand(t).expect("path validated").clone(); }
@@ -721,6 +724,7 @@ fn render_top_help() {
     crate::emit_line("");
     crate::emit_line(&format!("  {DIM}用法: fqdt [OPTIONS] <COMMAND>{RST}"));
     crate::emit_line("");
+    crate::emit_line(&format!("{TITLE}Sub commands:{RST}"));
     // 分类只决定顺序，不再打印组名（用户：按顺序列出即可，看得出用途）
     for (_, subs) in TOP_GROUPS {
         for s in *subs {
@@ -757,7 +761,7 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("update", "", ""),
     ("tts", "", "Examples:\n  fqdt tts book.txt"),
     ("shelf", "",
-     "Examples:\n  fqdt shelf list\n  fqdt shelf list 已读\n  fqdt shelf list --local\n  fqdt shelf add <ID>:<标题>\n  fqdt shelf add <book_id>\n  fqdt shelf move <book_id> 已读\n  fqdt shelf download 1"),
+     "Examples:\n  fqdt shelf list\n  fqdt shelf list 已读\n  fqdt shelf list --local\n  fqdt shelf add <id>:<标题>\n  fqdt shelf add <book_id>\n  fqdt shelf move <book_id> 已读\n  fqdt shelf download 1"),
     ("login", "",
      "Examples:\n  fqdt login '<Cookie>'\n  fqdt login --check"),
     ("config", "",
@@ -889,11 +893,7 @@ fn dispatch_custom(args: Vec<String>, cfg: &Config) {
 }
 
 /// info 子命令分发：书籍 section 走 workflow::info::run；发现流/个人数据各走原入口。
-async fn dispatch_info(cmd: Option<InfoCmd>, verbose: bool, cfg: &Config) {
-    let Some(cmd) = cmd else {
-        eprintln!("  err 用法: fqdt info <section> <book_id> · fqdt info --help");
-        std::process::exit(2);
-    };
+async fn dispatch_info(cmd: InfoCmd, verbose: bool, cfg: &Config) {
     let vb = verbose || cfg.verbose;
     match cmd {
         InfoCmd::Recommend { tab_type, tab_index, offset, json } =>
@@ -921,14 +921,22 @@ async fn dispatch_info_book(cmd: InfoCmd, vb: bool, cfg: &Config) {
         InfoCmd::Audio { book_id, add } => (book_id, Some("audio"), None, false, add),
         _ => return,
     };
+    // id 位支持书名关键词交互选书（纯数字/作者 id 原样，同 download/audio）
+    let Some(id) = resolve_book_id(id, cfg, vb).await else { return };
     workflow::info::run(&id, section, range.as_deref(), show, vb, cfg).await;
     if add { workflow::account::add_book(&id).await; }
 }
 
-/// 选书：纯数字（≥10 位）视为 book_id，否则关键词交互选书并自动加书架（download/audio 共用）
+/// 选书：纯数字（≥10 位，book_id/item_id/uid）或作者 id（N_数字）视为 id 原样，
+/// 否则关键词交互选书并自动加书架（download/audio/info 共用）
 async fn resolve_book_id(target: String, cfg: &Config, vb: bool) -> Option<String> {
     if target.chars().all(|c| c.is_ascii_digit()) && target.len() >= 10 {
         return Some(target);
+    }
+    if let Some(rest) = target.strip_prefix("N_") {
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            return Some(target);
+        }
     }
     match workflow::search::pick(&target, cfg, vb).await {
         Some((id, title)) => {

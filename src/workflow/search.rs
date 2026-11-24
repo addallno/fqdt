@@ -45,7 +45,7 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
     print_list(&books);
 
     let Some(n) = auto else {
-        eprintln!("\n  {DIM}download <书名|ID> 下载 · info <ID> 看目录 · search -p {} 下一页{RST}", page + 1);
+        eprintln!("\n  {DIM}download <书名|ID> 下载 · info <id> 看目录 · search -p {} 下一页{RST}", page + 1);
         return;
     };
     if n < 1 || n > books.len() {

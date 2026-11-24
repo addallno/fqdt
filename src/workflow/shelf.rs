@@ -48,7 +48,7 @@ async fn list(group: Option<String>, local: bool, search: Option<String>,
     }
 }
 
-/// 加书：含冒号走本地 `<ID>:<标题>`，否则走云端 add。
+/// 加书：含冒号走本地 `<id>:<标题>`，否则走云端 add。
 async fn add(book: &str) {
     if let Some((id, title)) = book.split_once(':') {
         return match config::add_bookmark(id, title) {
