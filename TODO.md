@@ -65,15 +65,23 @@
 57. **🪜 子项缩进（m0055-m0068 用户反馈）** — `--tone`/`--voice` 作为 `--ai`/`--tts` 子项在 help 中缩进 +2 挂父下，不再当父 flag 多行描述文本（"作描述放那里=错误"，需层次感+美观）；实现 `SUBITEMS` 表 + `render_sub_help()` 自定义子命令 help 渲染（global flag 自动追加、[default] 后缀、-h 中文），helpfile.rs 同步子项缩进；`fqdt <cmd> <flag> --help` 详情拦截优先。全库挂靠子项审查：仅 ai→tone、tts→voice 两对。`[x] ✅ v0.28.0`
 58. **📖 README 重写（m0109/m0115）** — 面向 GitHub 的 repo intro：标题 `fqdt — A Rust FanqieNovel CLI`、特性亮点、安装段修正（latest release 资产 `fqdt-x86_64-linux-musl`、删过时 init）、快速上手、当前命令一览（删 function/init、shelf 子命令化、info 15 子命令）、audio 输出格式说明保留 Ogg 计划、编译/许可。`[x] ✅ v0.28.0（随下批发版）`
 
-59. **📚 听书时间轴 LRC（m0134 补录，用户曾提出、此前未落盘）** — 探索听书（有声书）部分精确到时间戳的段落分割：调用 `GET /api/v1/chapters/{item_id}/timeline` 端点（`fqapi.rs::ENDPOINTS` 已收录）取得章节内段落级时间戳，据此生成**精确到时间戳的 LRC 歌词**（替代现有按正文段落均分/估算的生成方式），听书模式下 `--lrc` 产物质量提升。先探端点返回结构（真实听书章节实测）→ 定 LRC 生成策略 → 接入 `handle_lrc`。`[ ]`
+59. **📚 听书时间轴 LRC（m0134 补录，用户曾提出、此前未落盘）** — 探索听书（有声书）部分精确到时间戳的段落分割：调用 `GET /api/v1/chapters/{item_id}/timeline` 端点（`fqapi.rs::ENDPOINTS` 已收录）取得章节内段落级时间戳，据此生成**精确到时间戳的 LRC 歌词**（替代现有按正文段落均分/估算的生成方式），听书模式下 `--lrc` 产物质量提升。先探端点返回结构（真实听书章节实测）→ 定 LRC 生成策略 → 接入 `handle_lrc`。**已实现+实测（v0.30.0 批）**：`fetch_timeline`（code 0 && speech_text 非空，文字章 1301008→None）、`speech_to_lrc`（`[4450,0]<4450,0,0>文本`→`[mm:ss.xx]文本`，注意 ms 换算：min=ms/60000, sec=(ms/1000)%60, 厘秒=(ms%1000)/10——首版公式错成 44.50s 已修）；`write_lrc_file`/`embed_lrc`/`handle_lrc` 加 `timeline: Option<&str>` 参数（timeline 优先于正文估算），dl_one 3 处取数（lrc_mode!=off 守卫）、TTS 2 处传 None。实测真人讲书 7486693014581021758 首集 LRC 255 行 [00:04.45]/[13:11.67] 真实时间戳 ✓、文字书退化估算 ✓、202 绿。`[x]` ✅ v0.30.0
 60. **📮 向上游反馈音频下载 bug（m0147 用户要求）** — 音频下载问题根因在上游（`Maicy0609/fanqie-lite-api`，fqdt vendor 的 `crates/fqapi-core` 来源）：Opus-in-MP4 样本、CENC 结构改写等发生在 core 的 endpoints/video.rs 层。整理 issue 提交上游仓库：问题描述（Opus-in-MP4 sample entry / senc-saio-saiz 结构残留 / 解密后文件不可播的上游视角）、fqdt 侧 workaround（sample entry 还原、free box 改写、转码链）、可复现样例与 ffprobe/mediainfo 证据；上游修复后 re-vendor（AGENTS 11.6 流程）可删本地 workaround。`[ ]`
 
-61. **🔍 audio 关键词选书（m0148）** — `audio` 子命令支持与 `download` 相同的关键词选书交互：`fqdt audio <书名关键词>` → `workflow::search::pick` 交互选序号（非 TTY 报错指引），选中后走既有 real/ai/tts 音频流程。参考 download 的关键词分支实现。`[ ]`
-62. **🔑 login cookie 校验（m0148）** — ① 在本文件（或 login 相关节）给出番茄 login cookie 的**具体字段格式**（需包含哪些键、如何从浏览器 DevTools 提取、config.ini `cookie` 键的写法）；② `fqdt login` 时**自动检查 cookie 是否可用且正确**（调用需登录端点如 shelf/account 验证 200 且数据非空，失效/格式错给明确报错而非静默后续失败）。`[ ]`
-63. **📦 info 去子命令直接接 id（m0148，原话："移除info可以直接接id，而不是使用subcs"）** — 疑义待澄清：可能指 ① `fqdt info <id>` 无需 SECTION 位置参数直接出概览（现状已支持）；② 移除 info 子命令、由其他入口直接接 id；③ shelf/download 等处引用 info 的子命令写法改直接传 id。**待用户确认断句后再实施**。`[ ]`
-64. **🏷️ book_id 参数统一改名 id（m0148）** — 用户原话："把所有的bookID字段改成ID，因为目前这里的bookID实际上已经指代了多种ID"。CLI 参数/帮助文本中 `book_id` 显示名统一改为 `id`（`fqdt download <id>`、`fqdt audio <id>`、`fqdt info <id>` 等），消除 book_id 实际混指 book/item 等多种 ID 的歧义；config.ini 键名与内部变量是否同步改名待评估（涉及兼容性）。`[ ]`
+61. **🔍 audio 关键词选书（m0148）** — `audio` 子命令支持与 `download` 相同的关键词选书交互：`fqdt audio <书名关键词>` → `workflow::search::pick` 交互选序号（非 TTY 报错指引），选中后走既有 real/ai/tts 音频流程。参考 download 的关键词分支实现。**复核发现已实现**（`dispatch_audio` 已接 `resolve_book_id`，help 写"book_id 或书名关键词"）——仅待实测确认交互路径。`[x]`（实现先于落盘，v0.28.0 前已存在）
+62. **🔑 login cookie 校验（m0148）** — ① 在本文件（或 login 相关节）给出番茄 login cookie 的**具体字段格式**（需包含哪些键、如何从浏览器 DevTools 提取、config.ini `cookie` 键的写法）；② `fqdt login` 时**自动检查 cookie 是否可用且正确**（调用需登录端点如 shelf/account 验证 200 且数据非空，失效/格式错给明确报错而非静默后续失败）。
 
-65. **📖 help 措辞改 Sub commands（m0151）** — fqdt 是主命令，其下所有命令均为子命令：顶层及各级 help 的 `Commands:` 标题改为 `Sub commands:`（clap `subcommand_heading = "Sub commands"`），同步更新 HELP-DESIGN.md/help.txt 参考与 AGENTS 描述；`fqdt i -h` 等实际输出验证。`[ ]`
+   **cookie 字段格式（代码事实：config.rs::cookie_has_session / account.rs::verify_now）**：
+   - **必需键（三选一非空）**：`sessionid` / `sessionid_ss` / `sid_tt`——保存时静态检测（缺则 `session ✗`）；其余键（`uid`、`sid_guard`、`passport_csrf_token` 等）原样保留不挑选
+   - **提取步骤**：浏览器登录 fanqienovel.com → F12 DevTools → Network → 任一请求 → Request Headers → 复制 `Cookie:` 后整串 → `fqdt login '<整串>'`
+   - **存储**：规范化 `k=v; k=v`（压掉等号空格）存 store.json（非 config.ini，防 `--list` 泄露）；仅可打印 ASCII、≤12KB
+   - **有效性验证**：保存后自动 GET `/api/user/info/v2`（网页端权威，显示昵称=有效）；假 cookie 不误报（不回退 core library——实测假 Cookie 下 library 也回 code:0）
+
+   **② 登录自动校验——已实现**（`save_cookie` Ok 后立即 `verify_now()`，v0.17.0 起，代码先于落盘）。`[x]` ✅（① 文档即本条内容）
+63. **📦 info 去子命令直接接 id（m0148，原话："移除info可以直接接id，而不是使用subcs"）** — 疑义待澄清：可能指 ① `fqdt info <id>` 无需 SECTION 位置参数直接出概览（现状已支持）；② 移除 info 子命令、由其他入口直接接 id；③ shelf/download 等处引用 info 的子命令写法改直接传 id。**已澄清（m0154）并实现（v0.30.0 批）**：① `Info { cmd: InfoCmd }` 必填（Usage 变 `<COMMAND>`，"info 后必须加 subcs"），删旧 `<section>` 报错文案；② info 书籍子命令 id 位接入 `resolve_book_id`（关键词交互选书，同 download/audio），resolve 补作者 id `N_数字` 原样规则；③ arg help 统一"id 或书名关键词"。实测：关键词触发搜索、`N_123456` 原样。`[x]` ✅ v0.30.0
+64. **🏷️ book_id 参数统一改名 id（m0148）** — 用户原话："把所有的bookID字段改成ID，因为目前这里的bookID实际上已经指代了多种ID"。CLI 参数/帮助文本中 `book_id` 显示名统一改为 `id`（`fqdt download <id>`、`fqdt audio <id>`、`fqdt info <id>` 等），消除 book_id 实际混指 book/item 等多种 ID 的歧义；config.ini 键名与内部变量是否同步改名待评估（涉及兼容性）。**已实现（v0.30.0 批，CLI 层）**：13 处位置参数 `value_name="ID"`（download/audio/info×8/shelf×3），help 文本 "id 或书名关键词"，helpfile.rs 12 处 `<book_id>`→`<ID>`，epub 注释同步；**保留不动**：info.list JSON 的 `book_id` 键（数据格式，改则破坏旧文件兼容）、API URL 路径 `{book_id}`、内部变量名。`[x]` ✅ v0.30.0
+
+65. **📖 help 措辞改 Sub commands（m0151）** — fqdt 是主命令，其下所有命令均为子命令：顶层及各级 help 的 `Commands:` 标题改为 `Sub commands:`（clap `subcommand_help_heading = "Sub commands"`，注意方法名），同步更新 HELP-DESIGN.md/help.txt 参考与 AGENTS 描述；`fqdt i -h` 等实际输出验证。**已实现（v0.30.0 批）**：render_commands/render_top_help/clap 属性三处改完，三路径实测 "Sub commands:"，test 202 绿。`[x]` ✅ v0.30.0
 
 66. **📝 HELP-DESIGN.md 教学扩写（m0152）** — 回顾历史记录，完成当前单项工作后写教学性内容并入 `HELP-DESIGN.md`：① 如何写 help message（措辞/长度/结构规范）；② 简洁明了的输出信息（过程/结果/失败三类文案怎么写）；③ 哪些类型的 subcommands 可以合并、简化、优化（如 discover 流并入 info、account 读类并入等的判定标准与案例）。面向 agent 的"如何做"教程，不是流水账。
 
@@ -81,3 +89,5 @@
    - **括号内信息的归属**：如"目录（含 item_id）"这类括号注释——到底放子命令 doc comment、arg help、还是输出尾注？规则要明确（例：数据特征求帮助 vs 操作指引 vs 输出解释的去处）；历史实例：help 中括号位置被用户纠正过多次
    - **flag 的层级与帮助项归属**：哪些 flag 挂子命令、哪些挂父命令（通用 flag 如 -v/--timeout 上浮还是下沉）、help 文本写在 arg 定义还是 FLAGS 注释表、brief 与 fields 的分工
    - 其余从历史会话回顾提炼：别名放置、Usage 行格式、子命令排序、动词开头/名词开头的统一、错误文案与 help 的一致性等`[ ]`
+
+67. **🔄 update 支持纯音频文件夹（m0162）** — 用户问题：`fqdt update` 能否直接更新「只有 audio、没有文本正文」的文件夹（info.list 只记录 audio、无正文 txt/epub 的目录）。需查 `workflow::update.rs` 对 info.list 的依赖：若 update 假定正文存在/按正文缺章判断则纯 audio 目录会失败或空转；目标是纯 audio 目录也能按 info.list 的音频章节进度增量补新章。先实测复现（构造纯 audio 目录跑 update）→ 定改法 → 实现。**已实现+实测（v0.30.0 批）**：① `write_info_list` 必写 `book_id`（治本）；② `download::read_audio_list_loose`（不要求 book_id、带 tone）+ `info_list_is_audio`（tone 键探测）；③ `update_dir` 抽 `update_audio_dir`：纯 audio 根目录直接走音频增量、tone 用 info.list 原值；④ 存量无 book_id → `resolve_bid_by_title` 按书名搜索，**标题互含校验**（实测教训：模糊词首结果误配完全不同的书、下了 44+ 章错书，已清理；现无匹配则拒绝并提示手动补 book_id）。实测：误配拒绝零污染 / 补真 book_id 后 526 章书 diff 正确 / 新下 info.list 带 book_id。`[x]` ✅ v0.30.0

@@ -58,24 +58,24 @@ fqdt --help                       # 全部命令
 ## download — 下载正文
 
 ```sh
-fqdt d <book_id>
-fqdt d <book_id> -o ./books -t epub -j 8   # 输出 + 格式 + 并发
-fqdt d <book_id> -r 1-100                 # 章节范围（-r=-10 前 10 章）
-fqdt d <book_id> -f                       # 强制覆盖
+fqdt d <id>
+fqdt d <id> -o ./books -t epub -j 8   # 输出 + 格式 + 并发
+fqdt d <id> -r 1-100                 # 章节范围（-r=-10 前 10 章）
+fqdt d <id> -f                       # 强制覆盖
 fqdt d <书名>                             # 关键词交互选书
 ```
 
 ## audio — 下载有声书
 
 ```sh
-fqdt a <book_id> -r 1-50 -j 6       # 范围 + 并发
-fqdt a <book_id> --real             # 真人讲书
-fqdt a <book_id> --ai --tone 6      # AI 朗读（fqdt info audio <id> 查可用音色）
-fqdt a <book_id> --tts --voice zh-CN-XiaoxiaoNeural   # Edge-TTS（需本机 edge-tts）
-fqdt a <book_id> --lrc embed        # 歌词嵌入（非 MP3 自动退化为外置 .lrc）
-fqdt a <book_id> --mp3              # 输出转 MP3（默认是 Ogg Opus）
-fqdt a <book_id> --keep-m4a         # 保持 m4a 原样，不转码
-fqdt a <book_id> --cover            # 新下载的 MP3 嵌入书籍封面
+fqdt a <id> -r 1-50 -j 6       # 范围 + 并发
+fqdt a <id> --real             # 真人讲书
+fqdt a <id> --ai --tone 6      # AI 朗读（fqdt info audio <id> 查可用音色）
+fqdt a <id> --tts --voice zh-CN-XiaoxiaoNeural   # Edge-TTS（需本机 edge-tts）
+fqdt a <id> --lrc embed        # 歌词嵌入（非 MP3 退化外置；听书章节自动用 timeline 精确时间轴，文字书按段落估算）
+fqdt a <id> --mp3              # 输出转 MP3（默认是 Ogg Opus）
+fqdt a <id> --keep-m4a         # 保持 m4a 原样，不转码
+fqdt a <id> --cover            # 新下载的 MP3 嵌入书籍封面
 ```
 
 > **输出格式**：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，装有 ffmpeg 时默认 `ffmpeg -c copy` remux 为 Ogg Opus（零转码、秒级、通用可播），`--mp3` 改走 libmp3lame 64k 转码（iOS/Windows Media Player 兼容），无 ffmpeg 则降级保留 `.m4a`（仅 VLC/mpv/Android 10+ 等可播，下载时提示一次）。`--keep-m4a` 跳过转码；`--cover` 整本书取一次封面写入每章 APIC，仅对新下载的 MP3 生效；同义配置键 `audio.mp3` / `audio.keep_m4a` / `audio.cover`。
@@ -84,7 +84,7 @@ fqdt a <book_id> --cover            # 新下载的 MP3 嵌入书籍封面
 ## update — 增量更新
 
 ```sh
-fqdt u <book_id>               # 按 ID 更新
+fqdt u <id>               # 按 ID 更新
 fqdt u ./output                # 按目录自动检测（info.list）
 fqdt u ./output -j 4
 ```
@@ -110,9 +110,9 @@ fqdt i overview <id> --add     # 概览后直接收藏进云端书架
 fqdt s list                    # 未登录=本地，已登录=云端
 fqdt s list 已读                # 指定分组
 fqdt s list --local --search 词 --author --json
-fqdt s add <book_id>[:标题]
+fqdt s add <id>[:标题]
 fqdt s remove <编号>
-fqdt s move <book_id> <组名>   # 组不存在则自动建组
+fqdt s move <id> <组名>   # 组不存在则自动建组
 fqdt s download 1              # 下载书架第 1 本
 ```
 
