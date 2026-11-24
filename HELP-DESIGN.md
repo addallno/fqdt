@@ -13,7 +13,7 @@
 | 顶层 help | `fqdt` / `fqdt --help` / `fqdt help` / `fqdt -h` | `main.rs::render_top_help`（手写）+ `TOP_GROUPS`/`TOP_OPTIONS` | 标题、用法行、**按任务分组**的子命令表、全局选项、优先级尾行 |
 | 子命令 help | `fqdt <cmd> --help` / `fqdt help <cmd>` | clap derive doc + `HELP_TAILS` 追加示例段 | 一句话摘要、位置参数、flags（长 help）、示例 |
 | flag 详情 | `fqdt <cmd> <flag> --help` | `main.rs::FLAG_HELP` / `config.rs::CONFIG_HELP` | 取值范围、语义、示例、关联查询/配置键 |
-| config 键详情 | `fqdt config <key> --help` | `CONFIG_HELP` | 同上（键专属） |
+| config 键详情 | `fqdt config get <key>`（子命令式，m0162） | `CONFIG_HELP` | 同上（键专属） |
 | help.txt 参考 | 启动自动生成 `~/.config/fqdt/help.txt` | `helpfile.rs` | 解释性参考：命令格式与目的、参数/端点作用、各命令底层 API 请求格式（**非** clap help 复制、**无** example） |
 
 **分层原则**：顶层只教"有哪些命令、干什么"；子命令层教"这个命令怎么用"；

@@ -314,7 +314,7 @@ fn render_key_help(e: &KeyEntry) {
     let help = CONFIG_HELP.iter().find(|c| c.0 == dotted);
     let (brief, desc) = match help { Some(c) => (c.1, c.2), None => ("", "") };
     crate::emit_line(&format!("  {CYAN}{dotted}{RST}  {YELLOW}{brief}{RST}"));
-    crate::emit_line(&format!("  {DIM}git 式: fqdt config {dotted} <value> · flag 优先于 config{RST}"));
+    crate::emit_line(&format!("  {DIM}fqdt config set {dotted} <value> · flag 优先于 config{RST}"));
     crate::emit_line("");
     crate::emit_line(&format!("    {:<4}  {}", "类型", kind_label(kind)));
     crate::emit_line(&format!("    {:<4}  config.ini [{sec}] {ini}", "位置"));
@@ -322,8 +322,8 @@ fn render_key_help(e: &KeyEntry) {
     crate::emit_line(&format!("    {:<4}  {}", "默认", get(&Config::default())));
     if !desc.is_empty() { crate::emit_line(&format!("    {:<4}  {}", "说明", desc)); }
     let example_val = match kind { Kind::Int => "10", Kind::Bool => "false", Kind::Str => "<值>" };
-    crate::emit_line(&format!("    {:<4}  fqdt config {dotted} {example_val}", "设置"));
-    crate::emit_line(&format!("    {:<4}  fqdt config --unset {dotted}（恢复默认）", "恢复"));
+    crate::emit_line(&format!("    {:<4}  fqdt config set {dotted} {example_val}", "设置"));
+    crate::emit_line(&format!("    {:<4}  fqdt config unset {dotted}（恢复默认）", "恢复"));
 }
 
 // ===== 登录 cookie 存取（v0.17.0） =====
@@ -359,34 +359,52 @@ pub fn cookie_has_session(c: &str) -> bool {
 }
 
 /// `fqdt config --list` | `<key>` | `<key> <value>` | `--unset <key>`（git config 式）。
-pub fn run_cmd(key: Option<String>, value: Option<String>, list: bool, unset: bool, force: bool) {
-    if list {
-        for (dotted, _, _, _, get) in KEYS { crate::emit_line(&format!("{}={}", dotted, get(&Config::load()))); }
-        return;
-    }
-    // `fqdt config init [--force]`：生成默认配置文件；--force 覆盖旧模板（键说明升级用）
-    if key.as_deref() == Some("init") && value.is_none() && !unset {
-        let existed = get_home().join(".config/fqdt/config.ini").exists();
-        match Config::save_default(force) {
-            Ok(()) if existed && !force => {
-                crate::emit_line(&format!("  {DIM}已存在，未覆盖；fqdt config init --force 用新模板（含键说明）重建{RST}"));
-            }
-            Ok(()) => crate::emit_line(&format!("{GREEN}ok{RST} ~/.config/fqdt/config.ini")),
-            Err(e) => eprintln!("  {RED}err{RST} {e}"),
-        }
-        return;
-    }
+/// `fqdt config get <key>|--all`：单键详情 / -a 列全部。
+pub fn run_get(key: Option<String>, all: bool) {
+    if all { return list_all(); }
     let Some(k) = key else {
-        eprintln!("  err 用法: fqdt config init | --list | <key> | <key> <value> | --unset <key>");
+        return eprintln!("  err 用法: fqdt config get <key> | fqdt config get --all");
+    };
+    if !key_help(&k) { eprintln!("  err 未知键: {k}（get --all 查看全部）"); }
+}
+
+/// `fqdt config set <key> <value>`。
+pub fn run_set(key: String, value: String) { set_key(&key, &value); }
+
+/// `fqdt config unset <key>`（恢复默认值）。
+pub fn run_unset(key: String) { unset_key(&key); }
+
+/// `fqdt config init [--force]`：生成默认配置文件；--force 覆盖旧模板（键说明升级用）。
+pub fn run_init(force: bool) {
+    let existed = get_home().join(".config/fqdt/config.ini").exists();
+    match Config::save_default(force) {
+        Ok(()) if existed && !force => {
+            crate::emit_line(&format!("  {DIM}已存在，未覆盖；fqdt config init --force 用新模板（含键说明）重建{RST}"));
+        }
+        Ok(()) => crate::emit_line(&format!("{GREEN}ok{RST} ~/.config/fqdt/config.ini")),
+        Err(e) => eprintln!("  {RED}err{RST} {e}"),
+    }
+}
+
+/// 列全部键值（get --all / 旧 --list）。
+fn list_all() {
+    for (dotted, _, _, _, get) in KEYS { crate::emit_line(&format!("{}={}", dotted, get(&Config::load()))); }
+}
+
+/// 旧式 git 用法兼容入口（`config <key> [value]` / --list / --unset / init）——help 不再宣传。
+pub fn run_cmd(key: Option<String>, value: Option<String>, list: bool, unset: bool, force: bool) {
+    if list { return list_all(); }
+    let Some(k) = key else {
+        eprintln!("  err 用法: fqdt config get <key>|--all | set <key> <value> | unset <key> | init [--force]");
         return;
     };
+    if k == "init" && value.is_none() && !unset { return run_init(force); }
     if unset { return unset_key(&k); }
     match value {
         Some(v) => set_key(&k, &v),
-        None => match KEYS.iter().find(|e| e.0 == k) {
-            Some(e) => crate::emit_line(&e.4(&Config::load())),
-            None => eprintln!("  err 未知键: {k}（--list 查看全部）"),
-        },
+        None => {
+            if !key_help(&k) { eprintln!("  err 未知键: {k}（get --all 查看全部）"); }
+        }
     }
 }
 

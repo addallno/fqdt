@@ -120,7 +120,7 @@ fqdt s download 1              # 下载书架第 1 本
 
 ```sh
 fqdt login '<Cookie>'          # 浏览器复制 Cookie；--check 验证；--clear 清除
-fqdt config --list             # 全部键与当前值
+fqdt config get --all          # 全部键与当前值（旧 --list 仍兼容）
 fqdt config download.format epub
 fqdt config download.format --help   # 单键详情
 

@@ -15,6 +15,35 @@ use types::Config;
 use crate::util::{CYAN, DIM, GREEN, RST, TITLE, YELLOW};
 use std::path::Path;
 
+/// `fqdt config` 子命令（省并式，m0162：list 并入 get --all）
+#[derive(Subcommand)]
+enum ConfigCmd {
+    /// 查看配置：单键详情，或 -a 列全部
+    Get {
+        /// 点号键，如 download.format
+        key: Option<String>,
+        #[arg(short = 'a', long, help = "列出全部键值与说明")]
+        all: bool,
+    },
+    /// 设置配置键
+    Set {
+        /// 点号键
+        key: String,
+        /// 新值
+        value: String,
+    },
+    /// 删除配置键（回退默认值）
+    Unset {
+        /// 点号键
+        key: String,
+    },
+    /// 生成默认配置文件（含逐键说明）
+    Init {
+        #[arg(long, help = "覆盖已存在文件（升级键说明模板）")]
+        force: bool,
+    },
+}
+
 #[derive(Parser)]
 #[command(name = "fqdt", version, about = "番茄小说下载器", subcommand_help_heading = "Subcommands")]
 struct Cli {
@@ -168,15 +197,17 @@ enum Cmd {
     /// 查看/修改配置
     #[command(display_order = 33)]
     Config {
-        /// 键
+        #[command(subcommand)]
+        cmd: Option<ConfigCmd>,
+        /// 键（旧式 git 用法，兼容保留）
         key: Option<String>,
-        /// 新值
+        /// 新值（旧式）
         value: Option<String>,
-        #[arg(long, help = "列出全部键值")]
+        #[arg(long, help = "列出全部键值（旧式，等价 get --all）")]
         list: bool,
-        #[arg(long, help = "删除该键")]
+        #[arg(long, help = "删除该键（旧式）")]
         unset: bool,
-        #[arg(long, help = "config init 时覆盖已存在文件（升级键说明模板）")]
+        #[arg(long, help = "config init 时覆盖已存在文件")]
         force: bool,
     },
     /// 透传调用 fqapi 端点
@@ -203,9 +234,9 @@ enum Cmd {
         #[arg(long = "list", help = "列出常用端点")]
         list: bool,
     },
-    /// 阅读书籍
+    /// 阅读书籍（TUI）
     #[command(display_order = 34)]
-    Read {
+    View {
         #[arg(value_name = "id", help = "id 或书名关键词")]
         book_id: String,
         #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
@@ -403,7 +434,7 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("示例", "fqdt audio <id> --tts --voice zh-CN-YunxiNeural"),
         ("相关", "--tts"),
     ]}),
-    ("read", "--range", FlagDoc { brief: "章节范围", takes_value: true, fields: &[
+    ("view", "--range", FlagDoc { brief: "章节范围", takes_value: true, fields: &[
         ("取值", "1-50 区间 / -5 前 5 章 / 10- 自 10 起到末尾"),
         ("说明", "缺省读全本；进度按章记忆，重入自动回位"),
     ]}),
@@ -692,7 +723,7 @@ fn render_sub_help(path: &[String], examples: bool) {
 const TOP_GROUPS: &[(&str, &[&str])] = &[
     ("查询", &["search", "info"]),
     ("下载", &["download", "audio", "update"]),
-    ("管理", &["shelf", "read", "tts", "login", "config"]),
+    ("管理", &["shelf", "view", "tts", "login", "config"]),
     ("服务", &["serve", "api"]),
     ("其他", &["version", "help"]),
 ];
@@ -768,7 +799,7 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("info", "",
      "Examples:\n  fqdt info overview <id>\n  fqdt info chapters <id> -r 1-50\n  fqdt info overview <id> --add\n  fqdt info recommend\n  fqdt info category --tab 1\n  fqdt info progress --search 词\n  fqdt info overview <id>"),
     ("download", "", "Examples:\n  fqdt download <id> -r 1-50 -t epub"),
-    ("read", "", "Examples:\n  fqdt read 诡秘之主\n  fqdt read 7185478854738185271 -r 1-50"),
+    ("view", "", "Examples:\n  fqdt view 诡秘之主\n  fqdt view 7185478854738185271 -r 1-50"),
     ("audio", "",
      "Examples:\n  fqdt audio <id> --real\n  fqdt audio <id> --ai --tone 6\n  fqdt audio 诡秘之主 --ai"),
     ("update", "", ""),
@@ -864,14 +895,19 @@ async fn main() {
         Cmd::Tts { path, voice, jobs } =>
             dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
         Cmd::Shelf { cmd } => workflow::shelf::run(cmd, &cfg).await,
-        Cmd::Read { book_id, range } => {
+        Cmd::View { book_id, range } => {
             let Some(id) = resolve_book_id(book_id, &cfg, verbose).await else { return; };
             workflow::read::run(&id, range.as_deref(), &cfg).await;
         }
         Cmd::Login { cookie, check, clear } =>
             workflow::account::login(cookie, check, clear).await,
-        Cmd::Config { key, value, list, unset, force } =>
-            crate::config::run_cmd(key, value, list, unset, force),
+        Cmd::Config { cmd, key, value, list, unset, force } => match cmd {
+            Some(ConfigCmd::Get { key, all }) => crate::config::run_get(key, all),
+            Some(ConfigCmd::Set { key, value }) => crate::config::run_set(key, value),
+            Some(ConfigCmd::Unset { key }) => crate::config::run_unset(key),
+            Some(ConfigCmd::Init { force }) => crate::config::run_init(force),
+            None => crate::config::run_cmd(key, value, list, unset, force), // 旧式 git 用法兼容
+        },
         Cmd::Api { path, method, query, data, jq, status, list } =>
             run_api(path, method, query, data, jq, status, list).await,
         Cmd::Serve { port, lan } => run_serve(port, lan).await,
@@ -906,7 +942,8 @@ fn dispatch_custom(args: Vec<String>, cfg: &Config) {
         return;
     }
     eprintln!("  err 未知命令: {}", cmd);
-    eprintln!("  可用命令: search, info, download, audio, update, tts, shelf, login, config");
+    let all: Vec<&str> = TOP_GROUPS.iter().flat_map(|(_, subs)| subs.iter().copied()).collect();
+    eprintln!("  可用命令: {}", all.join(", "));
 }
 
 /// info 子命令分发：书籍 section 走 workflow::info::run；发现流/个人数据各走原入口。

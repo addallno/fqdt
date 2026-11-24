@@ -225,7 +225,7 @@ fqdt info user
 fqdt info highlights
   GET /reading/reader/bookmark/personal_list/              划线书单，需 Cookie
 
-fqdt read <id> [-r 范围]
+fqdt view <id> [-r 范围]
   GET /api/v1/books/{book_id}/directory                    取目录与 item_id（TUI 逐章）
   GET /api/v1/chapters/{item_id}                           单章正文，n/p 切章时加载
   GET /api/v1/books/{book_id}                              书名（顶栏，失败回退 id）
