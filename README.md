@@ -30,6 +30,7 @@ fqdt search 诡秘之主              # 搜索
 fqdt download 7185478854738185271 # 下载正文（纯数字 = book_id）
 fqdt download 诡秘之主            # 书名关键词 → 交互选书
 fqdt download <id> -t epub -r 1-50 -j 8
+fqdt view 诡秘之主               # TUI 阅读器（分栏目录/正文，j k 滚动，Tab 切焦点，z 全屏，q 退出存进度）
 fqdt audio <id> --ai --tone 6     # 有声书：AI 朗读指定音色
 fqdt info overview <id>           # 概览：热度 / 简介 / 前几章 / 书评
 fqdt shelf list                   # 书架（登录后为云端）
@@ -44,11 +45,12 @@ fqdt --help                       # 全部命令
 | `info <section> [id]` | `i` | 书籍信息与个人数据（见下） |
 | `download <id\|书名>` | `d` | 下载正文 txt/epub |
 | `audio <id\|书名>` | `a` | 下载有声书（`--real/--ai/--tts` 三模式，默认 Ogg，`--mp3` 转 MP3） |
+| `view <id\|书名>` | | TUI 阅读器：分栏目录+正文、j/k 滚动、Tab 焦点、Enter 跳章、z 全屏、进度自动记忆 |
 | `update <id\|目录>` | `u` | 增量更新已下载的书 |
 | `tts <txt\|目录>` | `t` | edge-tts 文本转语音 |
 | `shelf <子命令>` | `s` | 书架管理（list/add/remove/move/download） |
 | `login [COOKIE]` | | 登录态（`--check`/`--clear`） |
-| `config <子命令>` | | 查看/修改配置（`init`/`--list`/`<键> <值>`） |
+| `config <子命令>` | | 查看/修改配置（`get <键>`/`get --all`/`set`/`unset`/`init [--force]`） |
 | `serve` | | 本地 HTTP 服务（默认 127.0.0.1:18921） |
 | `api <路径>` | | 端点透传（`--list`/`-X`/`-q`/`--jq`） |
 | `version` | | 显示版本号 |
