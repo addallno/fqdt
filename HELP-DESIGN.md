@@ -61,7 +61,7 @@ flag 详情层教"这个取值是什么"。每层不越界——顶层不列 fla
 2. **不教 help**——删除 `flag 详情: ...`、`用 fqdt xxx --help 查看` 类尾行（v0.24.0）。
 3. **不列配置键**——help 不写 `配置: config.ini [x] y` 说明；配置说明唯一来源 = `config.ini` 分节模板注释（v0.24.0）+ `CONFIG_HELP`。
 4. **不打迁移提示**——命令移除后直接未知命令 err，不打"已移除/请改用 xxx"（v0.24.0）。
-5. **动词化、短**——摘要行 ≤20 字；flag help ≤1 行；占位符用 `<id>` 小写形式（m0108 用户纠正：不写 `<ID>`；对象多样时用通名 `id` 不用 `book_id`——book_id 实际混指 book/item/author/uid 多种 ID）。
+5. **动词化、短**——摘要行 ≤20 字；flag help ≤1 行；占位符小写（m0108：不写 `<ID>`），**合法形式**（m0125）：单类型必填 `<id>`/`<key>`、联合必填 `<id|path>`、可选 `[path]`/`[id|path]`——位置参数支持多种类型时用 `|` 联合（如 download/update 的 `<id|path>` = id、书名或已下载目录）；对象多样用通名 `id` 不用 `book_id`。
 6. **示例真实可跑**——每条示例用当前真实语法（改子命令/flag 当次同步示例，people copy examples verbatim）；示例 1–3 条覆盖不同场景，不用 `[options]` 占位。
 7. **简体中文**，错误前缀 `  err `、成功 `  ok `，不用 emoji（AGENTS 8.3）。
 8. **一行一记录**——help 与运行输出同守 TUI.md：进度走 stderr、结果单行、指引仅未登录/未 Cookie 保留单行。
@@ -231,13 +231,14 @@ Cmd 变体        → 该命令专属 flag（download 的 -t、audio 的 --lrc�
 ### 5.6 措辞统一性（m0153 子项）
 
 - **动词/名词统一**：摘要行一律动词开头（`下载正文`、`搜索书籍`），对象名词只做宾语；Usage 行里子命令名本身是名词（`download`/`search`），不因摘要动词而改名——动词化约束只作用于 doc/help 文案，不作用于命令名。
-- **Usage 行格式**：`Usage: fqdt <cmd> [选项] <参数>`——子命令路径全写（help.txt 的 `usage_of` 补全父路径）；选项段 `Options:`、参数段 `Arguments:`、子命令段 `Sub commands:`（英文段标题、首词大写、带冒号，m0151）；bool flag 不占 value 位。
+- **Usage 行格式**：`Usage: fqdt <cmd> [选项] <参数>`——子命令路径全写（help.txt 的 `usage_of` 补全父路径）；选项段 `Options:`、参数段 `Arguments:`、子命令段 `Subcommands:`（**一个词**、带冒号，m0115 纠正 m0151 的 `Sub commands:`）；bool flag 不占 value 位；占位符按 §2.5 规则 5 的合法形式。
+- **顶层 help 不写"优先级"尾行**（m0117）：flag > config 优先级说明不进顶层输出，需要时只放子命令 help text / FLAG_HELP 详情 / config.ini 模注。
 - **子命令排序**：顶层顺序 = `display_order`（与 `TOP_GROUPS` 组内顺序一致，§3.3）；组内常用在前；**同一命令在任何视图只出现一次**（别名列在定义处、不进帮助列表）。子命令 help 的 Options 段同理：专属 flag 在前、global flag（-v/--timeout）自动追加在后。
 - **错误文案与 help 一致性**：同名 flag 同语义（跨命令）；报错里提到的 flag/子命令必须与 help 中拼写完全一致（含大小写与占位符），用户照抄报错应能直接跑通——改名时 grep 报错文案与 help 同步（`grep -rn "旧名" src/*.rs` 含 err! 宏）。
 
 ### 5.7 新写 help 时的自检（并入 §3.3）
 
 - 括号清零：`grep -n '(' 对应 help 文案` 逐条过 5.2 表
-- 占位符全小写、通名 `<id>`；段标题 `Sub commands:`（非 `Commands:`，m0151）
+- 占位符全小写、通名 `<id>`；段标题 `Subcommands:`（非 `Commands:`，m0151）
 - 同名 flag 同语义（跨命令一致性）；别名只在变体声明、不进列表文案
 - 改完四路冒烟 + `strip_ansi` 后 help.txt 版本变化才重写

@@ -33,6 +33,9 @@ pub struct Store {
     pub authors: HashMap<String, AuthorEntry>,
     #[serde(default)]
     pub shelf: Option<ShelfSnap>,
+    /// read TUI 阅读进度：book_id → 位置（按 item_id 存，范围变化重入仍能定位）
+    #[serde(default)]
+    pub read: HashMap<String, ReadPos>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -45,6 +48,15 @@ pub struct Cookie {
 pub struct Bookmark {
     pub id: String,
     pub title: String,
+}
+
+/// read 阅读进度：章内滚动行偏移 + 章 item_id（进度模型抄 rereader 的 chapter+offset）
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct ReadPos {
+    #[serde(default)]
+    pub item_id: String,
+    #[serde(default)]
+    pub scroll: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -184,5 +196,17 @@ pub fn shelf_snap() -> Option<(Value, bool)> {
 pub fn shelf_snap_set(data: Value) -> Result<(), String> {
     let mut st = load();
     st.shelf = Some(ShelfSnap { data, fetched_at: now_sec() });
+    save(&st)
+}
+
+/// read 进度读取。
+pub fn read_get(book_id: &str) -> Option<ReadPos> {
+    load().read.get(book_id).cloned()
+}
+
+/// read 进度保存（退出时调用）。
+pub fn read_save(book_id: &str, pos: ReadPos) -> Result<(), String> {
+    let mut st = load();
+    st.read.insert(book_id.to_string(), pos);
     save(&st)
 }

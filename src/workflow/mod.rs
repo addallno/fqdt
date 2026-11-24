@@ -3,6 +3,7 @@ pub mod audio;
 pub mod discover;
 pub mod download;
 pub mod info;
+pub mod read;
 pub mod search;
 pub mod shelf;
 pub mod update;

@@ -18,7 +18,25 @@ pub fn init_color() {
 }
 
 /// 语义色（Display：开关关闭时输出空串），format 里按原写法 `{CYAN}` 使用。
+#[derive(Clone, Copy)]
 pub struct Color(&'static str);
+
+/// 语义色 → ratatui Style（TUI 用；色值仍单点来自本文件）。
+pub fn fg(c: Color) -> ratatui::style::Style {
+    use ratatui::style::{Color as TColor, Style};
+    Style::default().fg(match c.0 {
+        "0" => TColor::Reset,
+        "2" => TColor::DarkGray,
+        "31" => TColor::Red,
+        "33" => TColor::Yellow,
+        "34" => TColor::Blue,
+        "35" => TColor::Magenta,
+        "36" => TColor::Cyan,
+        "1;36" => TColor::Cyan,
+        "1;4" => TColor::Reset,
+        _ => TColor::Reset,
+    })
+}
 
 impl std::fmt::Display for Color {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
