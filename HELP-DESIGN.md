@@ -61,7 +61,7 @@ flag 详情层教"这个取值是什么"。每层不越界——顶层不列 fla
 2. **不教 help**——删除 `flag 详情: ...`、`用 fqdt xxx --help 查看` 类尾行（v0.24.0）。
 3. **不列配置键**——help 不写 `配置: config.ini [x] y` 说明；配置说明唯一来源 = `config.ini` 分节模板注释（v0.24.0）+ `CONFIG_HELP`。
 4. **不打迁移提示**——命令移除后直接未知命令 err，不打"已移除/请改用 xxx"（v0.24.0）。
-5. **动词化、短**——摘要行 ≤20 字；flag help ≤1 行；占位符用 `<book_id>` 形式（clap 惯例）。
+5. **动词化、短**——摘要行 ≤20 字；flag help ≤1 行；占位符用 `<id>` 小写形式（m0108 用户纠正：不写 `<ID>`；对象多样时用通名 `id` 不用 `book_id`——book_id 实际混指 book/item/author/uid 多种 ID）。
 6. **示例真实可跑**——每条示例用当前真实语法（改子命令/flag 当次同步示例，people copy examples verbatim）；示例 1–3 条覆盖不同场景，不用 `[options]` 占位。
 7. **简体中文**，错误前缀 `  err `、成功 `  ok `，不用 emoji（AGENTS 8.3）。
 8. **一行一记录**——help 与运行输出同守 TUI.md：进度走 stderr、结果单行、指引仅未登录/未 Cookie 保留单行。
@@ -159,3 +159,78 @@ args → try_flag_help（FLAG_HELP 逐 flag 详情，clap 解析前）
 - 顶层 help 不放"运行 xxx --help"提示（不教 help，见 §2.2）；
 - 配置键不进 help（唯一来源 config.ini 注释，见 §2.3）；
 - 示例放 `HELP_TAILS` 而非 clap doc（集中管理 + `ui.help_examples` 开关）。
+
+---
+
+## 5. 教程：如何写 help 与输出（面向 agent，m0152/m0153）
+
+> 本章是"怎么做"的教学，规则出处见 §2 硬约束、§3 机制；改动前按 §3.3 checklist 走一遍。
+
+### 5.1 写一条 help 的完整思考顺序
+
+1. **它是谁**：这个子命令/flag 属于哪一层（顶层 / 父命令 / 父 flag）→ 决定写在哪个结构上（变体 doc / arg help / SUBITEMS / FLAG_HELP）。
+2. **一句话它是干什么的**：动词开头、≤20 字、无括号（见 5.2）→ 写变体 doc 注释（顶层 help 靠内省取这行，双份维护靠内省消除）。
+3. **位置参数怎么称呼**：通名小写 `<id>`（对象多义时）、具体对象才用专名；取值规则（"id 或书名关键词"）写 arg help 一个短语，深规则进 FLAG_HELP/详情。
+4. **示例要不要**：默认关（`ui.help_examples`），开启时 1–3 条真实可跑、覆盖不同场景、绝不写 `[options]` 占位 → HELP_TAILS 登记。
+5. **四路冒烟**：`fqdt --help` / `fqdt <cmd> --help` / `fqdt <cmd> <flag> --help` / `fqdt help <cmd>`。
+
+### 5.2 括号内信息的归属（用户多次纠正的高频坑）
+
+help 正文**禁止括号**（v0.23.0 起，§2.1）。发现想写 `目录（含 item_id）` 时，先分类再去该去的地方：
+
+| 括号内容是什么 | 去处 | 反例 |
+|---|---|---|
+| 数据特征/产物形态（含 item_id、Opus 编码、需登录） | 参数/命令的 **arg help 短语**或 **FLAG_HELP 详情**独立成句 | 塞进 doc 摘要行括号里 |
+| 操作指引（"按回车确认"、"再跑一次修复"） | **运行时输出**（stderr 单行尾注），不进 help | help 里教操作 |
+| 同义配置键、默认值来源 | `CONFIG_HELP` + config.ini 模注（help 不列配置键，§2.3） | `--abr (config: audio.abr)` |
+| 代码层面的兼容说明（旧格式、迁移） | 代码注释 / 运行时 verbose，不进 help | help 讲历史包袱 |
+
+判据一句话：**help 是给"第一次用的人"的速查，不是给"维护者"的备注**——凡是解释"为什么/内部怎么"的括号，都不属于 help。
+
+### 5.3 flag 层级与帮助项放哪一层
+
+```
+顶层 Cli        → global=true 的通用 flag（--timeout / -v）：各子命令 help 自动追加
+Cmd 变体        → 该命令专属 flag（download 的 -t、audio 的 --lrc）
+父 flag 子项    → SUBITEMS 登记（--tone 属 --ai、--voice 属 --tts），渲染缩进 +2 挂父下，
+                  禁止把子项当描述文本写进父 flag 的多行 help（v0.26.1 教训）
+互斥关系        → conflicts_with 在 arg 定义（--mp3 ↔ --keep-m4a），不写进 help 文案
+```
+
+**help 文本四写处，按读者深度选**：
+
+| 读者动作 | 写处 | 形态 |
+|---|---|---|
+| 顶层扫一眼有哪些命令 | 变体 doc 注释 | 单行动词化摘要（多行破坏紧凑布局） |
+| `--help` 看参数列表 | `arg(help=...)` | ≤1 行短语，无括号 |
+| `<flag> --help` 查深规则 | `FLAG_HELP` 表（brief + fields） | brief 一句 + fields 分行 |
+| config.ini 配键 | `CONFIG_HELP` + DEFAULT_INI 注 | help 正文永远不写 |
+
+### 5.4 输出信息三类文案（详见 TUI.md，此处给模式）
+
+- **过程**：`util::progress("获取目录")` → stderr，TTY 才显示，完成 `clear_progress`；一阶段一短语，不打 URL/参数明细（进 `-v` verbose）。
+- **结果**：一行收据，量词先行——`  ok 1 章 · 跳过 0 章`、`  新增 44 章音频 · 已有 482/526 章`、`  已是最新 · 共 526 章`。成功 `ok`、事实陈述无前缀。
+- **失败**：`  err ` 前缀 + **可执行的下一步**（"请手动在 info.list 补 book_id 后重试"），不是自哀（"出错了抱歉"）；多失败聚合 `util::print_failures`（≤3 条+计数+重跑提示）。
+- **警告**：`  warn ` + 降级后果，一章一次（`warn_fallback` 去重），不逐条刷屏。
+- 三类全部走 stderr 或收据行规则（TUI.md 一行一记录）；stdout 只有数据。
+
+### 5.5 哪些 subcommands 该合并/简化（判定标准 + fqdt 案例）
+
+**判定标准**（按序问，命中即动）：
+
+1. **同一对象？** 两条命令操作同一对象的不同属性 → 合并为父+子（`comments`/`author` 是"查书"的一部分 → `info <id> comments|author`，v0.13.0）。
+2. **只读查询？** 顶层只读查询流 → 并入最贴近的聚合命令（`recommend`/`category` 并入 `info`，v0.24.0；`folders`/`history` 等 account 只读 → `info` sections，v0.24.0）。
+3. **一层壳？** 子命令无自身逻辑、只是转发参数 → 删掉或并入（`function` 整个删除，v0.24.0——管道需求 `api` 已覆盖）。
+4. **顶层膨胀？** 顶层命令 >7 个可扫读单位 → 按任务分组进 `TOP_GROUPS`，能归对象的归对象（服务类留顶层：serve/api/config/login）。
+5. **总是一起用？** A 的输出恒为 B 的输入 → B 做 A 的 flag（`search -D` 自动续下载，而非独立 `dl` 命令）。
+
+**反向（不该合）**：不同对象（download/update 都是"书"但语义相反，保留）；破坏肌肉记忆无收益（fqdt 别名体系 s/d/a/t/u 稳定）；合并后 arg 冲突（位置参数语义不同）。
+
+**简化输出侧**：每加一个子命令先想"结果行能否一行说完"——说不完的交互（选书序号）非 TTY 必须有报错指引而非挂死。
+
+### 5.6 新写 help 时的自检（并入 §3.3）
+
+- 括号清零：`grep -n '(' 对应 help 文案` 逐条过 5.2 表
+- 占位符全小写、通名 `<id>`；段标题 `Sub commands:`（非 `Commands:`，m0151）
+- 同名 flag 同语义（跨命令一致性）；别名只在变体声明、不进列表文案
+- 改完四路冒烟 + `strip_ansi` 后 help.txt 版本变化才重写

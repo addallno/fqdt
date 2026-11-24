@@ -83,7 +83,7 @@
 
 65. **📖 help 措辞改 Sub commands（m0151）** — fqdt 是主命令，其下所有命令均为子命令：顶层及各级 help 的 `Commands:` 标题改为 `Sub commands:`（clap `subcommand_help_heading = "Sub commands"`，注意方法名），同步更新 HELP-DESIGN.md/help.txt 参考与 AGENTS 描述；`fqdt i -h` 等实际输出验证。**已实现（v0.30.0 批）**：render_commands/render_top_help/clap 属性三处改完，三路径实测 "Sub commands:"，test 202 绿。`[x]` ✅ v0.30.0
 
-66. **📝 HELP-DESIGN.md 教学扩写（m0152）** — 回顾历史记录，完成当前单项工作后写教学性内容并入 `HELP-DESIGN.md`：① 如何写 help message（措辞/长度/结构规范）；② 简洁明了的输出信息（过程/结果/失败三类文案怎么写）；③ 哪些类型的 subcommands 可以合并、简化、优化（如 discover 流并入 info、account 读类并入等的判定标准与案例）。面向 agent 的"如何做"教程，不是流水账。
+66. **📝 HELP-DESIGN.md 教学扩写（m0152）** — 回顾历史记录，完成当前单项工作后写教学性内容并入 `HELP-DESIGN.md`：① 如何写 help message（措辞/长度/结构规范）；② 简洁明了的输出信息（过程/结果/失败三类文案怎么写）；③ 哪些类型的 subcommands 可以合并、简化、优化（如 discover 流并入 info、account 读类并入等的判定标准与案例）。面向 agent 的"如何做"教程，不是流水账。**已实现（v0.30.1 批）**：HELP-DESIGN.md 新增 §5 教程章（161→236 行）——5.1 help 思考顺序五步、5.2 括号归属四行表（数据特征→arg help/FLAG_HELP、操作指引→运行时、配置→CONFIG_HELP、迁移→代码注释；判据"help 是给第一次用的人不是维护者"）、5.3 flag 层级（global/变体/SUBITEMS/互斥 conflicts_with）+ 文本四写处表、5.4 输出三类文案模式（过程/结果/失败含量词先行与可执行下一步）、5.5 subcommand 合并判定五问+fqdt 案例（v0.13.0/v0.24.0）+反向不该合三条、5.6 自检；同步修正 §2.5 过时占位符 `<book_id>`→`<id>`。`[x]` ✅ v0.30.1
 
    **必含细节（m0153 强调，用户过往多次纠正的点）**：
    - **括号内信息的归属**：如"目录（含 item_id）"这类括号注释——到底放子命令 doc comment、arg help、还是输出尾注？规则要明确（例：数据特征求帮助 vs 操作指引 vs 输出解释的去处）；历史实例：help 中括号位置被用户纠正过多次
