@@ -432,11 +432,21 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
 /// 左目录面板：边框按焦点高亮，当前章高亮，选中反白。
 fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
     let focused = rd.focus == Focus::Nav;
-    let border = if focused { util::fg(CYAN) } else { util::fg(DIM) };
+    // 焦点：粗体青边 + 标题反白底块；非焦点：灰边（m2816 视觉表达打磨）
+    let border = if focused {
+        util::fg(CYAN).add_modifier(ratatui::style::Modifier::BOLD)
+    } else {
+        util::fg(DIM)
+    };
+    let title_style = if focused {
+        util::fg(CYAN).add_modifier(ratatui::style::Modifier::REVERSED)
+    } else {
+        util::fg(DIM)
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(border)
-        .title(Span::styled(" 目录 ", if focused { util::fg(CYAN) } else { util::fg(DIM) }));
+        .title(Span::styled(" 目录 ", title_style));
     let inner_h = area.height.saturating_sub(2) as usize;
     // 视窗：让选中项可见
     let mut start = 0usize;
@@ -459,6 +469,9 @@ fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
                 ))
             } else if i == rd.cur {
                 Line::from(Span::styled(title, util::fg(CYAN)))
+            } else if focused {
+                // 焦点面板普通行提亮：与非焦点面板（全 DIM）拉开色阶
+                Line::from(Span::styled(title, util::fg(util::RST)))
             } else {
                 Line::from(Span::styled(title, util::fg(DIM)))
             }
@@ -470,8 +483,22 @@ fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
 /// 右正文面板：边框按焦点高亮，顶行书名·章节·进度。
 fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
     let focused = rd.focus == Focus::Content;
-    let border = if focused { util::fg(CYAN) } else { util::fg(DIM) };
-    let block = Block::default().borders(Borders::ALL).border_style(border);
+    let border = if focused {
+        util::fg(CYAN).add_modifier(ratatui::style::Modifier::BOLD)
+    } else {
+        util::fg(DIM)
+    };
+    let title_style = if focused {
+        util::fg(CYAN).add_modifier(ratatui::style::Modifier::REVERSED)
+    } else {
+        util::fg(DIM)
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(border)
+        .title(Span::styled(" 正文 ", title_style));
+    // 非焦点面板整体降权（正文行全 DIM），切换时色阶反转即时可见
+    let body_style = if focused { util::fg(util::RST) } else { util::fg(DIM) };
     let inner = {
         let mut r = area;
         r.x += 1;
@@ -485,9 +512,9 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner);
-    f.render_widget(Paragraph::new(top_line(rd)), body[0]);
+    f.render_widget(Paragraph::new(top_line(rd)).style(body_style), body[0]);
     f.render_widget(
-        Paragraph::new(rd.lines.clone()).scroll((rd.scroll, 0)),
+        Paragraph::new(rd.lines.clone()).style(body_style).scroll((rd.scroll, 0)),
         body[1],
     );
     f.render_widget(block, area);
@@ -567,6 +594,38 @@ mod tests {
         assert_eq!(lines[0].to_string(), "一".repeat(12));
         assert_eq!(lines[2].to_string(), "一".repeat(6));
         assert_eq!(lines[3].to_string(), "");
+    }
+
+    /// 分栏面板标题与焦点切换渲染（m2816 视觉打磨回归）。
+    #[test]
+    fn draw_normal_renders_panel_titles() {
+        use ratatui::{Terminal, backend::TestBackend};
+        let chs = vec![
+            Chapter { index: 1, item_id: "a".into(), title: "一".into() },
+            Chapter { index: 2, item_id: "b".into(), title: "二".into() },
+        ];
+        let mut rd = Reader::new("书名".into(), chs);
+        rd.lines = wrap_text("正文测试内容", 40);
+        let mut term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        fn grab(term: &mut Terminal<TestBackend>, rd: &Reader) -> String {
+            term.draw(|f| draw(f, rd)).unwrap();
+            // TestBackend 全角字占双 cell（字+空格），归一化去空格再断言
+            term.backend().buffer().content().iter()
+                .map(|c| c.symbol()).collect::<String>()
+                .chars().filter(|c| *c != ' ').collect()
+        }
+        // 焦点在正文：两面板标题都在
+        let t1 = grab(&mut term, &rd);
+        assert!(t1.contains("目录"), "缺目录标题: {t1:?}");
+        assert!(t1.contains("正文"), "缺正文标题: {t1:?}");
+        // 焦点切目录：标题保持（差分渲染下整 buffer 仍含）
+        rd.focus = Focus::Nav;
+        let t2 = grab(&mut term, &rd);
+        assert!(t2.contains("目录") && t2.contains("正文"));
+        // zen 模式藏面板
+        rd.zen = true;
+        let t3 = grab(&mut term, &rd);
+        assert!(!t3.contains("目录"), "zen 不应有目录面板");
     }
 
     #[test]
