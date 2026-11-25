@@ -635,6 +635,95 @@ fn upstream_ok(v: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// history 渲染：条目只有 book_id/read_timestamp_ms（无书名），按时间降序。
+fn render_history(v: &Value, search: Option<&str>) {
+    // 递归找含 read_timestamp_ms 的数组
+    fn find_arr(x: &Value) -> Option<&Vec<Value>> {
+        match x {
+            Value::Array(a) => {
+                if a.iter().any(|i| i.get("read_timestamp_ms").is_some()) {
+                    return Some(a);
+                }
+                a.iter().find_map(find_arr)
+            }
+            Value::Object(o) => o.values().find_map(find_arr),
+            _ => None,
+        }
+    }
+    let Some(arr) = find_arr(v) else {
+        return crate::emit_line("  （history 结构未知 → --json 查看原文）");
+    };
+    let kw = search.map(|s| s.to_lowercase());
+    let mut items: Vec<&Value> = arr.iter().filter(|it| match &kw {
+        None => true,
+        Some(k) => it.get("book_id_str").and_then(|x| x.as_str()).is_some_and(|s| s.contains(k))
+            || it.get("book_id").and_then(|x| x.as_u64()).is_some_and(|n| n.to_string().contains(k)),
+    }).collect();
+    if items.is_empty() {
+        let msg = if kw.is_some() { "（无匹配条目）" } else { "history 为空" };
+        return crate::emit_line(&format!("  {DIM}{msg}{RST}"));
+    }
+    items.sort_by_key(|it| std::cmp::Reverse(
+        it.get("read_timestamp_ms").and_then(|x| x.as_u64()).unwrap_or(0)));
+    let mut n = 0;
+    for item in &items {
+        let ts = item.get("read_timestamp_ms").and_then(|x| x.as_u64()).unwrap_or(0) / 1000;
+        let id = item.get("book_id_str").and_then(|x| x.as_str()).map(String::from)
+            .or_else(|| item.get("book_id").and_then(|x| x.as_u64()).map(|n| n.to_string()))
+            .unwrap_or_default();
+        let src = item.get("read_source").and_then(|x| x.as_str()).unwrap_or("");
+        let src_part = if src.is_empty() { String::new() } else { format!(" {DIM}{src}{RST}") };
+        n += 1;
+        crate::emit_line(&format!("  {} {BLUE}#{id}{RST}{src_part}", fmt_ts(ts)));
+    }
+    crate::emit_line(&match search {
+        Some(k) => format!("{GREEN}ok{RST} history {n}/{} 项（匹配 \"{k}\"）", items.len()),
+        None => format!("{GREEN}ok{RST} history {n} 项"),
+    });
+}
+
+/// folders 渲染：数组在 payload.data.folders（可真空），条目多为 folder_name/id。
+fn render_folders(v: &Value, search: Option<&str>) {
+    fn find_arr<'a>(x: &'a Value, key: &str) -> Option<&'a Vec<Value>> {
+        match x {
+            Value::Array(a) => a.iter().find_map(|i| find_arr(i, key)),
+            Value::Object(o) => {
+                o.get(key).and_then(|v| v.as_array())
+                    .or_else(|| o.values().find_map(|v| find_arr(v, key)))
+            }
+            _ => None,
+        }
+    }
+    let Some(arr) = find_arr(v, "folders") else {
+        return crate::emit_line("  （folders 结构未知 → --json 查看原文）");
+    };
+    let kw = search.map(|s| s.to_lowercase());
+    let items: Vec<&Value> = arr.iter().filter(|it| match &kw {
+        None => true,
+        Some(k) => ["folder_name", "name", "title"].iter().any(|f|
+            it.get(*f).and_then(|x| x.as_str()).is_some_and(|s| s.to_lowercase().contains(k))),
+    }).collect();
+    if items.is_empty() {
+        let msg = if kw.is_some() { "（无匹配条目）" } else { "folders 为空" };
+        return crate::emit_line(&format!("  {DIM}{msg}{RST}"));
+    }
+    let mut n = 0;
+    for item in &items {
+        let name = ["folder_name", "name", "title"].iter()
+            .find_map(|f| item.get(*f).and_then(|x| x.as_str())).unwrap_or("");
+        let id = item.get("folder_id").or_else(|| item.get("id"))
+            .and_then(|x| x.as_str().map(String::from).or_else(|| x.as_u64().map(|n| n.to_string())))
+            .unwrap_or_default();
+        let id_part = if id.is_empty() { String::new() } else { format!(" {BLUE}#{id}{RST}") };
+        n += 1;
+        crate::emit_line(&format!("  {CYAN}{name}{RST}{id_part}"));
+    }
+    crate::emit_line(&match search {
+        Some(k) => format!("{GREEN}ok{RST} folders {n}/{} 项（匹配 \"{k}\"）", items.len()),
+        None => format!("{GREEN}ok{RST} folders {n} 项"),
+    });
+}
+
 /// 渲染 section 结果：--json 原样；默认宽松提取书目数组逐行展示。
 fn render_section(v: &Value, json: bool, section: &str, search: Option<&str>) {
     if json {
@@ -648,6 +737,14 @@ fn render_section(v: &Value, json: bool, section: &str, search: Option<&str>) {
     }
     if let Err(e) = upstream_ok(v) {
         return eprintln!("  {RED}err{RST} {e}");
+    }
+    // history 条目仅 book_id + 时间戳（无书名字段），find_books 必空 → 专用渲染（m0160 验收）
+    if section == "history" {
+        return render_history(v, search);
+    }
+    // folders 数组在 payload.data.folders（可真空），条目无 book_name/title → 专用渲染
+    if section == "folders" {
+        return render_folders(v, search);
     }
     let Some(arr) = find_books(v) else {
         crate::emit_line(&format!("  （{section} 无条目，或结构未知 → --json 查看原文）"));
