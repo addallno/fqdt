@@ -44,7 +44,7 @@ fn render_cmd(cmd: &Command, prefix: &str, depth: usize, out: &mut String) {
         }
         out.push_str(&format!("{}格式: {}\n", pad, usage_of(cmd, &full)));
         render_args(cmd, &pad, out);
-        render_subs(cmd, &format!("{}  ", pad), "子命令:", out);
+        render_subs(cmd, &format!("{}  ", pad), "Subcommands:", out);
     }
     let sub_prefix: &str = if depth == 0 { "" } else { &full };
     for sub in cmd.get_subcommands() {
@@ -65,7 +65,7 @@ fn render_args(cmd: &Command, pad: &str, out: &mut String) {
     }
     let opts: Vec<&clap::Arg> = cmd.get_arguments().filter(|a| !a.is_positional()).collect();
     if !opts.is_empty() {
-        out.push_str(&format!("{}选项:\n", pad));
+        out.push_str(&format!("{}Options:\n", pad));
         for a in opts {
             let long = a.get_long().unwrap_or("");
             let is_sub = crate::SUBITEMS.iter().any(|(_, ch)| ch.contains(&long));
@@ -96,6 +96,10 @@ pub(crate) fn usage_of(cmd: &Command, full: &str) -> String {
     let u = u.lines().find(|l| l.contains("Usage:"))
         .map(|l| l.trim_start().trim_start_matches("Usage: ").to_string())
         .unwrap_or_else(|| format!("fqdt {}", cmd.get_name()));
+    // 词表大小写（m0160/m0162）：clap 全大写占位 → Options / Subcommands / Subcommand
+    let u = u.replace("[OPTIONS]", "[Options]")
+        .replace("[SUBCOMMANDS]", "[Subcommands]")
+        .replace("<COMMAND>", "<Subcommand>");
     let u = if u.starts_with("fqdt ") { u } else { format!("fqdt {u}") };
     let name = format!("fqdt {} ", cmd.get_name());
     match u.strip_prefix(&name) {
@@ -175,8 +179,8 @@ fqdt api 把任意端点路径交给 fqapi 核心执行，自动携带签名与�
 const API_TAIL: &str = "
 ━━━ 各命令底层的 API 请求格式 ━━━
 
-fqdt search <关键词> -p N
-  GET /api/v1/search?query=<关键词>&page=<N>&tab_type=1     综合搜索，tab_type 1综合 3小说 2听书
+fqdt search <key> -p N
+  GET /api/v1/search?query=<key>&page=<N>&tab_type=1     综合搜索，tab_type 1综合 3小说 2听书
 
 fqdt info overview <id|key>
   GET /api/v1/books/{book_id}/detail                       书籍详情：标题/作者/热度/简介

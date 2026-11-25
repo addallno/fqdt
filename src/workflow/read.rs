@@ -5,9 +5,10 @@
 //! 藏目录与帮助栏）。进度模型（章 item_id + 行偏移）抄 `rereader`；内容源接
 //! fqdt `fetch_content`。
 //!
-//! 键位（正文焦点）：`j/k` 行滚 · `d/u` 半页 · `g/G` 章首尾 · `n/p` 切章 ·
-//! `Tab` 进目录 · `z` zen · `q` 退出（存进度）。目录焦点：`j/k` 选择 ·
-//! `Enter` 跳转 · `Tab/Esc` 回正文。滚到底再按 `j` 自动进下一章。
+//! 键位（91 大重设计，m0130）：正文焦点 `j/k/↑↓` 段落光标 · `,`.` 翻 2/3、1/2 页 ·
+//! `<>`/`n/p` 切章 · `space` 查看光标处图片 · `d/u/g/G` 行滚 · `Tab` 目录 ·
+//! `z` zen · `?` 帮助 · `q` 退出。目录焦点：`j/k` 选择 · `Enter` 跳转 ·
+//! `Tab/Esc` 回正文。翻页方式由 `ui.page_mode` 决定（左右/上下渲染，90）。
 
 use crate::api::{self, Client};
 use crate::store::{self, ReadPos};
@@ -25,10 +26,25 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{Frame, Terminal};
 use std::io::{IsTerminal, Stdout};
 
-const HELP: &str = "j/k 滚动 · d/u 半页 · n/p 章节 · i 放大图 · Tab 目录 · z zen · q 退出";
+const HELP: &str = "j/k 段光标 · ,. 翻页 · <> 章节 · space 看图 · Tab 目录 · z zen · ? 帮助 · q 退出";
 const HELP_NAV: &str = "j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退出";
 /// 左目录面板宽度（bookokrat nav_width 同思路，定宽）
 const NAV_W: u16 = 28;
+
+/// 段落种类（91）：文本段可高亮，图片段不高亮（space 查看）。
+#[derive(PartialEq, Clone, Debug)]
+enum ParaKind {
+    Text,
+    Image(String),
+}
+
+/// 段落：行区间 [start, end)，供段落光标导航（91）。
+#[derive(PartialEq, Clone, Debug)]
+struct Para {
+    start: usize,
+    end: usize,
+    kind: ParaKind,
+}
 
 /// 焦点面板（bookokrat FocusedPanel/MainPanel 简化版）。
 #[derive(PartialEq, Clone, Copy)]
@@ -56,6 +72,10 @@ struct Reader {
     img_focus: Option<String>,
     /// 图块行区间 (start, end, url)（wrap 时记录，供 i 键聚焦）
     imgs: Vec<(usize, usize, String)>,
+    /// 段落列表（91，rebuild_paras 重建）
+    paras: Vec<Para>,
+    /// 段落光标（paras 索引，91）
+    cursor: usize,
 }
 
 /// 按键动作（由 on_key 判定，循环里执行）。
@@ -68,6 +88,10 @@ enum Action {
     ToggleZen,
     /// 目录：跳到选中章
     GotoSel,
+    /// 段落光标移动（91）：±1 段，端点钳制；图片段可停留
+    CursorMove(i32),
+    /// space 查看光标处图片（91）：光标段为图 → 聚焦，否则无操作
+    SpaceImg,
     /// 目录：焦点回到正文
     BackContent,
     /// 放大查看图片（77）
@@ -96,6 +120,8 @@ impl Reader {
             msg: String::new(),
             img_focus: None,
             imgs: Vec::new(),
+            paras: Vec::new(),
+            cursor: 0,
         }
     }
 
@@ -209,14 +235,36 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
         Action::PrevCh if rd.cur > 0 => {
             rd.cur -= 1;
             rd.scroll = 0;
+            rd.cursor = 0;
+            rd.paras.clear();
             rd.need_load = true;
         }
         Action::NextCh if rd.cur + 1 < rd.chs.len() => {
             rd.cur += 1;
             rd.scroll = 0;
+            rd.cursor = 0;
+            rd.paras.clear();
             rd.need_load = true;
         }
-        Action::Scroll(d) => scroll_by(rd, d, height),
+        Action::Scroll(d) => {
+            scroll_by(rd, d, height);
+            sync_cursor_from_view(rd, height);
+        }
+        Action::CursorMove(d) => {
+            if !rd.paras.is_empty() {
+                let n = rd.paras.len() as i64;
+                rd.cursor = ((rd.cursor as i64 + d as i64).clamp(0, n - 1)) as usize;
+                ensure_cursor_visible(rd, height);
+            }
+        }
+        Action::SpaceImg => {
+            // 光标段是图片才聚焦（91：space 专用于查看/放大）
+            if let Some(p) = rd.paras.get(rd.cursor) {
+                if let ParaKind::Image(url) = &p.kind {
+                    rd.img_focus = Some(url.clone());
+                }
+            }
+        }
         Action::ToggleFocus => {
             rd.focus = match rd.focus {
                 Focus::Content => Focus::Nav,
@@ -235,6 +283,8 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
             if rd.sel < rd.chs.len() && rd.sel != rd.cur {
                 rd.cur = rd.sel;
                 rd.scroll = 0;
+                rd.cursor = 0;
+                rd.paras.clear();
                 rd.need_load = true;
             }
             rd.focus = Focus::Content;
@@ -271,6 +321,8 @@ async fn reload(rd: &mut Reader, api: &Client, width: u16) -> Result<(), String>
             let (lines, imgs) = wrap_with_imgs(&rd.raw, rd.content_width(width));
             rd.lines = lines;
             rd.imgs = imgs;
+            rd.cursor = 0;
+            rebuild_paras(rd);
             rd.msg.clear();
             Ok(())
         }
@@ -278,6 +330,8 @@ async fn reload(rd: &mut Reader, api: &Client, width: u16) -> Result<(), String>
             rd.raw.clear();
             rd.lines = Vec::new();
             rd.imgs.clear();
+            rd.paras.clear();
+            rd.cursor = 0;
             rd.msg = format!("加载失败: {}", e);
             Ok(())
         }
@@ -317,6 +371,7 @@ fn rewrap(rd: &mut Reader, width: u16) {
     let (lines, imgs) = wrap_with_imgs(&rd.raw, width);
     rd.lines = lines;
     rd.imgs = imgs;
+    rebuild_paras(rd);
 }
 
 /// 含图片标记的折行：`{{IMG:url}}` 独占行展开为图片块/占位，其余行走 wrap_text。
@@ -361,6 +416,92 @@ fn push_img_block(out: &mut Vec<Line<'static>>, url: &str, width: u16) {
 }
 
 /// 滚动：上/下界钳制；滚到底再向下 → 自动进下一章。
+/// 由行+图区间重建段落列表（91）。文本段=非空行连续块；图区间独立成段。
+fn build_paras(lines: &[Line<'static>], imgs: &[(usize, usize, String)]) -> Vec<Para> {
+    let n = lines.len();
+    let mut img_at = vec![false; n];
+    let mut img_url: Vec<Option<String>> = vec![None; n];
+    for (st, en, url) in imgs {
+        for i in *st..(*en).min(n) {
+            img_at[i] = true;
+            img_url[i] = Some(url.clone());
+        }
+    }
+    let blank = |l: &Line<'static>| l.spans.iter().all(|s| s.content.trim().is_empty());
+    let mut paras = Vec::new();
+    let mut i = 0usize;
+    while i < n {
+        if img_at[i] {
+            let start = i;
+            let url = img_url[i].clone().unwrap_or_default();
+            while i < n && img_at[i] {
+                i += 1;
+            }
+            paras.push(Para { start, end: i, kind: ParaKind::Image(url) });
+        } else if !blank(&lines[i]) {
+            let start = i;
+            while i < n && !img_at[i] && !blank(&lines[i]) {
+                i += 1;
+            }
+            paras.push(Para { start, end: i, kind: ParaKind::Text });
+        } else {
+            i += 1;
+        }
+    }
+    paras
+}
+
+/// 重折/换章后重建段落并保持光标在原行附近（91）。
+fn rebuild_paras(rd: &mut Reader) {
+    let old_line = rd.paras.get(rd.cursor).map(|p| p.start);
+    rd.paras = build_paras(&rd.lines, &rd.imgs);
+    if rd.paras.is_empty() {
+        rd.cursor = 0;
+        return;
+    }
+    rd.cursor = match old_line {
+        Some(l) => rd
+            .paras
+            .iter()
+            .position(|p| p.start >= l)
+            .unwrap_or(rd.paras.len() - 1),
+        None => 0,
+    };
+}
+
+/// 光标段移出视窗时拉回 scroll（顶对齐/底对齐，91）。
+fn ensure_cursor_visible(rd: &mut Reader, height: u16) {
+    let Some(p) = rd.paras.get(rd.cursor) else { return };
+    let view = height.saturating_sub(2).max(1) as usize;
+    let (top, bot) = (p.start, p.end.max(p.start + 1));
+    let scroll = rd.scroll as usize;
+    if top < scroll {
+        rd.scroll = top as u16;
+    } else if bot > scroll + view {
+        rd.scroll = (bot - view) as u16;
+    }
+}
+
+/// 行滚动后光标跟随视窗（仍可见则不动，91）。
+fn sync_cursor_from_view(rd: &mut Reader, height: u16) {
+    if rd.paras.is_empty() {
+        return;
+    }
+    let view = height.saturating_sub(2).max(1) as usize;
+    let lo = rd.scroll as usize;
+    let hi = lo + view;
+    if let Some(p) = rd.paras.get(rd.cursor) {
+        if p.end > lo && p.start < hi {
+            return;
+        }
+    }
+    rd.cursor = rd
+        .paras
+        .iter()
+        .position(|p| p.end > lo && p.start < hi)
+        .unwrap_or(rd.paras.len() - 1);
+}
+
 fn scroll_by(rd: &mut Reader, delta: i32, height: u16) {
     let view = height.saturating_sub(2).max(1);
     let max = rd.lines.len().saturating_sub(view as usize) as i64;
@@ -401,17 +542,28 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
     }
     match rd.focus {
         Focus::Content => {
-            let half = (height.saturating_sub(4) / 2).max(1) as i32;
+            let view = height.saturating_sub(4).max(2) as i32;
+            let half = (view / 2).max(1);
+            let two_third = (view * 2 / 3).max(1);
             match code {
                 KeyCode::Esc => Action::FocusToc,
-                KeyCode::Char('j') | KeyCode::Down => Action::Scroll(1),
-                KeyCode::Char('k') | KeyCode::Up => Action::Scroll(-1),
-                KeyCode::Char('d') | KeyCode::PageDown => Action::Scroll(half),
-                KeyCode::Char('u') | KeyCode::PageUp => Action::Scroll(-half),
+                // 段落光标（91）：j/k/↑↓ 移动选中段
+                KeyCode::Char('j') | KeyCode::Down => Action::CursorMove(1),
+                KeyCode::Char('k') | KeyCode::Up => Action::CursorMove(-1),
+                // 翻页：`.` 半页下、`,` 2/3 页上；方向键左右整页（91/90）
+                KeyCode::Char('.') | KeyCode::PageDown => Action::Scroll(half),
+                KeyCode::Char(',') | KeyCode::PageUp => Action::Scroll(-two_third),
+                KeyCode::Right => Action::Scroll(view),
+                KeyCode::Left => Action::Scroll(-view),
+                KeyCode::Char('d') => Action::Scroll(half),
+                KeyCode::Char('u') => Action::Scroll(-half),
                 KeyCode::Char('g') | KeyCode::Home => Action::Scroll(-(i32::MAX / 2)),
                 KeyCode::Char('G') | KeyCode::End => Action::Scroll(i32::MAX / 2),
-                KeyCode::Char('n') | KeyCode::Right | KeyCode::Char(' ') => Action::NextCh,
-                KeyCode::Char('p') | KeyCode::Left => Action::PrevCh,
+                // 切章（91）：<> 为主，n/p 保留兼容
+                KeyCode::Char('>') | KeyCode::Char('n') => Action::NextCh,
+                KeyCode::Char('<') | KeyCode::Char('p') => Action::PrevCh,
+                // space 查看光标处图片（91）
+                KeyCode::Char(' ') => Action::SpaceImg,
                 KeyCode::Char('t') => Action::FocusToc,
                 _ => Action::Scroll(0),
             }
@@ -423,8 +575,8 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
             KeyCode::Char('G') => Action::SelMove(i32::MAX / 2),
             KeyCode::Enter => Action::GotoSel,
             KeyCode::Esc => Action::BackContent,
-            KeyCode::Char('n') | KeyCode::Right => Action::NextCh,
-            KeyCode::Char('p') | KeyCode::Left => Action::PrevCh,
+            KeyCode::Char('>') | KeyCode::Char('n') => Action::NextCh,
+            KeyCode::Char('<') | KeyCode::Char('p') => Action::PrevCh,
             _ => Action::SelMove(0),
         },
     }
@@ -501,7 +653,7 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
         .split(f.area());
     f.render_widget(Paragraph::new(top_line(rd)), chunks[0]);
     f.render_widget(
-        Paragraph::new(rd.lines.clone()).scroll((rd.scroll, 0)),
+        Paragraph::new(highlight_lines(rd)).scroll((rd.scroll, 0)),
         chunks[1],
     );
 }
@@ -591,10 +743,23 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         .split(inner);
     f.render_widget(Paragraph::new(top_line(rd)).style(body_style), body[0]);
     f.render_widget(
-        Paragraph::new(rd.lines.clone()).style(body_style).scroll((rd.scroll, 0)),
+        Paragraph::new(highlight_lines(rd)).style(body_style).scroll((rd.scroll, 0)),
         body[1],
     );
     f.render_widget(block, area);
+}
+
+/// 段落光标高亮（91）：文本段整段换背景色（不同色）；图片段不高亮。
+fn highlight_lines(rd: &Reader) -> Vec<Line<'static>> {
+    let mut lines = rd.lines.clone();
+    if let Some(p) = rd.paras.get(rd.cursor) {
+        if p.kind == ParaKind::Text {
+            for l in lines.iter_mut().skip(p.start).take(p.end.saturating_sub(p.start)) {
+                *l = l.clone().style(util::bg(DIM));
+            }
+        }
+    }
+    lines
 }
 
 /// 顶行：书名 · 章节 · 行进度（zen 与正文共用）。
@@ -763,13 +928,95 @@ mod tests {
         let rd = Reader::new("t".into(), vec![]);
         let h = 24;
         assert!(matches!(on_key(KeyCode::Char('q'), &rd, h), Action::Quit));
-        assert!(matches!(on_key(KeyCode::Char('j'), &rd, h), Action::Scroll(1)));
-        assert!(matches!(on_key(KeyCode::Char('k'), &rd, h), Action::Scroll(-1)));
+        // 91 新键位：j/k/↑↓ = 段落光标
+        assert!(matches!(on_key(KeyCode::Char('j'), &rd, h), Action::CursorMove(1)));
+        assert!(matches!(on_key(KeyCode::Char('k'), &rd, h), Action::CursorMove(-1)));
+        assert!(matches!(on_key(KeyCode::Down, &rd, h), Action::CursorMove(1)));
+        assert!(matches!(on_key(KeyCode::Up, &rd, h), Action::CursorMove(-1)));
+        // <> 切章（n/p 兼容保留）
+        assert!(matches!(on_key(KeyCode::Char('>'), &rd, h), Action::NextCh));
+        assert!(matches!(on_key(KeyCode::Char('<'), &rd, h), Action::PrevCh));
         assert!(matches!(on_key(KeyCode::Char('n'), &rd, h), Action::NextCh));
         assert!(matches!(on_key(KeyCode::Char('p'), &rd, h), Action::PrevCh));
+        // ,. 翻 2/3、1/2 页；左右整页
+        assert!(matches!(on_key(KeyCode::Char(','), &rd, h), Action::Scroll(d) if d < 0));
+        assert!(matches!(on_key(KeyCode::Char('.'), &rd, h), Action::Scroll(d) if d > 0));
+        assert!(matches!(on_key(KeyCode::Left, &rd, h), Action::Scroll(d) if d < 0));
+        assert!(matches!(on_key(KeyCode::Right, &rd, h), Action::Scroll(d) if d > 0));
+        // space = 查看光标处图片（非切章）
+        assert!(matches!(on_key(KeyCode::Char(' '), &rd, h), Action::SpaceImg));
         assert!(matches!(on_key(KeyCode::Char('z'), &rd, h), Action::ToggleZen));
         assert!(matches!(on_key(KeyCode::Tab, &rd, h), Action::ToggleFocus));
         assert!(matches!(on_key(KeyCode::Esc, &rd, h), Action::FocusToc));
+    }
+
+    /// 91：段落切分——文本段按空行分，图区间独立成段。
+    #[test]
+    fn paras_split_text_and_image() {
+        let lines = vec![
+            Line::from("段一行"),
+            Line::from("段一行续"),
+            Line::default(),          // 空行分隔
+            Line::from("段二行"),
+            Line::default(),
+            Line::from("[图占位]"),   // 图块行
+            Line::default(),
+            Line::from("段三行"),
+        ];
+        let imgs = vec![(5, 6, "http://x/y.png".to_string())];
+        let paras = build_paras(&lines, &imgs);
+        assert_eq!(paras.len(), 4, "文本三段+图一段: {:?}", paras);
+        assert_eq!(paras[0], (Para { start: 0, end: 2, kind: ParaKind::Text }));
+        assert_eq!(paras[1].start, 3);
+        assert!(matches!(paras[2].kind, ParaKind::Image(ref u) if u == "http://x/y.png"));
+        assert_eq!(paras[2].start, 5);
+        assert_eq!(paras[3].start, 7);
+    }
+
+    /// 91：space 光标在图段才聚焦；文本段无操作。
+    #[test]
+    fn space_focuses_cursor_image_only() {
+        let mut rd = Reader::new("t".into(), vec![]);
+        rd.lines = vec![Line::from("a"), Line::from("[图]"), Line::from("b")];
+        rd.imgs = vec![(1, 2, "u://img".to_string())];
+        rebuild_paras(&mut rd);
+        assert_eq!(rd.paras.len(), 3);
+        rd.cursor = 0;
+        // 文本段 space → 无聚焦
+        apply_action(Action::SpaceImg, &mut rd, 24);
+        assert!(rd.img_focus.is_none());
+        // 图段 space → 聚焦
+        rd.cursor = 1;
+        apply_action(Action::SpaceImg, &mut rd, 24);
+        assert_eq!(rd.img_focus.as_deref(), Some("u://img"));
+        // 关图
+        apply_action(Action::CloseImg, &mut rd, 24);
+        assert!(rd.img_focus.is_none());
+    }
+
+    /// 91：光标移动钳制端点且保持可见。
+    #[test]
+    fn cursor_move_clamps_and_visible() {
+        let mut rd = Reader::new("t".into(), vec![]);
+        rd.lines = (0..100).map(|i| Line::from(format!("L{i}"))).collect();
+        rebuild_paras(&mut rd);
+        // 单行连续非空 → 全部一行一段？空行无 → 1 段
+        assert_eq!(rd.paras.len(), 1);
+        apply_action(Action::CursorMove(5), &mut rd, 24);
+        assert_eq!(rd.cursor, 0, "只有一段，钳制在 0");
+        apply_action(Action::CursorMove(-5), &mut rd, 24);
+        assert_eq!(rd.cursor, 0);
+
+        // 多段：插入空行
+        rd.lines.insert(50, Line::default());
+        rebuild_paras(&mut rd);
+        assert_eq!(rd.paras.len(), 2);
+        apply_action(Action::CursorMove(1), &mut rd, 24);
+        assert_eq!(rd.cursor, 1);
+        // 第二段 start=51 远超视窗 → ensure 拉回 scroll
+        assert!(rd.scroll >= 51 - 24, "scroll={}", rd.scroll);
+        apply_action(Action::CursorMove(-1), &mut rd, 24);
+        assert_eq!(rd.cursor, 0);
     }
 
     #[test]

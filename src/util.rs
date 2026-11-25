@@ -21,10 +21,9 @@ pub fn init_color() {
 #[derive(Clone, Copy)]
 pub struct Color(&'static str);
 
-/// 语义色 → ratatui Style（TUI 用；色值仍单点来自本文件）。
-pub fn fg(c: Color) -> ratatui::style::Style {
-    use ratatui::style::{Color as TColor, Style};
-    Style::default().fg(match c.0 {
+fn to_tcolor(c: Color) -> ratatui::style::Color {
+    use ratatui::style::Color as TColor;
+    match c.0 {
         "0" => TColor::Reset,
         "2" => TColor::DarkGray,
         "31" => TColor::Red,
@@ -35,7 +34,17 @@ pub fn fg(c: Color) -> ratatui::style::Style {
         "1;36" => TColor::Cyan,
         "1;4" => TColor::Reset,
         _ => TColor::Reset,
-    })
+    }
+}
+
+/// 语义色 → ratatui Style（TUI 用；色值仍单点来自本文件）。
+pub fn fg(c: Color) -> ratatui::style::Style {
+    ratatui::style::Style::default().fg(to_tcolor(c))
+}
+
+/// 语义色 → 背景 Style（91 段落光标高亮；色值仍单点来自本文件）。
+pub fn bg(c: Color) -> ratatui::style::Style {
+    ratatui::style::Style::default().bg(to_tcolor(c))
 }
 
 impl std::fmt::Display for Color {

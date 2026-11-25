@@ -68,7 +68,7 @@ enum Cmd {
     /// 搜索小说
     #[command(display_order = 10)]
     Search {
-        #[arg(help = "搜索关键词")]
+        #[arg(value_name = "key", help = "搜索 key")]
         keyword: String,
         #[arg(short='p', long, default_value="1", help = "页码")]
         page: usize,
@@ -82,7 +82,7 @@ enum Cmd {
         jobs: Option<usize>,
         #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-（仅 -D）")]
         range: Option<String>,
-        #[arg(short='t', long, help = "输出格式: txt / epub（仅 -D）")]
+        #[arg(short='t', long, value_name = "type", help = "输出格式: txt / epub（仅 -D）")]
         format: Option<String>,
         #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒（仅 -D）")]
         interval: u64,
@@ -99,13 +99,13 @@ enum Cmd {
     #[command(alias = "d")]
     #[command(display_order = 20)]
     Download {
-        #[arg(value_name = "id|path", help = "id、书名关键词或已下载目录")]
+        #[arg(value_name = "id|path", help = "id、key 或已下载目录")]
         book_id: String,
         #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
         #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-")]
         range: Option<String>,
-        #[arg(short='t', long, help = "输出格式: txt / epub")]
+        #[arg(short='t', long, value_name = "type", help = "输出格式: txt / epub")]
         format: Option<String>,
         #[arg(short='j', long, help = "并发数")]
         jobs: Option<usize>,
@@ -118,7 +118,7 @@ enum Cmd {
     #[command(alias = "a")]
     #[command(display_order = 21)]
     Audio {
-        #[arg(value_name = "id|key", help = "id 或书名关键词")]
+        #[arg(value_name = "id|key", help = "id 或 key")]
         book_id: String,
         #[arg(short='o', long, help = "输出目录")]
         output: Option<String>,
@@ -147,7 +147,7 @@ enum Cmd {
     #[command(alias = "u")]
     #[command(display_order = 22)]
     Update {
-        #[arg(value_name = "id|path", help = "id、书名关键词或已下载目录")]
+        #[arg(value_name = "id|path", help = "id、key 或已下载目录")]
         target: String,
         #[arg(short='o', long, help = "输出目录")]
         output: Option<String>,
@@ -211,7 +211,7 @@ enum Cmd {
     /// 透传调用 fqapi 端点
     #[command(display_order = 41)]
     Api {
-        /// 端点路径
+        #[arg(value_name = "path", help = "端点路径")]
         path: Option<String>,
         /// HTTP 方法
         #[arg(short = 'X', long, default_value = "GET", help = "HTTP 方法")]
@@ -235,7 +235,7 @@ enum Cmd {
     /// 阅读书籍
     #[command(display_order = 34, alias = "v")]
     View {
-        #[arg(value_name = "id|key", help = "id 或书名关键词")]
+        #[arg(value_name = "id|key", help = "id 或 key")]
         book_id: String,
         #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
         range: Option<String>,
@@ -262,7 +262,7 @@ enum Cmd {
 enum InfoCmd {
     /// 概览：标题/热度/简介 + 前 N 章 + 前 N 条书评
     Overview {
-        /// id 或书名关键词
+        /// id 或 key
         #[arg(value_name = "id|key")]
         book_id: String,
         #[arg(short = 'r', long, help = "章节范围")]
@@ -274,24 +274,24 @@ enum InfoCmd {
     },
     /// 目录（含 item_id）
     Chapters {
-        #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String,
+        #[arg(value_name = "id|key", help = "id 或 key")] book_id: String,
         #[arg(short = 'r', long, help = "章节范围")]
         range: Option<String>,
         #[arg(long, help = "加入云端书架")]
         add: bool,
     },
     /// 完整简介
-    Intro { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Intro { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 作者资料与书单
-    Author { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Author { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 书评
-    Comments { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Comments { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 封面图 URL
-    Cover { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Cover { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 相关推荐
-    Relative { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Relative { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 本书可用 AI 音色
-    Audio { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Audio { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 首页推荐
     Recommend {
         #[arg(long, default_value = "2", help = "区块类型")]
@@ -311,11 +311,11 @@ enum InfoCmd {
         json: bool,
     },
     /// 云端文件夹
-    Folders { #[arg(long, value_name = "KEYWORD", help = "关键词过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
+    Folders { #[arg(long, value_name = "key", help = "key 过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
     /// 阅读历史
-    History { #[arg(long, value_name = "KEYWORD", help = "关键词过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
+    History { #[arg(long, value_name = "key", help = "key 过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
     /// 阅读进度
-    Progress { #[arg(long, value_name = "KEYWORD", help = "关键词过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
+    Progress { #[arg(long, value_name = "key", help = "key 过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
     /// 账号信息
     User { #[arg(long, help = "输出原始 JSON")] json: bool },
     /// 划线笔记
@@ -332,7 +332,7 @@ enum ShelfCmd {
         group: Option<String>,
         #[arg(long, help = "显示本地书架")]
         local: bool,
-        #[arg(long, value_name = "KEYWORD", help = "关键词过滤")]
+        #[arg(long, value_name = "key", help = "key 过滤")]
         search: Option<String>,
         #[arg(long, help = "逐本拉取作者")]
         author: bool,
@@ -549,7 +549,7 @@ fn render_flag(sub: &str, flag: &str, d: &FlagDoc) {
     let name = flag.trim_start_matches('-').to_uppercase();
     let usage = if d.takes_value { format!("{flag} <{name}>") } else { flag.to_string() };
     crate::emit_line(&format!("  {CYAN}{usage}{RST}  {YELLOW}{}{RST}", d.brief));
-    crate::emit_line(&format!("  {DIM}子命令 fqdt {sub} · 优先级 flag > config{RST}"));
+    crate::emit_line(&format!("  {DIM}Subcommand fqdt {sub} · 优先级 flag > config{RST}"));
     crate::emit_line("");
     for (k, v) in d.fields {
         crate::emit_line(&format!("    {k:<4}  {v}"));
@@ -705,15 +705,15 @@ fn render_sub_help(path: &[String], examples: bool) {
     if path.len() == 1 && path[0] == "help" {
         crate::emit_line("查看帮助");
         crate::emit_line("");
-        crate::emit_line(&format!("{TITLE}Usage:{RST} fqdt help [<命令>]"));
+        crate::emit_line(&format!("{TITLE}Usage:{RST} fqdt help [subcommands]"));
         crate::emit_line("");
         crate::emit_line(&format!("{TITLE}Arguments:{RST}"));
-        crate::emit_line("  <命令>   要查看帮助的子命令（如 search、view）；省略显示顶层帮助");
+        crate::emit_line("  subcommands   显示关于该命令及其选项的帮助");
         crate::emit_line("");
-        crate::emit_line(&format!("{TITLE}帮助入口:{RST}"));
-        crate::emit_line("  fqdt -h / fqdt              顶层分组帮助");
-        crate::emit_line("  fqdt help <命令>            子命令帮助（同 fqdt <命令> -h）");
-        crate::emit_line("  fqdt <命令> <flag> --help   单个 flag 与配置项详情");
+        render_commands(&Cli::command());
+        crate::emit_line("");
+        crate::emit_line(&format!("{TITLE}Options:{RST}"));
+        crate::emit_line("  -h, --help   查看帮助");
         let tail = help_tail_text("help", examples);
         if !tail.is_empty() {
             crate::emit_line("");
@@ -791,7 +791,7 @@ fn render_top_help() {
     let cmd = Cli::command();
     crate::emit_line(&format!("{CYAN}fqdt{RST} — 番茄小说下载器"));
     crate::emit_line("");
-    crate::emit_line(&format!("  {DIM}用法: fqdt [OPTIONS] <COMMAND>{RST}"));
+    crate::emit_line(&format!("  {DIM}用法: fqdt [Options] <Subcommand>{RST}"));
     crate::emit_line("");
     crate::emit_line(&format!("{TITLE}Subcommands:{RST}"));
     // 分类只决定顺序，不再打印组名（用户：按顺序列出即可，看得出用途）
