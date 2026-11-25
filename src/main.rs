@@ -587,6 +587,10 @@ pub(crate) const SUBITEMS: &[(&str, &[&str])] = &[("ai", &["tone"]), ("tts", &["
 /// 路径中含非子命令 token（如未知 flag）时不拦截，交 clap / flag 详情。
 fn sub_help_requested(args: &[String]) -> Option<Vec<String>> {
     let toks: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    // `help -h` / `help --help` = help 子命令自身的帮助（内置 help 不在 find_subcommand 注册表）
+    if toks.len() == 2 && toks[0] == "help" && (toks[1] == "-h" || toks[1] == "--help") {
+        return Some(vec!["help".to_string()]);
+    }
     let path: &[&str] = if toks.first() == Some(&"help") {
         &toks[1..]
     } else {
@@ -697,6 +701,26 @@ fn render_commands(cmd: &clap::Command) {
 
 /// 自定义子命令 help：about / Usage / Arguments / Subcommands / Options（子项缩进）/ 尾部。
 fn render_sub_help(path: &[String], examples: bool) {
+    // help 子命令自身：clap 内置 help 不在 find_subcommand 注册表，手写渲染。
+    if path.len() == 1 && path[0] == "help" {
+        crate::emit_line("查看帮助");
+        crate::emit_line("");
+        crate::emit_line(&format!("{TITLE}Usage:{RST} fqdt help [<命令>]"));
+        crate::emit_line("");
+        crate::emit_line(&format!("{TITLE}Arguments:{RST}"));
+        crate::emit_line("  <命令>   要查看帮助的子命令（如 search、view）；省略显示顶层帮助");
+        crate::emit_line("");
+        crate::emit_line(&format!("{TITLE}帮助入口:{RST}"));
+        crate::emit_line("  fqdt -h / fqdt              顶层分组帮助");
+        crate::emit_line("  fqdt help <命令>            子命令帮助（同 fqdt <命令> -h）");
+        crate::emit_line("  fqdt <命令> <flag> --help   单个 flag 与配置项详情");
+        let tail = help_tail_text("help", examples);
+        if !tail.is_empty() {
+            crate::emit_line("");
+            for l in tail.lines() { crate::emit_line(l); }
+        }
+        return;
+    }
     let mut cmd = Cli::command();
     for t in path { cmd = cmd.find_subcommand(t).expect("path validated").clone(); }
     let about = cmd.get_about().map(|a| a.to_string()).unwrap_or_default();
