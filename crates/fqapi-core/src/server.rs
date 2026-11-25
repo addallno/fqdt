@@ -1,9 +1,11 @@
 //! Loopback HTTP adapter.
 //!
-//! Serves `/src/*` decrypted manga images and the `/api/v1/*` business routes to
-//! the same dispatcher the FFI bridge uses, so there is exactly one business
-//! implementation. External readers (Legado book sources, local tooling) use
-//! this adapter; there is no built-in Web UI.
+//! Serves `/src/*` cache resources (manga images, clear media, and
+//! CENC-encrypted videos decrypted range by range — P1-7) and the
+//! `/api/v1/*` business routes to the same dispatcher the FFI bridge uses,
+//! so there is exactly one business implementation. External readers
+//! (Legado book sources, local tooling) use this adapter; there is no
+//! built-in Web UI.
 //!
 //! Static file bodies are streamed from disk (with Range support) instead of
 //! being read into memory, so serving a large media file costs a bounded
@@ -33,8 +35,9 @@ use tokio_util::io::ReaderStream;
 use crate::dispatch::{dispatch, Request, ResponseBody};
 use crate::endpoints::Server;
 
-/// Largest request body accepted by the adapter. Routes currently read their
-/// arguments from the URL; accepted bodies are streamed and discarded.
+/// Upper bound for any request body the adapter drains. Only the routes that
+/// read a body retain it, under the smaller per-route cap from
+/// [`crate::dispatch::request_body_limit`].
 pub const MAX_REQUEST_BODY: usize = 64 * 1024 * 1024;
 
 pub struct LoopbackHandle {
@@ -177,6 +180,30 @@ fn refuse(status: StatusCode, message: &str) -> Response {
 }
 
 async fn handler(State(state): State<AppState>, req: axum::extract::Request) -> Response {
+    use crate::runtime::{race_dispatch, RaceOutcome};
+    use futures::StreamExt;
+
+    let token = state.server.lifetime.child_token();
+    // Body collection, dispatch, retries and file setup share this deadline.
+    // The returned stream observes shutdown, not a whole-file time limit.
+    match race_dispatch(
+        &token,
+        Some(crate::upstream::budget::HTTP_REQUEST_TIMEOUT),
+        handle_request(state, req),
+    )
+    .await
+    {
+        RaceOutcome::Cancelled => refuse(StatusCode::from_u16(499).unwrap(), "request cancelled"),
+        RaceOutcome::TimedOut => refuse(StatusCode::GATEWAY_TIMEOUT, "request deadline exceeded"),
+        RaceOutcome::Done(response) => {
+            let (parts, body) = response.into_parts();
+            let stream = body.into_data_stream().take_until(token.cancelled_owned());
+            Response::from_parts(parts, Body::from_stream(stream))
+        }
+    }
+}
+
+async fn handle_request(state: AppState, req: axum::extract::Request) -> Response {
     // Refuse before touching the body so a foreign page cannot make us read it.
     if let Some(reason) = refusal(req.headers(), state.port, state.mode) {
         return refuse(StatusCode::FORBIDDEN, reason);
@@ -229,23 +256,27 @@ async fn handler(State(state): State<AppState>, req: axum::extract::Request) -> 
             )
         })
         .collect();
-    // The dispatcher and every current endpoint ignore request bodies. Drain
-    // them in bounded frames to preserve the size limit without retaining a
-    // whole payload or copying it into Request::body.
-    if let Err(status) = discard_request_body(req.into_body()).await {
-        let message = if status == StatusCode::PAYLOAD_TOO_LARGE {
-            "request body too large"
-        } else {
-            "failed to read request body"
-        };
-        return refuse(status, message);
-    }
+    // Only the account routes read a request body; every other route takes
+    // its arguments from the URL, so those bodies are drained in bounded
+    // frames without being retained.
+    let body = match crate::dispatch::request_body_limit(&request_path) {
+        Some(limit) => match read_request_body(req.into_body(), limit).await {
+            Ok(body) => body,
+            Err(status) => return refuse(status, body_error_message(status)),
+        },
+        None => {
+            if let Err(status) = discard_request_body(req.into_body()).await {
+                return refuse(status, body_error_message(status));
+            }
+            Vec::new()
+        }
+    };
     let server = state.server;
     let request = Request {
         method,
         path: request_path,
         query: uri.query().unwrap_or("").to_string(),
-        body: Vec::new(),
+        body,
         headers,
     };
     let resp = dispatch(&server, &request).await;
@@ -284,7 +315,45 @@ async fn handler(State(state): State<AppState>, req: axum::extract::Request) -> 
                 .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
             Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         },
+        ResponseBody::FileDecrypted {
+            path,
+            offset,
+            length,
+            index,
+            key,
+            ..
+        } => match stream_decrypted_file(&path, offset, length, index, &key).await {
+            Ok(body) => builder
+                .body(body)
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        },
     }
+}
+
+fn body_error_message(status: StatusCode) -> &'static str {
+    if status == StatusCode::PAYLOAD_TOO_LARGE {
+        "request body too large"
+    } else {
+        "failed to read request body"
+    }
+}
+
+/// Reads a request body into memory, refusing once it exceeds `limit`.
+async fn read_request_body(mut body: Body, limit: usize) -> Result<Vec<u8>, StatusCode> {
+    use http_body_util::BodyExt;
+
+    let mut out = Vec::new();
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|_| StatusCode::BAD_REQUEST)?;
+        if let Ok(data) = frame.into_data() {
+            if out.len().saturating_add(data.len()) > limit {
+                return Err(StatusCode::PAYLOAD_TOO_LARGE);
+            }
+            out.extend_from_slice(&data);
+        }
+    }
+    Ok(out)
 }
 
 async fn discard_request_body(mut body: Body) -> Result<(), StatusCode> {
@@ -318,6 +387,43 @@ async fn stream_file(path: &std::path::Path, offset: u64, length: u64) -> Result
         limited,
         64 * 1024,
     )))
+}
+
+/// Streams a range of a CENC-encrypted cache file, decrypting each chunk at
+/// its absolute file offset as it passes (P1-7). Chunks arrive sequentially,
+/// and the transform is position-exact, so chunk boundaries do not matter.
+async fn stream_decrypted_file(
+    path: &std::path::Path,
+    offset: u64,
+    length: u64,
+    index: Arc<crate::endpoints::video::CencIndex>,
+    key: &[u8],
+) -> Result<Body, String> {
+    use futures::StreamExt;
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .map_err(|e| format!("open {}: {e}", path.display()))?;
+    if offset > 0 {
+        file.seek(std::io::SeekFrom::Start(offset))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    let limited = file.take(length);
+    let key = key.to_vec();
+    let mut pos = offset;
+    let stream = ReaderStream::with_capacity(limited, 64 * 1024).map(move |chunk| {
+        chunk.map(|bytes| {
+            let mut buf = bytes.to_vec();
+            // The key was validated when the response was built; a failure
+            // here can only come from a torn read, and passing the chunk
+            // through untransformed is no worse than the I/O error path.
+            let _ = crate::endpoints::video::apply_cenc_index(&mut buf, pos, &index, &key);
+            pos += buf.len() as u64;
+            axum::body::Bytes::from(buf)
+        })
+    });
+    Ok(Body::from_stream(stream))
 }
 
 #[cfg(test)]

@@ -712,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "fqapi_core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes",
  "axum",
@@ -738,7 +738,6 @@ dependencies = [
  "sha2",
  "tokio",
  "tokio-util",
- "tower",
  "tower-http",
  "url",
  "webpki-roots",
@@ -747,7 +746,7 @@ dependencies = [
 
 [[package]]
 name = "fqdt"
-version = "0.34.0"
+version = "0.35.0"
 dependencies = [
  "base64 0.22.1",
  "clap",
@@ -2042,6 +2041,7 @@ checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
 dependencies = [
  "base64 0.23.1",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
