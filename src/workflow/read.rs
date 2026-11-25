@@ -803,7 +803,14 @@ fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
         .skip(start)
         .take(inner_h.max(1))
         .map(|(i, c)| {
-            let mark = if i == rd.cur { "▶ " } else { "  " };
+            // 83：选中行恒有箭头——cur=▶（阅读位）、sel≠cur=▸（选择箭头）
+            let mark = if i == rd.cur {
+                "▶ "
+            } else if i == rd.sel {
+                "▸ "
+            } else {
+                "  "
+            };
             let title = format!("{}{}", mark, c.title);
             if i == rd.sel {
                 Line::from(Span::styled(
@@ -1045,6 +1052,42 @@ mod tests {
         assert_eq!(lines[1].to_string(), "一".repeat(12));
         assert_eq!(lines[2].to_string(), "一".repeat(7));
         assert_eq!(lines[3].to_string(), "");
+    }
+
+
+    /// 83：目录选中行恒显选择箭头 + 章题头部完整（m0085-1）。
+    #[test]
+    fn toc_selected_row_shows_arrow_and_full_title() {
+        use ratatui::{Terminal, backend::TestBackend};
+        let chs = vec![
+            Chapter { index: 1, item_id: "a".into(), title: "第171章 前章标题".into() },
+            Chapter { index: 2, item_id: "b".into(), title: "第172章 编外也是编".into() },
+            Chapter { index: 3, item_id: "c".into(), title: "第173章 很长很长的章题后面还有更多".into() },
+        ];
+        let mut rd = Reader::new("书".into(), chs);
+        rd.focus = Focus::Nav;
+        let area = ratatui::layout::Rect { x: 0, y: 0, width: 28, height: 10 };
+        // sel≠cur：选中行带 ▸ 箭头 + 章题头完整
+        rd.sel = 1;
+        rd.cur = 0;
+        let mut term = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        term.draw(|f| draw_toc(f, &rd, area)).unwrap();
+        let buf = term.backend().buffer().clone();
+        // 取 inner（去左右边框），全角归一化去空格
+        let row: String = (1..27u16).map(|x| buf[(x, 2u16)].symbol().to_string()).collect();
+        let row: String = row.chars().filter(|c| *c != ' ').collect();
+        assert!(row.starts_with('▸'), "选中行缺选择箭头: {row:?}");
+        assert!(row.contains("第172章编外也是编"), "选中行章题不完整: {row:?}");
+        // sel==cur：▶ 箭头保留
+        rd.sel = 2;
+        rd.cur = 2;
+        let mut term2 = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        term2.draw(|f| draw_toc(f, &rd, area)).unwrap();
+        let buf2 = term2.backend().buffer().clone();
+        let row2: String = (1..27u16).map(|x| buf2[(x, 3u16)].symbol().to_string()).collect();
+        let row2: String = row2.chars().filter(|c| *c != ' ').collect();
+        assert!(row2.starts_with('▶'), "sel==cur 应显 ▶: {row2:?}");
+        assert!(row2.contains("第173章"), "章题头缺失: {row2:?}");
     }
 
     /// 分栏面板标题与焦点切换渲染（m2816 视觉打磨回归）。
