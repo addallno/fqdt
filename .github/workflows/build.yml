@@ -97,9 +97,10 @@ jobs:
           SSH_OPTS="-i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -p 48022"
           R=u0_a207@47.95.13.125
           ssh $SSH_OPTS $R 'mkdir -p ~/cmd && chmod 700 ~/cmd'
+          # scp 到临时名再 mv：远端 fqdt 进程运行中直接覆盖会失败（ETXTBSY 类）
           scp -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -P 48022 \
-            dist/fqdt-aarch64-linux-musl $R:~/cmd/fqdt
-          ssh $SSH_OPTS $R 'chmod 755 ~/cmd/fqdt && ~/cmd/fqdt --version'
+            dist/fqdt-aarch64-linux-musl $R:~/cmd/fqdt.new
+          ssh $SSH_OPTS $R 'mv ~/cmd/fqdt.new ~/cmd/fqdt && chmod 755 ~/cmd/fqdt && ~/cmd/fqdt --version'
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
