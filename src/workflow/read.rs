@@ -705,7 +705,7 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(f.area());
-    f.render_widget(Paragraph::new(top_line(rd)), chunks[0]);
+    f.render_widget(Paragraph::new(top_line_fit(rd, chunks[0].width)), chunks[0]);
     f.render_widget(
         Paragraph::new(highlight_lines(rd)).scroll((rd.scroll, 0)),
         chunks[1],
@@ -795,7 +795,7 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner);
-    f.render_widget(Paragraph::new(top_line(rd)).style(body_style), body[0]);
+    f.render_widget(Paragraph::new(top_line_fit(rd, body[0].width)).style(body_style), body[0]);
     f.render_widget(
         Paragraph::new(highlight_lines(rd)).style(body_style).scroll((rd.scroll, 0)),
         body[1],
@@ -818,18 +818,40 @@ fn highlight_lines(rd: &Reader) -> Vec<Line<'static>> {
 
 /// 顶行：书名 · 章节 · 行进度（zen 与正文共用）。
 fn top_line(rd: &Reader) -> Line<'static> {
+    top_line_fit(rd, u16::MAX)
+}
+
+/// 状态行宽度自适应（批C①，m0130）：全量 → 去书名 → 仅进度 → 仅章进度 → 空行。
+/// 逐级砍到总宽 ≤ width，绝不卡半截。
+fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
     let ch = &rd.chs[rd.cur];
     let total = rd.lines.len();
     let pos = (rd.scroll as usize + 1).min(total.max(1));
-    Line::from(vec![
+    let progress = format!("  {}/{} 章 · 行 {}/{}", rd.cur + 1, rd.chs.len(), pos, total);
+    let ch_only = format!("  {}/{} 章", rd.cur + 1, rd.chs.len());
+    // 候选层级（由全到简）：(spans 构造闭包, 总显示宽)
+    let mk_full = |rd: &Reader, ch: &Chapter| Line::from(vec![
         Span::styled(rd.title.clone(), util::fg(MAGENTA)),
         Span::styled(" · ", util::fg(DIM)),
         Span::styled(ch.title.clone(), util::fg(CYAN)),
-        Span::styled(
-            format!("  {}/{} 章 · 行 {}/{}", rd.cur + 1, rd.chs.len(), pos, total),
-            util::fg(YELLOW),
-        ),
-    ])
+        Span::styled(progress.clone(), util::fg(YELLOW)),
+    ]);
+    let mk_no_title = |rd: &Reader, ch: &Chapter| Line::from(vec![
+        Span::styled(ch.title.clone(), util::fg(CYAN)),
+        Span::styled(progress.clone(), util::fg(YELLOW)),
+    ]);
+    let mk_progress = || Line::from(Span::styled(progress.trim_start().to_string(), util::fg(YELLOW)));
+    let mk_ch = || Line::from(Span::styled(ch_only.trim_start().to_string(), util::fg(YELLOW)));
+    let w = width as usize;
+    let fits = |l: &Line| l.spans.iter().map(|s| s.width()).sum::<usize>() <= w;
+    let cands = [
+        mk_full(rd, ch),
+        mk_no_title(rd, ch),
+        mk_progress(),
+        mk_ch(),
+        Line::default(),
+    ];
+    cands.into_iter().find(fits).unwrap_or_default()
 }
 
 /// 底部 3 行帮助栏（bookokrat render_help_bar 同构：通知行 + 键位行 + 边框）。
@@ -978,6 +1000,35 @@ mod tests {
     }
 
     #[test]
+    /// 批C①：状态行宽度自适应——每级总宽 ≤ 给定宽，绝不卡半截。
+    #[test]
+    fn top_line_fit_never_truncates() {
+        let chs = vec![Chapter { index: 1, item_id: "a".into(), title: "一个非常长的章节标题用来测试压缩".into() }];
+        let mut rd = Reader::new("超长书名测试用例：某某某小说的完整标题".into(), chs);
+        rd.lines = (0..50).map(|i| Line::from(format!("第{i}行内容"))).collect();
+        // 各宽度档：输出显示宽 ≤ 宽度
+        for w in [0u16, 5, 10, 16, 24, 40, 80, 200] {
+            let l = top_line_fit(&rd, w);
+            let got: usize = l.spans.iter().map(|s| s.width()).sum();
+            assert!(got <= w as usize, "width={w} 时输出宽 {got} 超限: {:?}", l.spans.iter().map(|s| s.content.to_string()).collect::<Vec<_>>());
+        }
+        // 极宽 → 全量（含书名与进度）
+        let full = top_line_fit(&rd, 200);
+        let text: String = full.spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(text.contains("超长书名"), "全量应含书名: {text}");
+        assert!(text.contains("1/1 章"), "全量应含章进度: {text}");
+        assert!(text.contains("行 1/50"), "全量应含行进度: {text}");
+        // 中宽 → 砍掉书名仍含章/行进度
+        let mid = top_line_fit(&rd, 30);
+        let mtext: String = mid.spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(!mtext.contains("超长书名"), "30 宽应砍书名: {mtext}");
+        assert!(mtext.contains("章"), "30 宽应保留章进度: {mtext}");
+        // 极窄 → 空行或极简，不 panic 不超宽
+        let tiny = top_line_fit(&rd, 3);
+        let tw: usize = tiny.spans.iter().map(|s| s.width()).sum();
+        assert!(tw <= 3, "极窄仍不超: {tw}");
+    }
+
     fn key_bindings_content() {
         let rd = Reader::new("t".into(), vec![]);
         let h = 24;
