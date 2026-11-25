@@ -129,8 +129,10 @@
 
 85. **🗑 非 zen 模式去掉底部按键提示栏（m0085-3 用户）** — 原话：「它底下那一栏按键的提示一直常驻，并且呢它占的空格很多。我们可以想一个办法把它去掉吗？在非zen mode下。」——draw_normal 的 3 行 helpbar 常驻占高；用户要去掉（非 zen）。**待办：方案——完全移除 / 改为按 ? 临时浮现 / 收进边框标题？（可问）改 draw_normal 布局。** `[ ]`
 
-86. **📐 段落缩进：正文两格、zen 非空行两格（m0085-4 用户）** — 原话：「我希望对于它显示的每一段可以添加一个两格的空格或一个缩进来表示一个段落，并且在 z mode 当中，同时对每一行非空格行除了章节以外都添加两个或一个空格。」——非 zen：每段首加两格缩进；zen：每非空行（章节标题除外）行首加两格。**待办：wrap_text/段落渲染处加缩进；zen 单独处理章节行例外。** `[ ]`
+86. **📐 段落缩进：正文两格、zen 非空行两格（m0085-4 用户）** — 原话：「我希望对于它显示的每一段可以添加一个两格的空格或一个缩进来表示一个段落，并且在 z mode 当中，同时对每一行非空格行除了章节以外都添加两个或一个空格。」——**m0091 澄清：段落两格缩进在所有模式统一（zen 与 normal 都做）**，章节标题行除外。**待办：wrap_text/段落渲染处加缩进；zen 单独处理章节行例外。** `[ ]`
 
 87. **🛠 view 快捷键只读打开外部 TUI 编辑器（m0085-5 + m0086 用户）** — 原话：「添加一个快捷键，能够以只读方式打开系统默认的tui编辑器，或者通过已经设置的环境变量或者通过已经设定的config ini或者通过flag。Like micro, leaf, nvim, glow, vim。」——view 内按某键（如 `e`）挂起 TUI→用配置的编辑器只读打开当前章文本（:ro / -R 等编辑器各异）；编辑器来源优先级：flag > config.ini > 环境变量 > 探测（nvim/vim/micro/glow/leaf）。**待办：定键位与优先级 → 实现（临时文件+spawn+恢复 TUI）→ 文档。** `[ ]`
 
 88. **🐛 key tip dock 出现怪字符 "5"（m0087 用户）** — 原话：「a strange "5" appeared in the key tip dock, like: ────… / j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退出 / 5」——目录焦点帮助栏下方多一行孤立 "5"。**待办：复现（pty Tab 后截图）→ 查 draw_helpbar/draw_toc 绘制（疑宽度溢出/残留渲染）→ 修。** `[ ]`
+
+89. **⚙ config.ini 设置默认 zen/normal 启动模式（m0091 用户）** — 原话：「I wanna set config ini have a value to set default use zen or normal.」——config.ini 加键（如 `[ui] default_zen = true/false` 或 `view_mode = zen|normal`），view 启动按它初始 zen；TUI 内 z 手动切换仍可覆盖当次。**待办：Config struct 加字段 + DEFAULT_INI 注释三要素 + read.rs 启动应用 + config init 键清单同步。** `[ ]`
