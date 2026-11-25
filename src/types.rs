@@ -106,6 +106,8 @@ pub struct Config {
     pub ui_color: bool,
     /// UI：help 底部示例（false 关闭，gh 式示例可配）
     pub ui_help_examples: bool,
+    /// UI：阅读翻页模式（90/91）：right-left=左右渲染（默认）/ up-down=上下渲染
+    pub ui_page_mode: String,
 }
 
 /// 下载工作流参数（来自 CLI 或默认值）
@@ -192,6 +194,7 @@ impl Default for Config {
             ui_clip_len: 40,
             ui_color: true,
             ui_help_examples: false,
+            ui_page_mode: "right-left".into(),
         }
     }
 }

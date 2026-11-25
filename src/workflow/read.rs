@@ -31,6 +31,13 @@ const HELP_NAV: &str = "j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退
 /// 左目录面板宽度（bookokrat nav_width 同思路，定宽）
 const NAV_W: u16 = 28;
 
+/// 翻页渲染模式（90/91）：左右=平行翻页光标保持相对段；上下=1/4 屏平移。
+#[derive(PartialEq, Clone, Copy, Debug)]
+enum PageMode {
+    RightLeft,
+    UpDown,
+}
+
 /// 段落种类（91）：文本段可高亮，图片段不高亮（space 查看）。
 #[derive(PartialEq, Clone, Debug)]
 enum ParaKind {
@@ -76,6 +83,8 @@ struct Reader {
     paras: Vec<Para>,
     /// 段落光标（paras 索引，91）
     cursor: usize,
+    /// 翻页模式（90/91，ui.page_mode）
+    page_mode: PageMode,
 }
 
 /// 按键动作（由 on_key 判定，循环里执行）。
@@ -92,6 +101,8 @@ enum Action {
     CursorMove(i32),
     /// space 查看光标处图片（91）：光标段为图 → 聚焦，否则无操作
     SpaceImg,
+    /// 整页切换（91）：±1 页，光标段行相对偏移保持（左右平行/上下整屏）
+    PageFlip(i32),
     /// 目录：焦点回到正文
     BackContent,
     /// 放大查看图片（77）
@@ -122,6 +133,7 @@ impl Reader {
             imgs: Vec::new(),
             paras: Vec::new(),
             cursor: 0,
+            page_mode: PageMode::RightLeft,
         }
     }
 
@@ -163,6 +175,13 @@ pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config) {
         Err(_) => book_id.to_string(),
     };
     let mut rd = Reader::new(title, chs);
+    rd.page_mode = if cfg.ui_page_mode.eq_ignore_ascii_case("up-down")
+        || cfg.ui_page_mode.eq_ignore_ascii_case("ud")
+    {
+        PageMode::UpDown
+    } else {
+        PageMode::RightLeft
+    };
     if let Some(p) = store::read_get(book_id) {
         if let Some(i) = rd.chs.iter().position(|c| c.item_id == p.item_id) {
             rd.cur = i;
@@ -255,6 +274,30 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
                 let n = rd.paras.len() as i64;
                 rd.cursor = ((rd.cursor as i64 + d as i64).clamp(0, n - 1)) as usize;
                 ensure_cursor_visible(rd, height);
+            }
+        }
+        Action::PageFlip(d) => {
+            let view = height.saturating_sub(2).max(1) as usize;
+            let max = rd.lines.len().saturating_sub(view) as i64;
+            // 光标段相对视窗顶的行偏移（91：翻页后落大致相同段）
+            let rel = rd
+                .paras
+                .get(rd.cursor)
+                .map(|p| p.start as i64 - rd.scroll as i64)
+                .unwrap_or(0);
+            let next = (rd.scroll as i64 + d as i64 * view as i64).clamp(0, max);
+            rd.scroll = next as u16;
+            // 新视窗中包含 rel 行的段 → cursor
+            let target = (next + rel).max(0) as usize;
+            if let Some(i) = rd.paras.iter().position(|p| p.start <= target && target < p.end) {
+                rd.cursor = i;
+            } else if !rd.paras.is_empty() {
+                // 落在空行/图外 → 最近段
+                rd.cursor = rd
+                    .paras
+                    .iter()
+                    .position(|p| p.start > target)
+                    .unwrap_or(rd.paras.len() - 1);
             }
         }
         Action::SpaceImg => {
@@ -469,16 +512,27 @@ fn rebuild_paras(rd: &mut Reader) {
     };
 }
 
-/// 光标段移出视窗时拉回 scroll（顶对齐/底对齐，91）。
+/// 光标段保持可见（91）：左右模式出视窗→整页跳（段顶对齐=自动翻页）；
+/// 上下模式→1/4 屏平移（段保持在屏内 1/4~3/4 区间，不许超出）。
 fn ensure_cursor_visible(rd: &mut Reader, height: u16) {
     let Some(p) = rd.paras.get(rd.cursor) else { return };
     let view = height.saturating_sub(2).max(1) as usize;
     let (top, bot) = (p.start, p.end.max(p.start + 1));
     let scroll = rd.scroll as usize;
-    if top < scroll {
-        rd.scroll = top as u16;
-    } else if bot > scroll + view {
-        rd.scroll = (bot - view) as u16;
+    match rd.page_mode {
+        PageMode::RightLeft => {
+            if top < scroll || bot > scroll + view {
+                rd.scroll = top as u16;
+            }
+        }
+        PageMode::UpDown => {
+            let q = view / 4;
+            if top < scroll + q {
+                rd.scroll = top.saturating_sub(q) as u16;
+            } else if bot > scroll + view - q {
+                rd.scroll = (bot + q).saturating_sub(view) as u16;
+            }
+        }
     }
 }
 
@@ -553,8 +607,8 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
                 // 翻页：`.` 半页下、`,` 2/3 页上；方向键左右整页（91/90）
                 KeyCode::Char('.') | KeyCode::PageDown => Action::Scroll(half),
                 KeyCode::Char(',') | KeyCode::PageUp => Action::Scroll(-two_third),
-                KeyCode::Right => Action::Scroll(view),
-                KeyCode::Left => Action::Scroll(-view),
+                KeyCode::Right => Action::PageFlip(1),
+                KeyCode::Left => Action::PageFlip(-1),
                 KeyCode::Char('d') => Action::Scroll(half),
                 KeyCode::Char('u') => Action::Scroll(-half),
                 KeyCode::Char('g') | KeyCode::Home => Action::Scroll(-(i32::MAX / 2)),
@@ -941,8 +995,8 @@ mod tests {
         // ,. 翻 2/3、1/2 页；左右整页
         assert!(matches!(on_key(KeyCode::Char(','), &rd, h), Action::Scroll(d) if d < 0));
         assert!(matches!(on_key(KeyCode::Char('.'), &rd, h), Action::Scroll(d) if d > 0));
-        assert!(matches!(on_key(KeyCode::Left, &rd, h), Action::Scroll(d) if d < 0));
-        assert!(matches!(on_key(KeyCode::Right, &rd, h), Action::Scroll(d) if d > 0));
+        assert!(matches!(on_key(KeyCode::Left, &rd, h), Action::PageFlip(-1)));
+        assert!(matches!(on_key(KeyCode::Right, &rd, h), Action::PageFlip(1)));
         // space = 查看光标处图片（非切章）
         assert!(matches!(on_key(KeyCode::Char(' '), &rd, h), Action::SpaceImg));
         assert!(matches!(on_key(KeyCode::Char('z'), &rd, h), Action::ToggleZen));
@@ -994,7 +1048,74 @@ mod tests {
         assert!(rd.img_focus.is_none());
     }
 
-    /// 91：光标移动钳制端点且保持可见。
+    /// 91 批B：PageFlip 整页切换且光标段行相对偏移保持。
+    #[test]
+    fn page_flip_keeps_cursor_offset() {
+        let mut rd = Reader::new("t".into(), vec![]);
+        // 40 行，每 10 行一段（插空行分段）
+        let mut lines = Vec::new();
+        for seg in 0..4 {
+            for i in 0..10 {
+                lines.push(Line::from(format!("s{seg}l{i}")));
+            }
+            lines.push(Line::default());
+        }
+        rd.lines = lines;
+        rebuild_paras(&mut rd);
+        assert_eq!(rd.paras.len(), 4);
+        let h = 24; // view = 22
+        // 光标第 1 段（start=11），scroll=0 → rel=11
+        rd.cursor = 1;
+        apply_action(Action::PageFlip(1), &mut rd, h);
+        assert_eq!(rd.scroll, 22, "整页=22 行");
+        // target = 22+11 = 33 → 第 3 段（start=22..32 文本 + 空 32？段3 start=22? s2 段 start=22
+        // 段界：s0:0-9, s1:11-20, s2:22-31, s3:33-42；target=33 → 段 3
+        assert_eq!(rd.cursor, 3, "target=33 落 s3 段: {:?}", rd.paras);
+        // 回翻
+        apply_action(Action::PageFlip(-1), &mut rd, h);
+        assert_eq!(rd.scroll, 0);
+        assert_eq!(rd.cursor, 1, "rel 回到 s1");
+    }
+
+    /// 91 批B：左右模式光标出视窗→段顶对齐（自动翻页）；上下模式 1/4 平移不许超出。
+    #[test]
+    fn ensure_visible_by_page_mode() {
+        let mut rd = Reader::new("t".into(), vec![]);
+        let mut lines = Vec::new();
+        for seg in 0..10 {
+            for i in 0..10 {
+                lines.push(Line::from(format!("s{seg}l{i}")));
+            }
+            lines.push(Line::default());
+        }
+        rd.lines = lines;
+        rebuild_paras(&mut rd);
+        let h = 24; // view=22, q=5
+        // --- RightLeft：光标跳到屏外段 → 段顶对齐 ---
+        rd.page_mode = PageMode::RightLeft;
+        rd.scroll = 0;
+        rd.cursor = 3; // start=33 > 22
+        ensure_cursor_visible(&mut rd, h);
+        assert_eq!(rd.scroll, 33, "段顶对齐=整页跳");
+        // --- UpDown：1/4 平移 ---
+        rd.page_mode = PageMode::UpDown;
+        rd.scroll = 0;
+        rd.cursor = 1; // start=11, bot=21；q=5 → top(11) >= q(5) 不触发上移；bot(21) > view-q(17) → 下移
+        ensure_cursor_visible(&mut rd, h);
+        assert_eq!(rd.scroll, 21 + 5 - 22, "bot+q-view = 4");
+        // 段在屏内 1/4 上方 → 上移
+        rd.scroll = 20;
+        rd.cursor = 1; // top=11 < 20+5=25 → scroll = 11-5 = 6
+        ensure_cursor_visible(&mut rd, h);
+        assert_eq!(rd.scroll, 6, "top-q 平移");
+        // 不越界：首段
+        rd.scroll = 10;
+        rd.cursor = 0;
+        ensure_cursor_visible(&mut rd, h);
+        assert_eq!(rd.scroll, 0, "top-q 钳 0");
+    }
+
+    /// 91 光标移动钳制端点且保持可见。
     #[test]
     fn cursor_move_clamps_and_visible() {
         let mut rd = Reader::new("t".into(), vec![]);

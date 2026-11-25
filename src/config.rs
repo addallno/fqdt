@@ -243,6 +243,7 @@ pub const KEYS: &[KeyEntry] = &[
     ("ui.clip_len", "ui_clip_len", "ui", Kind::Int, |c| c.ui_clip_len.to_string()),
     ("ui.color", "ui_color", "ui", Kind::Bool, |c| c.ui_color.to_string()),
     ("ui.help_examples", "ui_help_examples", "ui", Kind::Bool, |c| c.ui_help_examples.to_string()),
+    ("ui.page_mode", "page_mode", "ui", Kind::Str, |c| c.ui_page_mode.clone()),
 ];
 
 // ===== config 键详情（`fqdt config <key> --help`，v0.17.0） =====
@@ -282,6 +283,7 @@ const CONFIG_HELP: &[(&str, &str, &str)] = &[
     ("ui.clip_len", "UI 文本截断字数", "评论/摘要/相关书作者名截断；0=不截断"),
     ("ui.color", "彩色输出开关", "false 等价 NO_COLOR=1；非 TTY 本就纯文本"),
     ("ui.help_examples", "help 示例段开关", "默认关闭；true 在子命令 help 底部追加示例段"),
+    ("ui.page_mode", "阅读翻页模式", "right-left=左右渲染（默认）/ up-down=上下渲染"),
 ];
 
 fn kind_label(k: Kind) -> &'static str {
