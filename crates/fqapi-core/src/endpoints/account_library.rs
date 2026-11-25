@@ -95,11 +95,7 @@ pub async fn handle(ctx: &Ctx, req: &Request) -> Response {
         Err(_) => return failure(400, "书架采集参数无效"),
     };
     let cookie = input.cookie.trim();
-    let has_session = cookie.split(';').any(|part| {
-        part.trim().split_once('=').is_some_and(|(key, value)| {
-            matches!(key, "sessionid" | "sessionid_ss" | "sid_tt") && !value.is_empty()
-        })
-    });
+    let has_session = super::account_history::cookie_has_session(cookie);
     if cookie.is_empty()
         || cookie.len() > 12 * 1024
         || !cookie.bytes().all(|b| (0x20..=0x7e).contains(&b))

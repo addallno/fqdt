@@ -27,6 +27,43 @@ fn failure(status: u16, message: &str) -> Response {
     response
 }
 
+/// Cookie 是否含有效 session 键。
+///
+/// key/value 两侧空格都容忍：浏览器导出的 Cookie 常见 `sessionid = xxx`
+/// （等号带空格），只 trim 分段不 trim key 会漏判（m0160）。
+pub(crate) fn cookie_has_session(cookie: &str) -> bool {
+    cookie.split(';').any(|part| {
+        part.trim().split_once('=').is_some_and(|(key, value)| {
+            matches!(key.trim(), "sessionid" | "sessionid_ss" | "sid_tt")
+                && !value.trim().is_empty()
+        })
+    })
+}
+
+#[cfg(test)]
+mod has_session_tests {
+    use super::cookie_has_session;
+
+    #[test]
+    fn tolerates_spaces_around_equals() {
+        // 浏览器导出格式（m0160 实况）
+        assert!(cookie_has_session("a = 1; sessionid = abc; b = 2"));
+        assert!(cookie_has_session("sessionid=abc"));
+        assert!(cookie_has_session("sid_tt = abc"));
+        assert!(cookie_has_session("sessionid_ss = abc"));
+    }
+
+    #[test]
+    fn rejects_missing_or_empty_session() {
+        assert!(!cookie_has_session(""));
+        assert!(!cookie_has_session("a = 1; b = 2"));
+        assert!(!cookie_has_session("sessionid = "));
+        assert!(!cookie_has_session("sessionid="));
+        // key 带尾空格但值无效仍拒
+        assert!(!cookie_has_session("other = x"));
+    }
+}
+
 pub async fn handle(ctx: &Ctx, req: &Request) -> Response {
     if req.method != "POST" {
         let mut response = failure(405, "请使用 POST 读取历史");
@@ -42,11 +79,7 @@ pub async fn handle(ctx: &Ctx, req: &Request) -> Response {
         Err(_) => return failure(400, "历史读取参数无效"),
     };
     let cookie = input.cookie.trim();
-    let has_session = cookie.split(';').any(|part| {
-        part.trim().split_once('=').is_some_and(|(key, value)| {
-            matches!(key, "sessionid" | "sessionid_ss" | "sid_tt") && !value.is_empty()
-        })
-    });
+    let has_session = cookie_has_session(cookie);
     if cookie.is_empty()
         || cookie.len() > 12 * 1024
         || !cookie.bytes().all(|b| (0x20..=0x7e).contains(&b))
