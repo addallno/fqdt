@@ -25,7 +25,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{Frame, Terminal};
 use std::io::{IsTerminal, Stdout};
 
-const HELP: &str = "j/k 滚动 · d/u 半页 · n/p 章节 · Tab 目录 · z zen · q 退出";
+const HELP: &str = "j/k 滚动 · d/u 半页 · n/p 章节 · i 放大图 · Tab 目录 · z zen · q 退出";
 const HELP_NAV: &str = "j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退出";
 /// 左目录面板宽度（bookokrat nav_width 同思路，定宽）
 const NAV_W: u16 = 28;
@@ -52,6 +52,10 @@ struct Reader {
     zen: bool,
     need_load: bool,
     msg: String,
+    /// 图片聚焦态（77）：放大查看的 url，None=正文
+    img_focus: Option<String>,
+    /// 图块行区间 (start, end, url)（wrap 时记录，供 i 键聚焦）
+    imgs: Vec<(usize, usize, String)>,
 }
 
 /// 按键动作（由 on_key 判定，循环里执行）。
@@ -66,6 +70,10 @@ enum Action {
     GotoSel,
     /// 目录：焦点回到正文
     BackContent,
+    /// 放大查看图片（77）
+    FocusImg(String),
+    /// 关闭图片聚焦
+    CloseImg,
     /// 聚焦目录并定位当前章
     FocusToc,
     /// 目录选择移动
@@ -86,6 +94,8 @@ impl Reader {
             zen: false,
             need_load: false,
             msg: String::new(),
+            img_focus: None,
+            imgs: Vec::new(),
         }
     }
 
@@ -190,6 +200,12 @@ async fn loop_with(rd: &mut Reader, api: &Client, out: &mut Stdout) -> Result<()
 fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
     match act {
         Action::Quit => return true,
+        Action::FocusImg(url) => {
+            rd.img_focus = Some(url);
+        }
+        Action::CloseImg => {
+            rd.img_focus = None;
+        }
         Action::PrevCh if rd.cur > 0 => {
             rd.cur -= 1;
             rd.scroll = 0;
@@ -252,13 +268,16 @@ async fn reload(rd: &mut Reader, api: &Client, width: u16) -> Result<(), String>
     match res {
         Ok(html) => {
             rd.raw = api::strip_html_imgs(&html);
-            rd.lines = wrap_with_imgs(&rd.raw, rd.content_width(width));
+            let (lines, imgs) = wrap_with_imgs(&rd.raw, rd.content_width(width));
+            rd.lines = lines;
+            rd.imgs = imgs;
             rd.msg.clear();
             Ok(())
         }
         Err(e) => {
             rd.raw.clear();
             rd.lines = Vec::new();
+            rd.imgs.clear();
             rd.msg = format!("加载失败: {}", e);
             Ok(())
         }
@@ -295,12 +314,15 @@ fn wrap_text(text: &str, width: u16) -> Vec<Line<'static>> {
 
 /// 宽度/zen 变化后按原文重折（不重新请求）。
 fn rewrap(rd: &mut Reader, width: u16) {
-    rd.lines = wrap_with_imgs(&rd.raw, width);
+    let (lines, imgs) = wrap_with_imgs(&rd.raw, width);
+    rd.lines = lines;
+    rd.imgs = imgs;
 }
 
 /// 含图片标记的折行：`{{IMG:url}}` 独占行展开为图片块/占位，其余行走 wrap_text。
-fn wrap_with_imgs(text: &str, width: u16) -> Vec<Line<'static>> {
+fn wrap_with_imgs(text: &str, width: u16) -> (Vec<Line<'static>>, Vec<(usize, usize, String)>) {
     let mut out = Vec::new();
+    let mut imgs = Vec::new();
     let mut buf = String::new();
     let flush = |buf: &mut String, out: &mut Vec<Line<'static>>| {
         if !buf.is_empty() {
@@ -311,14 +333,16 @@ fn wrap_with_imgs(text: &str, width: u16) -> Vec<Line<'static>> {
     for line in text.split('\n') {
         if let Some(url) = line.strip_prefix("{{IMG:").and_then(|s| s.strip_suffix("}}")) {
             flush(&mut buf, &mut out);
+            let start = out.len();
             push_img_block(&mut out, url, width);
+            imgs.push((start, out.len(), url.to_string()));
         } else {
             if !buf.is_empty() { buf.push('\n'); }
             buf.push_str(line);
         }
     }
     flush(&mut buf, &mut out);
-    out
+    (out, imgs)
 }
 
 /// 图片块：有外部加载器→下载转 ANSI 行；否则/失败→纯文本占位行。
@@ -356,9 +380,23 @@ fn scroll_by(rd: &mut Reader, delta: i32, height: u16) {
 fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
     // 全局键（两种焦点都响应）
     match code {
-        KeyCode::Char('q') => return Action::Quit,
+        KeyCode::Char('q') => {
+            if rd.img_focus.is_some() { return Action::CloseImg; }
+            return Action::Quit;
+        }
         KeyCode::Char('z') => return Action::ToggleZen,
         KeyCode::Tab => return Action::ToggleFocus,
+        KeyCode::Char('i') => {
+            if rd.img_focus.is_some() { return Action::CloseImg; }
+            // 视窗内第一张图放大（77：查看位置太少 → 聚焦态）
+            let view = height.saturating_sub(3) as usize;
+            let lo = rd.scroll as usize;
+            let hi = lo + view;
+            if let Some((_, _, url)) = rd.imgs.iter().find(|(s, e, _)| *e > lo && *s < hi) {
+                return Action::FocusImg(url.clone());
+            }
+            return Action::Scroll(0); // 无视窗内图：无操作
+        }
         _ => {}
     }
     match rd.focus {
@@ -394,11 +432,50 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
 
 /// 渲染主入口：zen 全屏 / 普通分栏（bookokrat draw 同构）。
 fn draw(f: &mut Frame, rd: &Reader) {
+    if let Some(url) = &rd.img_focus {
+        draw_img_focus(f, url);
+        return;
+    }
     if rd.zen {
         draw_zen(f, rd);
     } else {
         draw_normal(f, rd);
     }
+}
+
+/// 图片聚焦态（77）：全屏放大单图，顶=url、底=返回提示；加载失败→占位行。
+fn draw_img_focus(f: &mut Frame, url: &str) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(f.area());
+    f.render_widget(
+        Paragraph::new(format!(" 图片 · {}", url))
+            .style(util::fg(YELLOW).add_modifier(ratatui::style::Modifier::BOLD)),
+        chunks[0],
+    );
+    let inner_w = chunks[1].width.saturating_sub(2);
+    let inner_h = chunks[1].height.saturating_sub(2);
+    let block = Block::default().borders(Borders::ALL).title(" 放大 ");
+    if let Some(rows) = crate::imgtool::render(url, inner_w, inner_h) {
+        let lines: Vec<Line> = rows.into_iter().map(Line::from).collect();
+        f.render_widget(Paragraph::new(lines), block.inner(chunks[1]));
+    } else {
+        f.render_widget(
+            Paragraph::new(crate::imgtool::placeholder(url)),
+            block.inner(chunks[1]),
+        );
+    }
+    f.render_widget(block, chunks[1]);
+    f.render_widget(
+        Paragraph::new(" i/q/ESC 返回正文 · 图片由 timg/chafa/viu/catimg 渲染（未装则占位）")
+            .style(util::fg(DIM)),
+        chunks[2],
+    );
 }
 
 /// 普通模式：上=分栏（左目录+右正文），下=3 行帮助栏。
@@ -573,14 +650,67 @@ mod tests {
     fn wrap_with_imgs_marker_and_text() {
         // 无工具环境（CI）：图片行→占位；普通行照常折行
         let raw = "前文\n{{IMG:/rel/x.png}}\n后文";
-        let lines = wrap_with_imgs(raw, 40);
+        let (lines, imgs) = wrap_with_imgs(raw, 40);
         let joined: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
         assert!(joined.contains("[图片: /rel/x.png]"), "got: {joined:?}");
         assert!(joined.contains("前文") && joined.contains("后文"), "got: {joined:?}");
+        // 图块区间记录（77：供 i 键聚焦）
+        assert_eq!(imgs.len(), 1, "got: {imgs:?}");
+        let (s, e, url) = &imgs[0];
+        assert_eq!(url, "/rel/x.png");
+        assert!(*s < *e && *e <= lines.len());
+        assert_eq!(lines[*s].to_string(), "[图片: /rel/x.png]");
         // 无标记时与 wrap_text 行数一致
-        let a = wrap_with_imgs("甲乙丙\n丁戊", 40);
+        let (a, ia) = wrap_with_imgs("甲乙丙\n丁戊", 40);
         let b = wrap_text("甲乙丙\n丁戊", 40);
         assert_eq!(a.len(), b.len());
+        assert!(ia.is_empty());
+    }
+
+    #[test]
+    fn img_focus_key_and_draw() {
+        let mut rd = Reader::new("书名".into(), Vec::new());
+        rd.raw = "前文\n{{IMG:/rel/x.png}}\n后文".to_string();
+        let (lines, imgs) = wrap_with_imgs(&rd.raw, 60);
+        rd.lines = lines;
+        rd.imgs = imgs;
+        rd.scroll = 0;
+        rd.focus = Focus::Content;
+        // i → 聚焦第一张图
+        let act = on_key(KeyCode::Char('i'), &rd, 24);
+        let Action::FocusImg(url) = act else { panic!("expected FocusImg") };
+        assert_eq!(url, "/rel/x.png");
+        // 聚焦态 q → 返回正文而非退出
+        rd.img_focus = Some(url);
+        assert!(matches!(on_key(KeyCode::Char('q'), &rd, 24), Action::CloseImg));
+        assert!(matches!(on_key(KeyCode::Char('i'), &rd, 24), Action::CloseImg));
+        // 应用后 img_focus 生效
+        let quit = apply_action(Action::FocusImg("/rel/x.png".into()), &mut rd, 24);
+        assert!(!quit);
+        assert_eq!(rd.img_focus.as_deref(), Some("/rel/x.png"));
+        // 聚焦态全屏渲染（TestBackend）
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                if let Some(u) = rd.img_focus.clone() {
+                    draw_img_focus(f, &u);
+                }
+            })
+            .unwrap();
+        let content = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol().to_string())
+            .collect::<String>();
+        let content = content.replace(' ', "");
+        assert!(content.contains("放大"), "聚焦面板标题缺失: got {content:?}");
+        assert!(content.contains("图片") || content.contains("返回"), "got {content:?}");
+        // 关闭
+        apply_action(Action::CloseImg, &mut rd, 24);
+        assert!(rd.img_focus.is_none());
     }
 
     #[test]
