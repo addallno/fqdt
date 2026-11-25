@@ -85,6 +85,8 @@ struct Reader {
     paras: Vec<Para>,
     /// 段落光标（paras 索引，91）
     cursor: usize,
+    /// ?/h 帮助框（批C③）
+    help_shown: bool,
     /// 翻页模式（90/91，ui.page_mode）
     page_mode: PageMode,
 }
@@ -103,6 +105,10 @@ enum Action {
     CursorMove(i32),
     /// space 查看光标处图片（91）：光标段为图 → 聚焦，否则无操作
     SpaceImg,
+    /// 打开 ?/h 帮助框（批C③）
+    Help,
+    /// 关闭帮助框（批C③）
+    CloseHelp,
     /// 整页切换（91）：±1 页，光标段行相对偏移保持（左右平行/上下整屏）
     PageFlip(i32),
     /// 目录：焦点回到正文
@@ -136,6 +142,7 @@ impl Reader {
             paras: Vec::new(),
             cursor: 0,
             page_mode: PageMode::RightLeft,
+            help_shown: false,
         }
     }
 
@@ -311,6 +318,8 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
                 }
             }
         }
+        Action::Help => rd.help_shown = true,
+        Action::CloseHelp => rd.help_shown = false,
         Action::ToggleFocus => {
             rd.focus = match rd.focus {
                 Focus::Content => Focus::Nav,
@@ -578,8 +587,18 @@ fn scroll_by(rd: &mut Reader, delta: i32, height: u16) {
 
 /// 按键 → 动作（按焦点分发；键位习惯同 baca/epubreader-cli：j/k、n/p、g/G、Tab）。
 fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
+    // 帮助框开着：Esc/q/?/h 关闭，其余键不穿透（批C③）
+    if rd.help_shown {
+        return match code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') | KeyCode::Char('h') => {
+                Action::CloseHelp
+            }
+            _ => Action::Scroll(0),
+        };
+    }
     // 全局键（两种焦点都响应）
     match code {
+        KeyCode::Char('?') | KeyCode::Char('h') => return Action::Help,
         KeyCode::Char('q') => {
             if rd.img_focus.is_some() { return Action::CloseImg; }
             return Action::Quit;
@@ -643,6 +662,10 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
 
 /// 渲染主入口：zen 全屏 / 普通分栏（bookokrat draw 同构）。
 fn draw(f: &mut Frame, rd: &Reader) {
+    if rd.help_shown {
+        draw_help_box(f);
+        return;
+    }
     if let Some(url) = &rd.img_focus {
         draw_img_focus(f, url);
         return;
@@ -841,6 +864,52 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         para_area,
     );
     f.render_widget(block, area);
+}
+
+/// ?/h 全屏帮助框（批C③，m0137）：一个大框叙述 UI；键位明细只在
+/// README/help.txt，此处不列 ?/h 键位（Esc 返回提示保留）。
+fn draw_help_box(f: &mut Frame) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(util::fg(CYAN).add_modifier(ratatui::style::Modifier::BOLD))
+        .title(Span::styled(
+            " --Help-- ",
+            util::fg(CYAN).add_modifier(ratatui::style::Modifier::REVERSED),
+        ));
+    let inner = block.inner(f.area());
+    let body = Rect {
+        x: inner.x,
+        y: inner.y.saturating_add(1),
+        width: inner.width.saturating_sub(2),
+        height: inner.height.saturating_sub(2).max(1),
+    };
+    let t = |s: &str| Span::styled(s.to_string(), util::fg(util::RST));
+    let head = |s: &str| Span::styled(s.to_string(), util::fg(CYAN));
+    let dim = |s: &str| Span::styled(s.to_string(), util::fg(DIM));
+    let lines = vec![
+        Line::from(vec![t("阅读视图（view）")]),
+        Line::from(vec![t("  连贯阅读一章内容：左侧目录面板，右侧正文面板。")]),
+        Line::from(vec![t("  正文按段落排布——段首缩进两格，段与段之间恰好空一行。")]),
+        Line::from(vec![t("  上下移动会选中一个段落并整段高亮；图片段不高亮。")]),
+        Line::default(),
+        Line::from(vec![head("翻页")]),
+        Line::from(vec![t("  翻页方式由配置 ui.page_mode 决定：")]),
+        Line::from(vec![t("  right-left（默认）为左右渲染——左右键平行翻页，上下滚到屏底自动翻页；")]),
+        Line::from(vec![t("  up-down 为上下渲染——选中段保持在屏幕范围内平移，左右键整屏切换。")]),
+        Line::default(),
+        Line::from(vec![head("zen 模式")]),
+        Line::from(vec![t("  z 切换全屏四边框：标题为章节名，底框显示章节与行进度，")]),
+        Line::from(vec![t("  正文与四边框保持一行/一格距离。")]),
+        Line::default(),
+        Line::from(vec![head("进度与图片")]),
+        Line::from(vec![t("  退出时自动记忆阅读位置，下次进入回到原处。")]),
+        Line::from(vec![t("  光标停在图片段时可放大查看。")]),
+        Line::default(),
+        Line::from(vec![dim("完整快捷键见 ~/.config/fqdt/help.txt")]),
+        Line::from(vec![dim("Esc 返回")]),
+    ];
+    f.render_widget(Paragraph::new(lines), body);
+    f.render_widget(block, f.area());
 }
 
 /// 段落光标高亮（91）：文本段整段换背景色（不同色）；图片段不高亮。

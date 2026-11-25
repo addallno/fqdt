@@ -30,7 +30,7 @@ fqdt search 诡秘之主              # 搜索
 fqdt download 7185478854738185271 # 下载正文（纯数字 = book_id）
 fqdt download 诡秘之主            # 书名关键词 → 交互选书
 fqdt download <id> -t epub -r 1-50 -j 8
-fqdt view 诡秘之主               # TUI 阅读器（分栏目录/正文，j k 滚动，Tab 切焦点，i 放大图，z 全屏，q 退出存进度）
+fqdt view 诡秘之主               # TUI 阅读器（分栏目录/正文，j/k 段光标，翻页键位见下方「view TUI 快捷键」，q 退出存进度）
 fqdt audio <id> -T ai --tone 6    # 有声书：AI 朗读指定音色
 fqdt info overview <id>           # 概览：热度 / 简介 / 前几章 / 书评
 fqdt shelf list                   # 书架（登录后为云端）
@@ -45,7 +45,7 @@ fqdt --help                       # 全部命令
 | `info <section> [id]` | `i` | 书籍信息与个人数据（见下） |
 | `download <id\|书名>` | `d` | 下载正文 txt/epub |
 | `audio <id\|书名>` | `a` | 下载有声书（`-T real/ai/tts` 三来源，默认 Ogg，`-c mp3` 转 MP3） |
-| `view <id\|书名>` | | TUI 阅读器：分栏目录+正文、j/k 滚动、Tab 焦点、Enter 跳章、i 聚焦放大图片、z 全屏、进度自动记忆 |
+| `view <id\|key>` | | TUI 阅读器：分栏目录+正文、段落光标高亮、翻页/切章/看图、zen 全屏、进度自动记忆（键位见「view TUI 快捷键」） |
 | `update <id\|目录>` | `u` | 增量更新（并入 download，`-T content/audio` 分类，默认全部） |
 | `tts <txt\|目录>` | `t` | edge-tts 文本转语音 |
 | `shelf <子命令>` | `s` | 书架管理（list/add/remove/move/download） |
@@ -54,6 +54,25 @@ fqdt --help                       # 全部命令
 | `serve` | | 本地 HTTP 服务（默认 127.0.0.1:18921） |
 | `api <路径>` | | 端点透传（`--list`/`-X`/`-q`/`--jq`） |
 | `version` | | 显示版本号 |
+
+## view TUI 快捷键
+
+阅读界面按 `?` 或 `h` 打开内置帮助（叙述 UI；本节为完整键位明细）：
+
+| 键 | 作用 |
+|---|---|
+| `j k` / `↑ ↓` | 移动段落选中光标（整段高亮，图片段不高亮） |
+| `← →` | 平行翻页（光标落同相对段；上下滚到屏底自动翻页） |
+| `,` / `.` | 上翻 2/3 页 / 下翻 1/2 页 |
+| `<>` 或 `n p` | 上一章 / 下一章 |
+| `d u` / `g G` | 半页滚动 / 章首尾 |
+| `Tab` / `t` / `Esc` | 目录面板（`Enter` 跳转） |
+| `space` | 放大光标处图片（`i` 视窗第一张） |
+| `z` | zen 全屏（四边框、标题章节名、底框进度） |
+| `?` / `h` | 打开 / 关闭帮助（`Esc` 返回） |
+| `q` | 退出（记忆进度） |
+
+翻页方向：`config ui.page_mode` = `right-left`（默认）左右渲染 / `up-down` 上下渲染。
 
 `info` 子命令：`overview`（默认）/ `chapters` / `intro` / `author` / `comments` / `cover` / `relative` / `audio`；发现类 `recommend` / `category`；个人数据 `folders` / `history` / `progress` / `user` / `highlights`（需登录，均可 `--json`）。
 

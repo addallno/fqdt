@@ -23,6 +23,7 @@ fn render(root: &Command) -> String {
     let mut out = String::from(CONVENTION);
     render_cmd(root, "", 0, &mut out);
     out.push_str(&api_section());
+    out.push_str(&view_tui_section());
     out.push_str("\n优先级: 命令行 flag > config.ini 同义项\n");
     strip_ansi(out)
 }
@@ -267,6 +268,30 @@ fqdt api <路径>
 ";
 
 /// 去掉 ANSI 序列（写文件须纯文本）。
+/// view TUI 快捷键（m0137：快捷键明细只在 README/help.txt 说明，view 内不写）。
+fn view_tui_section() -> String {
+    r##"
+## view TUI 快捷键（阅读界面按 ? 或 h 打开内置帮助）
+
+  导航
+    j k / ↑ ↓       移动段落选中光标（整段高亮，图片段不高亮）
+    ← →              平行翻页（光标落同相对段；上下滚到屏底自动翻页）
+    , .              上翻 2/3 页 / 下翻 1/2 页
+    < > 或 n p       上一章 / 下一章
+    d u              半页滚动
+    g G              章首 / 章尾
+    Tab / t / Esc    目录面板（Enter 跳转选中章）
+  查看
+    space            放大光标处图片
+    i                放大视窗内第一张图
+    z                zen 全屏（四边框，标题为章节名，底框进度）
+    ? / h            打开 / 关闭帮助（Esc 返回）
+    q                退出（记忆进度）
+  说明
+    翻页方向由 config ui.page_mode 决定：right-left（默认）左右渲染 / up-down 上下渲染
+"##.to_string()
+}
+
 fn strip_ansi(s: String) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
