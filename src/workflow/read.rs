@@ -26,7 +26,9 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{Frame, Terminal};
 use std::io::{IsTerminal, Stdout};
 
+#[allow(dead_code)] // 批C③ ?/h 帮助框将使用
 const HELP: &str = "j/k 段光标 · ,. 翻页 · <> 章节 · space 看图 · Tab 目录 · z zen · ? 帮助 · q 退出";
+#[allow(dead_code)] // 批C③ 将使用
 const HELP_NAV: &str = "j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退出";
 /// 左目录面板宽度（bookokrat nav_width 同思路，定宽）
 const NAV_W: u16 = 28;
@@ -139,10 +141,11 @@ impl Reader {
 
     /// 正文可用宽度：zen 全屏，普通模式扣掉目录面板与两侧边框。
     fn content_width(&self, total: u16) -> u16 {
+        // 右侧留 2 格（m3000：行末离右框 1-2 空格）；zen 另扣 2 框线，normal 扣目录+框线
         if self.zen {
-            total.saturating_sub(2)
+            total.saturating_sub(4)
         } else {
-            total.saturating_sub(NAV_W + 3)
+            total.saturating_sub(NAV_W + 5)
         }
     }
 }
@@ -390,6 +393,8 @@ fn wrap_text(text: &str, width: u16) -> Vec<Line<'static>> {
             out.push(Line::default());
             continue;
         }
+        // 段首缩进 2 空格（m2994；段间空行保持恰好 1 行）
+        let para = format!("  {para}");
         let mut cur = String::new();
         let mut cw = 0usize;
         for ch in para.chars() {
@@ -686,30 +691,62 @@ fn draw_img_focus(f: &mut Frame, url: &str) {
 
 /// 普通模式：上=分栏（左目录+右正文），下=3 行帮助栏。
 fn draw_normal(f: &mut Frame, rd: &Reader) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
-        .split(f.area());
+    // 85：非 zen 去底部 3 行帮助栏，两栏铺满
     let main = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(NAV_W), Constraint::Min(0)])
-        .split(chunks[0]);
+        .split(f.area());
     draw_toc(f, rd, main[0]);
     draw_content(f, rd, main[1]);
-    draw_helpbar(f, rd, chunks[1]);
 }
 
-/// zen 模式：全屏正文（藏目录与帮助栏），顶行保留极简进度。
+/// zen 模式：全屏四边框（m2998）——title=章题、底框=---- 状态 ----，
+/// 正文四边留隔（上 1 行、下 1 行、左靠段首缩进、右 2 格，m3000）。
 fn draw_zen(f: &mut Frame, rd: &Reader) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
-        .split(f.area());
-    f.render_widget(Paragraph::new(top_line_fit(rd, chunks[0].width)), chunks[0]);
+    let area = f.area();
+    let ch = &rd.chs[rd.cur];
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(util::fg(CYAN).add_modifier(ratatui::style::Modifier::BOLD))
+        .title(Span::styled(
+            format!(" {} ", ch.title),
+            util::fg(CYAN).add_modifier(ratatui::style::Modifier::REVERSED),
+        ))
+        .title_bottom(Span::styled(
+            format!(" {} ", zen_status_fit(rd, area.width.saturating_sub(2))),
+            util::fg(YELLOW),
+        ));
+    let inner = block.inner(area);
+    // 上 1 行、下 1 行；宽 = 内宽 - 2（右留 2，与 content_width zen 一致）
+    let body = Rect {
+        x: inner.x,
+        y: inner.y.saturating_add(1),
+        width: inner.width.saturating_sub(2),
+        height: inner.height.saturating_sub(2).max(1),
+    };
     f.render_widget(
         Paragraph::new(highlight_lines(rd)).scroll((rd.scroll, 0)),
-        chunks[1],
+        body,
     );
+    f.render_widget(block, area);
+}
+
+/// zen 底框状态（m2999）：`---- x/y 章 · 行 a/b ----`，宽度不够逐级砍不卡半截。
+fn zen_status_fit(rd: &Reader, width: u16) -> String {
+    let ch_n = rd.cur + 1;
+    let ch_t = rd.chs.len();
+    let pos = (rd.scroll as usize + 1).min(rd.lines.len().max(1));
+    let line_t = rd.lines.len();
+    let w = |s: &str| Span::raw(s.to_string()).width() as u16;
+    let cands = [
+        format!("---- {ch_n}/{ch_t} 章 · 行 {pos}/{line_t} ----"),
+        format!("{ch_n}/{ch_t} 章 · 行 {pos}/{line_t}"),
+        format!("{ch_n}/{ch_t} 章"),
+        format!("{ch_n}/{ch_t}"),
+    ];
+    cands.into_iter()
+        .find(|c| w(c) <= width)
+        .unwrap_or_default()
 }
 
 /// 左目录面板：边框按焦点高亮，当前章高亮，选中反白。
@@ -796,9 +833,12 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner);
     f.render_widget(Paragraph::new(top_line_fit(rd, body[0].width)).style(body_style), body[0]);
+    // 下留 1 行（m3000：最后一行距下框 1 行；上 1 行由顶行状态占）
+    let mut para_area = body[1];
+    para_area.height = para_area.height.saturating_sub(1).max(1);
     f.render_widget(
         Paragraph::new(highlight_lines(rd)).style(body_style).scroll((rd.scroll, 0)),
-        body[1],
+        para_area,
     );
     f.render_widget(block, area);
 }
@@ -816,11 +856,6 @@ fn highlight_lines(rd: &Reader) -> Vec<Line<'static>> {
     lines
 }
 
-/// 顶行：书名 · 章节 · 行进度（zen 与正文共用）。
-fn top_line(rd: &Reader) -> Line<'static> {
-    top_line_fit(rd, u16::MAX)
-}
-
 /// 状态行宽度自适应（批C①，m0130）：全量 → 去书名 → 仅进度 → 仅章进度 → 空行。
 /// 逐级砍到总宽 ≤ width，绝不卡半截。
 fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
@@ -836,7 +871,7 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
         Span::styled(ch.title.clone(), util::fg(CYAN)),
         Span::styled(progress.clone(), util::fg(YELLOW)),
     ]);
-    let mk_no_title = |rd: &Reader, ch: &Chapter| Line::from(vec![
+    let mk_no_title = |_rd: &Reader, ch: &Chapter| Line::from(vec![
         Span::styled(ch.title.clone(), util::fg(CYAN)),
         Span::styled(progress.clone(), util::fg(YELLOW)),
     ]);
@@ -854,33 +889,7 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
     cands.into_iter().find(fits).unwrap_or_default()
 }
 
-/// 底部 3 行帮助栏（bookokrat render_help_bar 同构：通知行 + 键位行 + 边框）。
-fn draw_helpbar(f: &mut Frame, rd: &Reader, area: Rect) {
-    let block = Block::default().borders(Borders::TOP).border_style(util::fg(DIM));
-    let lines = vec![
-        Line::from(Span::styled(
-            match rd.focus {
-                Focus::Content => HELP,
-                Focus::Nav => HELP_NAV,
-            },
-            util::fg(DIM),
-        )),
-        Line::from(if rd.msg.is_empty() {
-            Span::styled(
-                format!(
-                    "{} 章 / 共 {} · {}",
-                    rd.cur + 1,
-                    rd.chs.len(),
-                    if rd.zen { "zen" } else { "normal" }
-                ),
-                util::fg(DIM),
-            )
-        } else {
-            Span::styled(rd.msg.clone(), util::fg(util::RED))
-        }),
-    ];
-    f.render_widget(Paragraph::new(lines).block(block), area);
-}
+// draw_helpbar 已删（85 非 zen 去帮助栏）；HELP/HELP_NAV 供批C③ ?/h 帮助框使用。
 
 #[cfg(test)]
 mod tests {
@@ -956,14 +965,16 @@ mod tests {
 
     #[test]
     fn wrap_chinese_by_width() {
-        // 宽度下限 20：宽 10 被抬到 20 列 → 10 个全角字恰好一行
+        // 宽度下限 20：宽 10 被抬到 20 列；段首缩进 2 → 2+9 全角=20 列
         let lines = wrap_text("一二三四五六七八九十", 10);
-        assert_eq!(lines[0].to_string(), "一二三四五六七八九十");
-        // 真实宽 24 → 每行 12 全角字；30 字 = 12+12+6 + 段尾空行
+        assert_eq!(lines[0].to_string(), "  一二三四五六七八九");
+        assert_eq!(lines[1].to_string(), "十");
+        // 真实宽 24：首行 2 缩进+11 字=24；续行 12 字；30 字 = 11+12+7 + 段尾空行
         let lines = wrap_text(&"一".repeat(30), 24);
         assert_eq!(lines.len(), 4);
-        assert_eq!(lines[0].to_string(), "一".repeat(12));
-        assert_eq!(lines[2].to_string(), "一".repeat(6));
+        assert_eq!(lines[0].to_string(), format!("  {}", "一".repeat(11)));
+        assert_eq!(lines[1].to_string(), "一".repeat(12));
+        assert_eq!(lines[2].to_string(), "一".repeat(7));
         assert_eq!(lines[3].to_string(), "");
     }
 
@@ -999,7 +1010,6 @@ mod tests {
         assert!(!t3.contains("目录"), "zen 不应有目录面板");
     }
 
-    #[test]
     /// 批C①：状态行宽度自适应——每级总宽 ≤ 给定宽，绝不卡半截。
     #[test]
     fn top_line_fit_never_truncates() {
@@ -1029,6 +1039,7 @@ mod tests {
         assert!(tw <= 3, "极窄仍不超: {tw}");
     }
 
+    #[test]
     fn key_bindings_content() {
         let rd = Reader::new("t".into(), vec![]);
         let h = 24;
