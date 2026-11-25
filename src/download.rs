@@ -243,9 +243,3 @@ pub fn read_audio_list_loose(dir: &std::path::Path)
     Ok((book_id, book_title, tone, chapters))
 }
 
-/// info.list 是否为音频形态（含 tone 键；正文 info.list 无 tone）。
-pub fn info_list_is_audio(dir: &std::path::Path) -> bool {
-    fs::read_to_string(dir.join("info.list")).ok().and_then(|t| {
-        serde_json::from_str::<serde_json::Value>(&t).ok()
-    }).is_some_and(|root| root.get("tone").is_some())
-}

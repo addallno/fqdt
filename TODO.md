@@ -136,3 +136,5 @@
 88. **🐛 key tip dock 出现怪字符 "5"（m0087 用户）** — 原话：「a strange "5" appeared in the key tip dock, like: ────… / j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退出 / 5」——目录焦点帮助栏下方多一行孤立 "5"。**待办：复现（pty Tab 后截图）→ 查 draw_helpbar/draw_toc 绘制（疑宽度溢出/残留渲染）→ 修。** `[ ]`
 
 89. **⚙ config.ini 设置默认 zen/normal 启动模式（m0091 用户）** — 原话：「I wanna set config ini have a value to set default use zen or normal.」——config.ini 加键（如 `[ui] default_zen = true/false` 或 `view_mode = zen|normal`），view 启动按它初始 zen；TUI 内 z 手动切换仍可覆盖当次。**待办：Config struct 加字段 + DEFAULT_INI 注释三要素 + read.rs 启动应用 + config init 键清单同步。** `[ ]`
+
+90. **📖 view 翻页方向可配置 + 默认左右翻页（m0099 用户）** — 用户原话：「同时我希望也可以配置它是左右翻页还是上下翻页。并且默认改成左右翻页。」范围：view TUI 正文翻页模式——左右翻页（整屏横向切换，类似电子书阅读器）vs 上下滚动（现行 j/k/d/u 纵向滚动）；config.ini 配置项（如 `[ui] page_mode = horizontal|vertical`，默认 **horizontal 左右**）；左右翻页的键位语义需设计（j/k 或 ←→ 或 d/u 换页、进度/自动切章如何衔接、与 83 目录跳章/85 去 helpbar/86 缩进的视觉配合）。**待办：设计左右翻页交互（键位+滚动条+进度显示）→ 实施 → 与 86/89 同批发版。** `[ ]`

@@ -155,6 +155,7 @@ pub async fn fetch_and_dl_audio(book_id: &str, audio_dir: &Path, range: &Option<
 
 /// 音频目录增量（update 下沉至此，download/audio 共用）：info.list 宽松读取（存量目录可无 book_id → 按书名搜索解析），
 /// 按原 tone 补下缺失章节。dir 为 info.list 所在目录（Audio/ 或纯音频根目录）。
+#[allow(clippy::too_many_arguments)]
 pub async fn audio_increment(dir: &std::path::Path, range: Option<&str>, force: bool,
                           vb: bool, cfg: &Config, tone_override: Option<usize>,
                           abr: u32, post_cmd: &str, lrc_mode: &str) {

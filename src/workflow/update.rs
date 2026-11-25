@@ -14,6 +14,7 @@ use crate::workflow::download;
 ///
 /// # CLI 调用
 /// - `fqdt update <id|path> [-T content,audio] [-r 范围] [-o 目录] [-j 并发] [-f]`
+#[allow(clippy::too_many_arguments)]
 pub async fn run(target: &str, output: Option<&str>, range: Option<&str>,
                  only: Option<&str>, concurrent: Option<usize>, force: bool,
                  verbose: bool, cfg: &Config) {
