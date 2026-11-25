@@ -67,7 +67,7 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
             concurrent,
             audio: false, tone: 1, abr: 0,
             lrc: "external".into(), force: false,
-            verbose: vb, book_title: Some(book.title.clone()),
+            verbose: vb, only: None, book_title: Some(book.title.clone()),
         }, cfg,
     ).await;
 }

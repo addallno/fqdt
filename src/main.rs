@@ -132,21 +132,14 @@ enum Cmd {
         interval: u64,
         #[arg(long, help = "歌词模式 external/embed/both/off")]
         lrc: Option<String>,
-        #[arg(long, help = "真人讲书版", conflicts_with_all = ["ai", "tts"])]
-        real: bool,
-        // --tone/--voice 为 --ai/--tts 的子项：help 单行，Options 中缩进挂父下（SUBITEMS）
-        #[arg(long, conflicts_with = "tts", help = "智能朗读")]
-        ai: bool,
+        #[arg(short='T', long = "type", value_name = "类型", help = "来源 real|ai|tts（真人讲书/智能朗读/本地合成，互斥）")]
+        only: Option<String>,
+        #[arg(short='c', long = "container", value_name = "容器", help = "输出容器 m4a/mp3/ogg（默认 ogg）")]
+        container: Option<String>,
         #[arg(long, hide = true, default_value = "1", help = "AI 音色编号，fqdt info audio <id> 查可用")]
         tone: usize,
-        #[arg(long, help = "Edge-TTS 本地合成")]
-        tts: bool,
         #[arg(long, hide = true, default_value = "zh-CN-XiaoxiaoNeural", help = "语音名")]
         voice: String,
-        #[arg(long, conflicts_with = "mp3", help = "保持 m4a 原样不转码")]
-        keep_m4a: bool,
-        #[arg(long, conflicts_with = "keep_m4a", help = "转码 MP3 而非默认 Ogg Opus")]
-        mp3: bool,
         #[arg(long, help = "新下载 MP3 嵌入书籍封面")]
         cover: bool,
     },
@@ -158,6 +151,10 @@ enum Cmd {
         target: String,
         #[arg(short='o', long, help = "输出目录")]
         output: Option<String>,
+        #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-")]
+        range: Option<String>,
+        #[arg(short='T', long = "type", value_name = "类型", help = "增量类别 content/audio，逗号分隔，默认全部")]
+        only: Option<String>,
         #[arg(short='j', long, help = "并发数")]
         jobs: Option<usize>,
         #[arg(short='f', long, help = "强制覆盖已存在文件")]
@@ -888,11 +885,11 @@ async fn main() {
             dispatch_info(cmd, verbose, &cfg).await,
         Cmd::Download { book_id, output, range, format, jobs, force, interval } =>
             dispatch_download(book_id, output, range, format, jobs, force, verbose, interval, &cfg).await,
-        Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval, real, ai, tts, voice, keep_m4a, mp3, cover } =>
+        Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval, only, container, voice, cover } =>
             dispatch_audio(book_id, output, range, tone, lrc, jobs, force, verbose, interval,
-                real, ai, tts, &voice, keep_m4a, mp3, cover, &cfg).await,
-        Cmd::Update { target, output, jobs, force, interval } =>
-            dispatch_update(target, output, jobs, force, verbose, interval, &cfg).await,
+                only.as_deref(), container.as_deref(), &voice, cover, &cfg).await,
+        Cmd::Update { target, output, range, only, jobs, force, interval } =>
+            dispatch_update(target, output, range, only, jobs, force, verbose, interval, &cfg).await,
         Cmd::Tts { path, voice, jobs } =>
             dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
         Cmd::Shelf { cmd } => workflow::shelf::run(cmd, &cfg).await,
@@ -1011,7 +1008,7 @@ async fn dispatch_download(target: String, output: Option<String>, range: Option
     let p = types::DownloadParams {
         output, range, format, concurrent: jobs,
         audio: false, tone: 1, abr: cfg.abr,
-        lrc: "external".into(), force, verbose: vb, book_title: None,
+        lrc: "external".into(), force, verbose: vb, only: None, book_title: None,
     };
     workflow::download::run(&book_id, &p, cfg).await;
 }
@@ -1019,12 +1016,38 @@ async fn dispatch_download(target: String, output: Option<String>, range: Option
 #[allow(clippy::too_many_arguments)]
 async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<String>,
     tone: usize, lrc: Option<String>, _jobs: Option<usize>, force: bool, verbose: bool,
-    _interval: u64, real: bool, ai: bool, tts: bool, voice: &str, keep_m4a: bool, mp3: bool,
+    _interval: u64, only: Option<&str>, container: Option<&str>, voice: &str,
     cover: bool, base_cfg: &Config) {
-    // flag 优先于 config 键：置位后以克隆配置下发到全部下游
+    // -T/--type 来源归一（real|ai|tts 互斥，m0064 分组 flag）
+    let mut real = false;
+    let mut ai = false;
+    let mut tts = false;
+    if let Some(s) = only {
+        for p in s.split(',') {
+            let p = p.trim().to_ascii_lowercase();
+            if p.is_empty() { continue; }
+            match p.as_str() {
+                "real" => real = true,
+                "ai" => ai = true,
+                "tts" => tts = true,
+                other => { eprintln!("  err 未知来源 {}（可用 real/ai/tts）", other); return; }
+            }
+        }
+        if [real, ai, tts].iter().filter(|x| **x).count() > 1 {
+            eprintln!("  err -T 来源互斥，real/ai/tts 只能选一个");
+            return;
+        }
+    }
+    // -c/--container 输出容器（m4a/mp3/ogg，默认 ogg）
     let mut cfg2 = base_cfg.clone();
-    if keep_m4a { cfg2.audio_keep_m4a = true; }
-    if mp3 { cfg2.audio_mp3 = true; }
+    if let Some(c) = container {
+        match c.trim().to_ascii_lowercase().as_str() {
+            "m4a" => cfg2.audio_keep_m4a = true,
+            "mp3" => cfg2.audio_mp3 = true,
+            "ogg" => {}
+            other => { eprintln!("  err 未知容器 {}（可用 m4a/mp3/ogg）", other); return; }
+        }
+    }
     if cover { cfg2.audio_cover = true; }
     let cfg = &cfg2;
     let vb = verbose || cfg.verbose;
@@ -1045,7 +1068,7 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
         let p = types::DownloadParams {
             output: output.clone(), range, format: None, concurrent: None,
             audio: false, tone, abr: cfg.abr, lrc: "external".into(), force,
-            verbose: vb, book_title: None,
+            verbose: vb, only: None, book_title: None,
         };
         workflow::download::run(&book_id, &p, cfg).await;
         let dir = output.as_deref().map(std::path::PathBuf::from).unwrap_or_else(|| cfg.output_dir.clone());
@@ -1059,7 +1082,7 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
         let p = types::DownloadParams {
             output: None, range, format: None, concurrent: None,
             audio: true, tone, abr: cfg.abr,
-            lrc: lrc_mode.into(), force, verbose: vb, book_title: None,
+            lrc: lrc_mode.into(), force, verbose: vb, only: None, book_title: None,
         };
         workflow::download::run_dir(path, &p, vb, cfg).await;
         return;
@@ -1097,10 +1120,12 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn dispatch_update(target: String, output: Option<String>, jobs: Option<usize>,
-    force: bool, verbose: bool, _interval: u64, cfg: &Config) {
+async fn dispatch_update(target: String, output: Option<String>, range: Option<String>,
+    only: Option<String>, jobs: Option<usize>, force: bool, verbose: bool, _interval: u64,
+    cfg: &Config) {
     let vb = verbose || cfg.verbose;
-    workflow::update::run(Some(&target), output.as_deref(), jobs, None, force, false, vb, _interval, cfg).await;
+    workflow::update::run(&target, output.as_deref(), range.as_deref(), only.as_deref(),
+        jobs, force, vb, cfg).await;
 }
 
 #[allow(clippy::too_many_arguments)]

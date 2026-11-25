@@ -59,6 +59,7 @@ pub async fn run(book_id: &str, p: &DownloadParams, cfg: &Config) {
     }
 }
 
+/// 目录增量：正文+音频各按 `-T/--type` 类别过滤（p.wants），默认全部。
 pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {
     let has_text = path.join("info.list").exists();
     let has_audio = path.join("Audio/info.list").exists();
@@ -67,7 +68,7 @@ pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {
         return;
     }
 
-    if has_text {
+    if has_text && p.wants("content") {
         if let Ok((bid, btitle, fmt, existing)) = download::read_info_list(path) {
             let api = Client::from_config(cfg, vb);
             util::progress("检查正文更新");
@@ -94,7 +95,7 @@ pub async fn run_dir(path: &Path, p: &DownloadParams, vb: bool, cfg: &Config) {
         println!("  正文已存在, 跳过");
     }
 
-    if p.audio || has_audio {
+    if (p.audio || has_audio) && p.wants("audio") {
         let audio_dir = path.join("Audio");
         if has_audio {
             // 已有音频 info.list → 宽松增量（缺 book_id 可按书名解析，update 下沉复用）

@@ -121,6 +121,18 @@ pub struct DownloadParams {
     pub force: bool,
     pub verbose: bool,
     pub book_title: Option<String>,
+    /// 分类增量类别（-T/--type，逗号分隔 content/audio；None=全部）
+    pub only: Option<String>,
+}
+
+impl DownloadParams {
+    /// 是否包含类别（-T/--type 解析）：None=全部包含；大小写不敏感，逗号分隔多值
+    pub fn wants(&self, kind: &str) -> bool {
+        match &self.only {
+            None => true,
+            Some(s) => s.split(',').any(|p| p.trim().eq_ignore_ascii_case(kind)),
+        }
+    }
 }
 
 impl Default for Config {

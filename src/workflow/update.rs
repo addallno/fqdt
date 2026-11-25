@@ -1,190 +1,66 @@
-use crate::api::Client;
-use crate::audio;
-use crate::download;
-use crate::types::{ChapterRange, Config};
-use crate::util;
-use std::fs;
-use std::path::PathBuf;
+use crate::types::{Config, DownloadParams};
+use crate::workflow::download;
 
-#[allow(clippy::too_many_arguments)]
-pub async fn run(book_id: Option<&str>, output: Option<&str>, concurrent: Option<usize>,
-           range: Option<&str>, force: bool, audio: bool, verbose: bool,
-           _interval: u64, cfg: &Config) {
-    let path = match book_id {
-        Some(s) => PathBuf::from(s),
-        None => {
-            eprintln!("  err 需要 book_id 或目录");
-            return;
-        }
-    };
-    let vb = verbose || cfg.verbose;
-
-    if path.is_dir() {
-        return update_dir(&path, range, force, audio, vb, cfg, concurrent).await;
-    }
-
-    let bid = book_id.unwrap();
-    let api = Client::from_config(cfg, vb);
-    util::progress("获取目录");
-    let all = match api.fetch_catalog(bid).await {
-        Ok(c) => c,
-        Err(e) => {
-            util::clear_progress();
-            eprintln!("  err {}", e);
-            return;
-        }
-    };
-    util::clear_progress();
-    if all.is_empty() {
-        eprintln!("  err 空目录");
-        return;
-    }
-
-    let out_dir = output
-        .map(PathBuf::from)
-        .unwrap_or(cfg.output_dir.clone());
-    let r = range.and_then(ChapterRange::parse);
-
-    if audio {
-        update_audio(bid, &all, &out_dir, r.as_ref(), force, vb, cfg).await;
-        return;
-    }
-
-    let mut max_existing = 0usize;
-    if out_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&out_dir) {
-            for e in entries.flatten() {
-                let name = e.file_name().to_string_lossy().to_string();
-                if name.ends_with(".txt")
-                    && name.chars().all(|c| c.is_ascii_digit() || c == '.')
-                {
-                    if let Ok(n) = name.trim_end_matches(".txt").parse::<usize>() {
-                        if n > max_existing {
-                            max_existing = n;
-                        }
-                    }
+/// # update — 增量更新（已静默并入 download，m0059 拍板选二）
+///
+/// 本命令为 download 的薄封装，行为完全转调、不打提示（保持肌肉记忆与别名 u）：
+/// - `<目录>` → `download::run_dir`：正文增量 + 目录含 Audio/ 时**一次同时**音频增量
+/// - `<id>`   → `download::run`：Downloader 按文件名跳过已有文件，**中间缺章也补**
+/// - `-T/--type content|audio[,…]`（m0064）：分类增量——只做指定类别，默认全部；
+///   id 模式 `-T audio` 转 `audio::run`（download id 只会正文+附加音频，无法只音频）
+///
+/// # 调用的原子函数
+/// - `api.fetch_catalog()`、`download::Downloader::run()`、`audio` 工作流
+///
+/// # CLI 调用
+/// - `fqdt update <id|path> [-T content,audio] [-r 范围] [-o 目录] [-j 并发] [-f]`
+pub async fn run(target: &str, output: Option<&str>, range: Option<&str>,
+                 only: Option<&str>, concurrent: Option<usize>, force: bool,
+                 verbose: bool, cfg: &Config) {
+    // 类别归一：仅接受 content/audio（大小写不敏感、去重）
+    let only_norm = match only {
+        None => None,
+        Some(s) => {
+            let mut kinds: Vec<String> = Vec::new();
+            for p in s.split(',') {
+                let p = p.trim().to_ascii_lowercase();
+                if p.is_empty() { continue; }
+                if p != "content" && p != "audio" {
+                    eprintln!("  err 未知增量类别 {}（可用 content/audio）", p);
+                    return;
                 }
+                if !kinds.contains(&p) { kinds.push(p); }
             }
-        }
-    }
-    let new_chs: Vec<&crate::types::Chapter> = all
-        .iter()
-        .filter(|c| c.index > max_existing)
-        .filter(|c| r.as_ref().is_none_or(|x| x.contains(c.index)))
-        .collect();
-    if new_chs.is_empty() {
-        println!("  已是最新 · 共 {} 章", all.len());
-        return;
-    }
-    println!("  新增 {} 章 · {}→{} 章", new_chs.len(), max_existing, all.len());
-    let dler = download::Downloader::new(
-        api, out_dir, &cfg.format, &cfg.filename_template, force, vb, bid, "小说",
-    );
-    dler.run(&new_chs, concurrent.unwrap_or(cfg.concurrent)).await;
-}
-
-async fn update_dir(path: &std::path::Path, range: Option<&str>, force: bool, audio: bool,
-              vb: bool, cfg: &Config, concurrent: Option<usize>) {
-    if audio {
-        let audio_dir = path.join("Audio");
-        if !audio_dir.exists() {
-            eprintln!("  err Audio/ 目录不存在");
-            return;
-        }
-        return update_audio_dir(&audio_dir, range, force, vb, cfg).await;
-    }
-    // 纯音频目录（info.list 含 tone、无正文）直接走音频增量，不强制要求 book_id
-    if download::info_list_is_audio(path) {
-        return update_audio_dir(path, range, force, vb, cfg).await;
-    }
-    let (bid, btitle, fmt, existing) = match download::read_info_list(path) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("  err {}", e);
-            return;
-        }
-    };
-    let api = Client::from_config(cfg, vb);
-    util::progress("获取目录");
-    let all = match api.fetch_catalog(&bid).await {
-        Ok(c) => c,
-        Err(e) => {
-            util::clear_progress();
-            eprintln!("  err {}", e);
-            return;
-        }
-    };
-    util::clear_progress();
-    if all.is_empty() {
-        eprintln!("  err 空目录");
-        return;
-    }
-    let r = range.and_then(ChapterRange::parse);
-    let new_chs: Vec<&crate::types::Chapter> = all
-        .iter()
-        .filter(|c| !existing.iter().any(|(idx, _, _)| *idx == c.index))
-        .filter(|c| r.as_ref().is_none_or(|x| x.contains(c.index)))
-        .collect();
-    if new_chs.is_empty() {
-        println!("  已是最新 · 共 {} 章", all.len());
-        return;
-    }
-    println!("  新增 {} 章 · 已有 {}/{} 章", new_chs.len(), existing.len(), all.len());
-    let dler = download::Downloader::new(
-        api, path.to_path_buf(), &fmt, &cfg.filename_template, force, vb, &bid, &btitle,
-    );
-    dler.run(&new_chs, concurrent.unwrap_or(cfg.concurrent)).await;
-}
-
-async fn update_audio(book_id: &str, all: &[crate::types::Chapter], out_dir: &std::path::Path,
-                range: Option<&ChapterRange>, force: bool, vb: bool, cfg: &Config) {
-    let audio_dir = out_dir.join("Audio");
-    let mut max_existing = 0usize;
-    if audio_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&audio_dir) {
-            for e in entries.flatten() {
-                let name = e.file_name().to_string_lossy().to_string();
-                let stem = name
-                    .strip_suffix(".mp3")
-                    .or_else(|| name.strip_suffix(".m4a"))
-                    .or_else(|| name.strip_suffix(".ogg"));
-                if let Some(stem) = stem {
-                    if stem.chars().all(|c| c.is_ascii_digit() || c == '.') {
-                        if let Ok(n) = stem.parse::<usize>() {
-                            if n > max_existing {
-                                max_existing = n;
-                            }
-                        }
-                    }
-                }
+            if kinds.is_empty() {
+                eprintln!("  err -T 需要 content 或 audio");
+                return;
             }
+            Some(kinds.join(","))
         }
-    }
-    let new_chs: Vec<&crate::types::Chapter> = all
-        .iter()
-        .filter(|c| c.index > max_existing)
-        .filter(|c| range.is_none_or(|x| x.contains(c.index)))
-        .collect();
-    if new_chs.is_empty() {
-        println!("  音频已是最新 · 共 {} 章", all.len());
-        return;
-    }
-    println!("  新增 {} 章音频 · {}→{} 章", new_chs.len(), max_existing, all.len());
-    let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
-        vec![2, 4, 5, 6, 74, 91]
-    } else {
-        cfg.audio_tone_fallbacks.clone()
     };
-    let dler = audio::AudioDownloader::new(
-        Client::from_config(cfg, vb), audio_dir,
-        audio::AudioParams {
-            book_id: book_id.to_string(),
-            tone: cfg.audio_tone, fallbacks,
-            ft: cfg.filename_template.clone(), force, verbose: vb,
-            abr: cfg.abr, speed: None, normalize: false,
-            post_cmd: cfg.post_process.clone(), lrc_mode: "external".into(),
-            keep_m4a: cfg.audio_keep_m4a, mp3: cfg.audio_mp3, cover: cfg.audio_cover, cover_img: None,
-        },
-    );
-    dler.run(&new_chs, None).await;
+
+    let p = DownloadParams {
+        output: output.map(|s| s.to_string()),
+        range: range.map(|s| s.to_string()),
+        format: None,
+        concurrent,
+        audio: false,
+        tone: cfg.audio_tone,
+        abr: cfg.abr,
+        lrc: String::new(),
+        force,
+        verbose,
+        book_title: None,
+        only: only_norm.clone(),
+    };
+
+    let path = std::path::Path::new(target);
+    // id + 只音频 → audio 工作流（download id 模式无法只下音频）
+    if !path.is_dir() && only_norm.as_deref() == Some("audio") {
+        return crate::workflow::audio::run(
+            Some(target), output, range, cfg.audio_tone, verbose,
+            None, "zh-CN-XiaoxiaoNeural", None, None, None, None, None, false, None,
+            "external", force, concurrent, 0, cfg).await;
+    }
+    download::run(target, &p, cfg).await;
 }

@@ -98,7 +98,7 @@ async fn local_download(index: usize, cfg: &Config) {
         output: None, range: None, format: None, concurrent: None,
         audio: false, tone: 1, abr: 0,
         lrc: "external".into(), force: false,
-        verbose: false, book_title: Some(title.clone()),
+        verbose: false, only: None, book_title: Some(title.clone()),
     }, cfg).await;
 }
 
@@ -116,7 +116,7 @@ async fn local_update(cfg: &Config) {
             output: None, range: None, format: None, concurrent: None,
             audio: false, tone: 1, abr: 0,
             lrc: "external".into(), force: false,
-            verbose: false, book_title: Some(title.clone()),
+            verbose: false, only: None, book_title: Some(title.clone()),
         }, cfg).await;
     }
 }
