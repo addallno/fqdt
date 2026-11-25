@@ -952,7 +952,7 @@ mod tests {
     #[test]
     fn shelf_snap_clear_invalidates() {
         // 仅验证逻辑路径；store 全局文件在测试环境会共享——clear 后不应 panic。
-        let _ = crate::store::shelf_snap_clear();
+        crate::store::shelf_snap_clear();
         // 不断言 None（并发测试可能他人 set）；只保证调用安全。
     }
 }
