@@ -61,7 +61,7 @@ flag 详情层教"这个取值是什么"。每层不越界——顶层不列 fla
 2. **不教 help**——删除 `flag 详情: ...`、`用 fqdt xxx --help 查看` 类尾行（v0.24.0）。
 3. **不列配置键**——help 不写 `配置: config.ini [x] y` 说明；配置说明唯一来源 = `config.ini` 分节模板注释（v0.24.0）+ `CONFIG_HELP`。
 4. **不打迁移提示**——命令移除后直接未知命令 err，不打"已移除/请改用 xxx"（v0.24.0）。
-5. **动词化、短**——摘要行 ≤20 字；flag help ≤1 行；占位符小写（m0108：不写 `<ID>`），**合法形式**（m0125）：单类型必填 `<id>`/`<key>`、联合必填 `<id|path>`、可选 `[path]`/`[id|path]`——位置参数支持多种类型时用 `|` 联合（如 download/update 的 `<id|path>` = id、书名或已下载目录）；对象多样用通名 `id` 不用 `book_id`。
+5. **动词化、短**——摘要行 ≤20 字；flag help ≤1 行；占位符小写（m0108：不写 `<ID>`），**合法形式**（m0125，清单扩充 m0142）：单类型必填 `<id>`/`<key>`、联合必填 `<id|key>`/`<id|path>`、可选 `[path]`/`[id|path]`——位置参数支持多种类型时用 `|` 联合（如 download/update 的 `<id|path>` = id、书名或已下载目录；view/audio/info 支持书名关键词用 `<id|key>`，占位与描述类数必须一致 m0139/m0142）；对象多样用通名 `id` 不用 `book_id`。
 6. **示例真实可跑**——每条示例用当前真实语法（改子命令/flag 当次同步示例，people copy examples verbatim）；示例 1–3 条覆盖不同场景，不用 `[options]` 占位。
 7. **简体中文**，错误前缀 `  err `、成功 `  ok `，不用 emoji（AGENTS 8.3）。
 8. **一行一记录**——help 与运行输出同守 TUI.md：进度走 stderr、结果单行、指引仅未登录/未 Cookie 保留单行。

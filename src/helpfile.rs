@@ -178,32 +178,32 @@ const API_TAIL: &str = "
 fqdt search <关键词> -p N
   GET /api/v1/search?query=<关键词>&page=<N>&tab_type=1     综合搜索，tab_type 1综合 3小说 2听书
 
-fqdt info overview <id>
+fqdt info overview <id|key>
   GET /api/v1/books/{book_id}/detail                       书籍详情：标题/作者/热度/简介
   GET /api/v1/books/{book_id}/directory                    章节目录，概览取前 N 章
   GET /api/v1/books/{book_id}/reviews                      书评，概览取前 N 条
 
-fqdt info chapters <id> [-r 范围]
+fqdt info chapters <id|key> [-r 范围]
   GET /api/v1/books/{book_id}/directory                    全量目录含 item_id，本地按范围筛选
 
-fqdt info intro <id>
+fqdt info intro <id|key>
   GET /api/v1/books/{book_id}/detail                       完整简介字段
 
-fqdt info author <id>
+fqdt info author <id|key>
   GET /api/v1/books/{book_id}/detail                       取 author_id，含 N_ 前缀原样使用
   GET /api/v1/authors/{author_id}                          作者资料
   GET /api/v1/authors/{author_id}/bookshelf                作者推荐书单
 
-fqdt info comments <id>
+fqdt info comments <id|key>
   GET /api/v1/books/{book_id}/reviews                      书评列表
 
-fqdt info cover <id>
+fqdt info cover <id|key>
   GET /api/v1/books/{book_id}/detail                       封面 thumb_url 字段
 
-fqdt info relative <id>
+fqdt info relative <id|key>
   GET /api/v1/books/{book_id}/related                      相关推荐书单与杂项
 
-fqdt info audio <id>
+fqdt info audio <id|key>
   GET /api/v1/books/{book_id}/tones                        本书可用 AI 音色集合
 
 fqdt info recommend [--tab-type N] [--tab-index N] [--offset N]
@@ -225,7 +225,7 @@ fqdt info user
 fqdt info highlights
   GET /reading/reader/bookmark/personal_list/              划线书单，需 Cookie
 
-fqdt view <id> [-r 范围]
+fqdt view <id|key> [-r 范围]
   GET /api/v1/books/{book_id}/directory                    取目录与 item_id（TUI 逐章）
   GET /api/v1/chapters/{item_id}                           单章正文，n/p 切章时加载
   GET /api/v1/books/{book_id}                              书名（顶栏，失败回退 id）
@@ -255,7 +255,7 @@ fqdt shelf list / add / remove / move / download
 fqdt login [COOKIE] / --check
   GET /api/user/info/v2                                    验证 Cookie 是否有效
 
-fqdt info overview <id> --add / shelf add <id>
+fqdt info overview <id|key> --add / shelf add <id>
   POST /reading/bookapi/bookshelf/add/v                    收藏到云端书架
 
 fqdt api <路径>

@@ -118,7 +118,7 @@ enum Cmd {
     #[command(alias = "a")]
     #[command(display_order = 21)]
     Audio {
-        #[arg(value_name = "id", help = "id 或书名关键词")]
+        #[arg(value_name = "id|key", help = "id 或书名关键词")]
         book_id: String,
         #[arg(short='o', long, help = "输出目录")]
         output: Option<String>,
@@ -232,10 +232,10 @@ enum Cmd {
         #[arg(long = "list", help = "列出常用端点")]
         list: bool,
     },
-    /// 阅读书籍（TUI）
-    #[command(display_order = 34)]
+    /// 阅读书籍
+    #[command(display_order = 34, alias = "v")]
     View {
-        #[arg(value_name = "id", help = "id 或书名关键词")]
+        #[arg(value_name = "id|key", help = "id 或书名关键词")]
         book_id: String,
         #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
         range: Option<String>,
@@ -263,7 +263,7 @@ enum InfoCmd {
     /// 概览：标题/热度/简介 + 前 N 章 + 前 N 条书评
     Overview {
         /// id 或书名关键词
-        #[arg(value_name = "id")]
+        #[arg(value_name = "id|key")]
         book_id: String,
         #[arg(short = 'r', long, help = "章节范围")]
         range: Option<String>,
@@ -274,24 +274,24 @@ enum InfoCmd {
     },
     /// 目录（含 item_id）
     Chapters {
-        #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String,
+        #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String,
         #[arg(short = 'r', long, help = "章节范围")]
         range: Option<String>,
         #[arg(long, help = "加入云端书架")]
         add: bool,
     },
     /// 完整简介
-    Intro { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Intro { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 作者资料与书单
-    Author { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Author { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 书评
-    Comments { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Comments { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 封面图 URL
-    Cover { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Cover { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 相关推荐
-    Relative { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Relative { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 本书可用 AI 音色
-    Audio { #[arg(value_name = "id", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Audio { #[arg(value_name = "id|key", help = "id 或书名关键词")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
     /// 首页推荐
     Recommend {
         #[arg(long, default_value = "2", help = "区块类型")]
