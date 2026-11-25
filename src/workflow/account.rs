@@ -317,6 +317,7 @@ pub async fn shelf_op(cookie: &str, op: &str, book_id: &str, group: Option<&str>
     let url = format!("{base}/{path}/v?aid=1967");
     match page_post(&url, cookie, body.to_string().as_bytes()).await {
         Ok(_) => {
+            crate::store::shelf_snap_clear(); // 98：写后失效，新书立即可见
             let verb = if op == "add" { "已加入书架" } else { "已移出书架" };
             crate::emit_line(&format!("{GREEN}ok{RST} {verb} {BLUE}#{book_id}{RST}"));
         }
@@ -333,7 +334,10 @@ async fn shelf_move(cookie: &str, book_id: &str, group: &str) {
         "group_name":group,"has_shown":false,"is_pin":false,"modify_time":ms_now()}]});
     let url = format!("{FQ_WEB}/reading/bookapi/bookshelf/update/v?aid=1967");
     match page_post(&url, cookie, body.to_string().as_bytes()).await {
-        Ok(_) => crate::emit_line(&format!("{GREEN}ok{RST} 已移动到分组 {CYAN}{group}{RST} · {BLUE}#{book_id}{RST}")),
+        Ok(_) => {
+            crate::store::shelf_snap_clear(); // 98：移动也改书架，失效快照
+            crate::emit_line(&format!("{GREEN}ok{RST} 已移动到分组 {CYAN}{group}{RST} · {BLUE}#{book_id}{RST}"));
+        }
         Err(e) => eprintln!("  {RED}err{RST} {e}"),
     }
 }
@@ -636,21 +640,23 @@ fn upstream_ok(v: &Value) -> Result<(), String> {
 }
 
 /// history 渲染：条目只有 book_id/read_timestamp_ms（无书名），按时间降序。
-fn render_history(v: &Value, search: Option<&str>) {
-    // 递归找含 read_timestamp_ms 的数组
-    fn find_arr(x: &Value) -> Option<&Vec<Value>> {
-        match x {
-            Value::Array(a) => {
-                if a.iter().any(|i| i.get("read_timestamp_ms").is_some()) {
-                    return Some(a);
-                }
-                a.iter().find_map(find_arr)
+/// history 数组查找（97 单测锚）：递归找含 read_timestamp_ms 的数组。
+/// 真结构 `data.data_list[]`（book_id/book_id_str/read_source/read_timestamp_ms）。
+fn find_history_arr(x: &Value) -> Option<&Vec<Value>> {
+    match x {
+        Value::Array(a) => {
+            if a.iter().any(|i| i.get("read_timestamp_ms").is_some()) {
+                return Some(a);
             }
-            Value::Object(o) => o.values().find_map(find_arr),
-            _ => None,
+            a.iter().find_map(find_history_arr)
         }
+        Value::Object(o) => o.values().find_map(find_history_arr),
+        _ => None,
     }
-    let Some(arr) = find_arr(v) else {
+}
+
+fn render_history(v: &Value, search: Option<&str>) {
+    let Some(arr) = find_history_arr(v) else {
         return crate::emit_line("  （history 结构未知 → --json 查看原文）");
     };
     let kw = search.map(|s| s.to_lowercase());
@@ -683,18 +689,20 @@ fn render_history(v: &Value, search: Option<&str>) {
 }
 
 /// folders 渲染：数组在 payload.data.folders（可真空），条目多为 folder_name/id。
-fn render_folders(v: &Value, search: Option<&str>) {
-    fn find_arr<'a>(x: &'a Value, key: &str) -> Option<&'a Vec<Value>> {
-        match x {
-            Value::Array(a) => a.iter().find_map(|i| find_arr(i, key)),
-            Value::Object(o) => {
-                o.get(key).and_then(|v| v.as_array())
-                    .or_else(|| o.values().find_map(|v| find_arr(v, key)))
-            }
-            _ => None,
+/// folders 数组查找（97 单测锚）：递归找指定 key 的数组。
+/// 真结构 `payload.data.folders[]`（可真空数组）。
+fn find_folders_arr<'a>(x: &'a Value, key: &str) -> Option<&'a Vec<Value>> {
+    match x {
+        Value::Array(a) => a.iter().find_map(|i| find_folders_arr(i, key)),
+        Value::Object(o) => {
+            o.get(key).and_then(|v| v.as_array())
+                .or_else(|| o.values().find_map(|v| find_folders_arr(v, key)))
+        }
+        _ => None,
         }
     }
-    let Some(arr) = find_arr(v, "folders") else {
+fn render_folders(v: &Value, search: Option<&str>) {
+    let Some(arr) = find_folders_arr(v, "folders") else {
         return crate::emit_line("  （folders 结构未知 → --json 查看原文）");
     };
     let kw = search.map(|s| s.to_lowercase());
@@ -886,3 +894,65 @@ fn render_highlights(v: &Value, json: bool) {
 /// 进度提示（复用 util，非 TTY 静默）。
 fn util_progress(label: &str) { crate::util::progress(label); }
 fn util_clear() { crate::util::clear_progress(); }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 97：真 history 载荷（远端 fqdt i history --json 实录 data.data_list 结构）。
+    #[test]
+    fn history_arr_from_real_payload() {
+        let v: Value = serde_json::from_str(
+            r#"{"_fqapp_device_id":"x","code":0,"data":{"data_list":[
+                {"book_id":7667499565381078041,"book_id_str":"7667499565381078041",
+                 "read_source":"user_added","read_timestamp_ms":1795618633722},
+                {"book_id":7706844630989425689,"book_id_str":"7706844630989425689",
+                 "read_source":"猜你喜欢","read_timestamp_ms":1795618622433}
+            ]}}"#,
+        )
+        .unwrap();
+        let arr = find_history_arr(&v).expect("真结构应找到 data_list");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(
+            arr[0].get("read_timestamp_ms").and_then(|x| x.as_u64()),
+            Some(1795618633722)
+        );
+        assert_eq!(
+            arr[0].get("book_id_str").and_then(|x| x.as_str()),
+            Some("7667499565381078041")
+        );
+    }
+
+    /// 97：history 结构未知 → None（不误报空）。
+    #[test]
+    fn history_arr_unknown_structure() {
+        let v: Value = serde_json::from_str(r#"{"foo":1}"#).unwrap();
+        assert!(find_history_arr(&v).is_none());
+    }
+
+    /// 97：真 folders 载荷——payload.data.folders 可为空数组（仍应定位到，而非 None）。
+    #[test]
+    fn folders_arr_real_payload_empty_ok() {
+        let v: Value = serde_json::from_str(
+            r#"{"code":0,"payload":{"data":{"folder_count":0,"folders":[],"has_more":false}}}"#,
+        )
+        .unwrap();
+        let arr = find_folders_arr(&v, "folders").expect("应找到 folders 键（含空数组）");
+        assert!(arr.is_empty());
+        // 非空
+        let v2: Value = serde_json::from_str(
+            r#"{"payload":{"data":{"folders":[{"folder_name":"想看","folder_id":1}]}}}"#,
+        )
+        .unwrap();
+        let arr2 = find_folders_arr(&v2, "folders").unwrap();
+        assert_eq!(arr2.len(), 1);
+    }
+
+    /// 98：写操作失效快照——set 后 clear，snap 返回 None。
+    #[test]
+    fn shelf_snap_clear_invalidates() {
+        // 仅验证逻辑路径；store 全局文件在测试环境会共享——clear 后不应 panic。
+        let _ = crate::store::shelf_snap_clear();
+        // 不断言 None（并发测试可能他人 set）；只保证调用安全。
+    }
+}

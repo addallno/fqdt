@@ -199,6 +199,13 @@ pub fn shelf_snap_set(data: Value) -> Result<(), String> {
     save(&st)
 }
 
+/// 写操作（add/remove/move）成功后失效快照：新书立即可见，不等 TTL（98）。
+pub fn shelf_snap_clear() {
+    let mut st = load();
+    st.shelf = None;
+    let _ = save(&st);
+}
+
 /// read 进度读取。
 pub fn read_get(book_id: &str) -> Option<ReadPos> {
     load().read.get(book_id).cloned()
