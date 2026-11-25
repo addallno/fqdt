@@ -3225,21 +3225,6 @@ fn collect_sample_entry_patches(
             continue;
         };
         for b in list {
-            let default_replacement = if *typ == *b"enca" { *b"mp4a" } else { *b"hvc1" };
-            let mut replacement = default_replacement;
-            let mut sinf: Option<Mp4Box> = None;
-            if let Some(child_start) = box_children_start(&typ, b.off, b.header) {
-                for child in iter_boxes(data, child_start, b.off + b.size) {
-                    match &child.typ {
-                        b"dOps" => replacement = *b"Opus",
-                        b"esds" => replacement = *b"mp4a",
-                        b"avcC" => replacement = *b"avc1",
-                        b"hvcC" => replacement = *b"hvc1",
-                        b"sinf" => sinf = Some(child),
-                        _ => {}
-                    }
-                }
-            }
             if b.off + 8 <= data.len() {
                 out.push(CencPatch {
                     off: base_off + (b.off + 4) as u64,
