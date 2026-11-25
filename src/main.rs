@@ -5,6 +5,7 @@ mod download;
 mod epub;
 mod fqapi;
 mod helpfile;
+mod imgtool;
 mod store;
 mod types;
 mod util;

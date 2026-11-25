@@ -1129,9 +1129,95 @@ pub fn strip_html(s: &str) -> String {
     out
 }
 
+/// 同 strip_html，但保留 `<img src>`：转为独占行标记 `{{IMG:url}}`（view 阅读器图片渲染用，68）。
+/// 段落/br 语义与 strip_html 一致；非 img 标签行为一致。
+pub fn strip_html_imgs(s: &str) -> String {
+    let mut out = String::new();
+    let mut tag = false;
+    let mut tag_name = String::new();
+    let mut ent = false;
+    let mut buf = String::new();
+    let mut is_close = false;
+    let mut raw_tag = String::new(); // 标签内原文（含属性），img 时解析 src
+    let mut name_done = false; // 标签名在首个空格处截断（属性不进 tag_name）
+    for c in s.chars() {
+        if tag {
+            raw_tag.push(c);
+            if c == '>' {
+                tag = false;
+                if is_close && (tag_name == "p" || tag_name == "div" || tag_name == "h1" || tag_name == "h2" || tag_name == "h3") {
+                    out.push_str("\n\n");
+                }
+                if tag_name == "br" {
+                    out.push('\n');
+                }
+                if tag_name == "img" && !is_close {
+                    if let Some(src) = img_src(&raw_tag) {
+                        out.push_str("\n{{IMG:");
+                        out.push_str(&src);
+                        out.push_str("}}\n");
+                    }
+                }
+                tag_name.clear();
+                raw_tag.clear();
+                is_close = false;
+                name_done = false;
+                continue;
+            }
+            if c == '/' && tag_name.is_empty() { is_close = true; continue; }
+            if c.is_ascii_whitespace() {
+                if !tag_name.is_empty() { name_done = true; }
+            } else if !name_done {
+                tag_name.push(c.to_ascii_lowercase());
+            }
+            continue;
+        }
+        if ent {
+            if c == ';' {
+                match buf.as_str() {
+                    "lt" => out.push('<'), "gt" => out.push('>'),
+                    "amp" => out.push('&'), "nbsp" => out.push(' '),
+                    "quot" => out.push('"'), _ => {}
+                }
+                ent = false; buf.clear();
+            } else { buf.push(c); }
+            continue;
+        }
+        if c == '<' { tag = true; tag_name.clear(); raw_tag.clear(); is_close = false; name_done = false; continue; }
+        if c == '&' { ent = true; buf.clear(); continue; }
+        out.push(c);
+    }
+    out
+}
+
+/// 从标签原文提取 src 属性值（双引号/单引号）。
+fn img_src(raw_tag: &str) -> Option<String> {
+    let lower = raw_tag.to_ascii_lowercase();
+    let i = lower.find("src=")?;
+    let rest = &raw_tag[i + 4..];
+    let rest = rest.trim_start();
+    let (q, body) = if let Some(r) = rest.strip_prefix('"') { ('"', r) }
+        else {
+            let r = rest.strip_prefix('\'')?; ('\'', r) };
+    let end = body.find(q)?;
+    let src = body[..end].trim();
+    if src.is_empty() { None } else { Some(src.to_string()) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_strip_html_imgs_capture() {
+        let s = "<p>前文</p><img src=\"https://x/y.png\" alt=\"a\"><p>后文</p>";
+        let out = strip_html_imgs(s);
+        assert!(out.contains("{{IMG:https://x/y.png}}"), "got: {out:?}");
+        assert!(out.contains("前文") && out.contains("后文"));
+        // 非 img 行为与 strip_html 一致
+        let s2 = "第一行<br>第二段";
+        assert_eq!(strip_html_imgs(s2), strip_html(s2));
+    }
 
     #[test]
     fn test_strip_html_paragraphs() {

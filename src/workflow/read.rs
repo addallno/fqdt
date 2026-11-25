@@ -251,8 +251,8 @@ async fn reload(rd: &mut Reader, api: &Client, width: u16) -> Result<(), String>
     });
     match res {
         Ok(html) => {
-            rd.raw = api::strip_html(&html);
-            rd.lines = wrap_text(&rd.raw, rd.content_width(width));
+            rd.raw = api::strip_html_imgs(&html);
+            rd.lines = wrap_with_imgs(&rd.raw, rd.content_width(width));
             rd.msg.clear();
             Ok(())
         }
@@ -295,7 +295,45 @@ fn wrap_text(text: &str, width: u16) -> Vec<Line<'static>> {
 
 /// 宽度/zen 变化后按原文重折（不重新请求）。
 fn rewrap(rd: &mut Reader, width: u16) {
-    rd.lines = wrap_text(&rd.raw, width);
+    rd.lines = wrap_with_imgs(&rd.raw, width);
+}
+
+/// 含图片标记的折行：`{{IMG:url}}` 独占行展开为图片块/占位，其余行走 wrap_text。
+fn wrap_with_imgs(text: &str, width: u16) -> Vec<Line<'static>> {
+    let mut out = Vec::new();
+    let mut buf = String::new();
+    let flush = |buf: &mut String, out: &mut Vec<Line<'static>>| {
+        if !buf.is_empty() {
+            out.extend(wrap_text(buf, width));
+            buf.clear();
+        }
+    };
+    for line in text.split('\n') {
+        if let Some(url) = line.strip_prefix("{{IMG:").and_then(|s| s.strip_suffix("}}")) {
+            flush(&mut buf, &mut out);
+            push_img_block(&mut out, url, width);
+        } else {
+            if !buf.is_empty() { buf.push('\n'); }
+            buf.push_str(line);
+        }
+    }
+    flush(&mut buf, &mut out);
+    out
+}
+
+/// 图片块：有外部加载器→下载转 ANSI 行；否则/失败→纯文本占位行。
+fn push_img_block(out: &mut Vec<Line<'static>>, url: &str, width: u16) {
+    let h = crate::imgtool::IMG_MAX_H;
+    match crate::imgtool::render(url, width, h) {
+        Some(rows) => {
+            out.push(Line::default());
+            for row in rows { out.push(Line::from(row)); }
+            out.push(Line::default());
+        }
+        None => {
+            out.push(Line::from(crate::imgtool::placeholder(url)));
+        }
+    }
 }
 
 /// 滚动：上/下界钳制；滚到底再向下 → 自动进下一章。
@@ -503,6 +541,20 @@ fn draw_helpbar(f: &mut Frame, rd: &Reader, area: Rect) {
 mod tests {
     use super::*;
     use crossterm::event::KeyCode;
+
+    #[test]
+    fn wrap_with_imgs_marker_and_text() {
+        // 无工具环境（CI）：图片行→占位；普通行照常折行
+        let raw = "前文\n{{IMG:/rel/x.png}}\n后文";
+        let lines = wrap_with_imgs(raw, 40);
+        let joined: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+        assert!(joined.contains("[图片: /rel/x.png]"), "got: {joined:?}");
+        assert!(joined.contains("前文") && joined.contains("后文"), "got: {joined:?}");
+        // 无标记时与 wrap_text 行数一致
+        let a = wrap_with_imgs("甲乙丙\n丁戊", 40);
+        let b = wrap_text("甲乙丙\n丁戊", 40);
+        assert_eq!(a.len(), b.len());
+    }
 
     #[test]
     fn wrap_chinese_by_width() {
