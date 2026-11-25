@@ -3,7 +3,7 @@
 番茄小说（FanqieNovel）命令行下载器：正文 / 有声书 / 书架 / 阅读数据，一条命令离线归档。
 
 - **正文**：txt / epub，批量并发、增量更新、章节范围
-- **有声书**：官方音源 CENC 解密，默认 remux Ogg Opus（零转码可播优先），`--mp3` 转 MP3，`--keep-m4a` 保原容器，`--cover` 嵌封面
+- **有声书**：官方音源 CENC 解密，默认 remux Ogg Opus（零转码可播优先），`-c mp3` 转 MP3，`-c m4a` 保原容器，`--cover` 嵌封面
 - **发现**：搜索、首页推荐、分类、书评、作者书单
 - **书架**：本地 / 云端（需登录 Cookie），分组、过滤、一键更新
 - **阅读数据**：进度时间线、阅读历史、云端文件夹、划线笔记
@@ -31,7 +31,7 @@ fqdt download 7185478854738185271 # 下载正文（纯数字 = book_id）
 fqdt download 诡秘之主            # 书名关键词 → 交互选书
 fqdt download <id> -t epub -r 1-50 -j 8
 fqdt view 诡秘之主               # TUI 阅读器（分栏目录/正文，j k 滚动，Tab 切焦点，i 放大图，z 全屏，q 退出存进度）
-fqdt audio <id> --ai --tone 6     # 有声书：AI 朗读指定音色
+fqdt audio <id> -T ai --tone 6    # 有声书：AI 朗读指定音色
 fqdt info overview <id>           # 概览：热度 / 简介 / 前几章 / 书评
 fqdt shelf list                   # 书架（登录后为云端）
 fqdt --help                       # 全部命令
@@ -44,9 +44,9 @@ fqdt --help                       # 全部命令
 | `search <关键词>` | | 搜索列表（`-D N` 顺带下载第 N 本） |
 | `info <section> [id]` | `i` | 书籍信息与个人数据（见下） |
 | `download <id\|书名>` | `d` | 下载正文 txt/epub |
-| `audio <id\|书名>` | `a` | 下载有声书（`--real/--ai/--tts` 三模式，默认 Ogg，`--mp3` 转 MP3） |
+| `audio <id\|书名>` | `a` | 下载有声书（`-T real/ai/tts` 三来源，默认 Ogg，`-c mp3` 转 MP3） |
 | `view <id\|书名>` | | TUI 阅读器：分栏目录+正文、j/k 滚动、Tab 焦点、Enter 跳章、i 聚焦放大图片、z 全屏、进度自动记忆 |
-| `update <id\|目录>` | `u` | 增量更新已下载的书 |
+| `update <id\|目录>` | `u` | 增量更新（并入 download，`-T content/audio` 分类，默认全部） |
 | `tts <txt\|目录>` | `t` | edge-tts 文本转语音 |
 | `shelf <子命令>` | `s` | 书架管理（list/add/remove/move/download） |
 | `login [COOKIE]` | | 登录态（`--check`/`--clear`） |
@@ -71,24 +71,24 @@ fqdt d <书名>                             # 关键词交互选书
 
 ```sh
 fqdt a <id> -r 1-50 -j 6       # 范围 + 并发
-fqdt a <id> --real             # 真人讲书
-fqdt a <id> --ai --tone 6      # AI 朗读（fqdt info audio <id> 查可用音色）
-fqdt a <id> --tts --voice zh-CN-XiaoxiaoNeural   # Edge-TTS（需本机 edge-tts）
+fqdt a <id> -T real            # 真人讲书
+fqdt a <id> -T ai --tone 6     # AI 朗读（fqdt info audio <id> 查可用音色）
+fqdt a <id> -T tts --voice zh-CN-XiaoxiaoNeural  # Edge-TTS（需本机 edge-tts）
 fqdt a <id> --lrc embed        # 歌词嵌入（非 MP3 退化外置；听书章节自动用 timeline 精确时间轴，文字书按段落估算）
-fqdt a <id> --mp3              # 输出转 MP3（默认是 Ogg Opus）
-fqdt a <id> --keep-m4a         # 保持 m4a 原样，不转码
+fqdt a <id> -c mp3             # 输出转 MP3（默认是 Ogg Opus）
+fqdt a <id> -c m4a             # 保持 m4a 原样，不转码
 fqdt a <id> --cover            # 新下载的 MP3 嵌入书籍封面
 ```
 
-> **输出格式**：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，装有 ffmpeg 时默认 `ffmpeg -c copy` remux 为 Ogg Opus（零转码、秒级、通用可播），`--mp3` 改走 libmp3lame 64k 转码（iOS/Windows Media Player 兼容），无 ffmpeg 则降级保留 `.m4a`（仅 VLC/mpv/Android 10+ 等可播，下载时提示一次）。`--keep-m4a` 跳过转码；`--cover` 整本书取一次封面写入每章 APIC，仅对新下载的 MP3 生效；同义配置键 `audio.mp3` / `audio.keep_m4a` / `audio.cover`。
+> **输出格式**：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，装有 ffmpeg 时默认 `ffmpeg -c copy` remux 为 Ogg Opus（零转码、秒级、通用可播），`-c mp3` 改走 libmp3lame 64k 转码（iOS/Windows Media Player 兼容），无 ffmpeg 则降级保留 `.m4a`（仅 VLC/mpv/Android 10+ 等可播，下载时提示一次）。`-c m4a` 跳过转码；`--cover` 整本书取一次封面写入每章 APIC，仅对新下载的 MP3 生效；同义配置键 `audio.mp3` / `audio.keep_m4a` / `audio.cover`。
 >
 
 ## update — 增量更新
 
 ```sh
-fqdt u <id>               # 按 ID 更新
-fqdt u ./output                # 按目录自动检测（info.list）
-fqdt u ./output -j 4
+fqdt u <id>               # 按 ID 更新（按文件名补缺，含中间缺章）
+fqdt u ./output           # 按目录增量（info.list 比对，含音频）
+fqdt u ./output -T content   # 只补正文；-T audio 只补音频（可逗号分隔）
 ```
 
 ## info — 书籍信息与个人数据
@@ -136,7 +136,7 @@ fqdt serve --port 18999 --lan  # 局域网 HTTP 服务
 
 - **主通道 + 降级**：fqapi-core 进程内直调官方接口（签名 + 设备池），失败自动轮换第三方源
 - **自动并发**：0 = CPU 核数 × 2，上限 32
-- **增量**：`update` 按 info.list 比对，只补缺失章节
+- **增量**：`update` 并入 `download`（静默转调），按 info.list 比对只补缺失章节；`-T content/audio` 分类
 - **缓存**：目录/详情文件缓存（TTL 可配）
 - **静态构建**：musl 静态链接，Android 上自带根证书与进程内 DNS，无系统依赖
 

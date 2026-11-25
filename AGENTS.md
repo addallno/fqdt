@@ -47,9 +47,9 @@
 | **LRC** | `gen_lrc_text()` | Chapter | `String` | download_audio, embed |
 |  | `write_lrc_file()` | path, text | `()` | download_audio |
 |  | `embed_lrc()` | mp3_path, Chapter, content? | `()` | download_audio |
-| **TTS** | `edge_tts_speak()` | text, voice, params | `PathBuf` | audio --tts |
-|  | `convert_tts_file()` | txt_path, params | `PathBuf` | audio --tts |
-|  | `convert_tts_dir()` | dir_path, params | `Vec<PathBuf>` | audio --tts |
+| **TTS** | `edge_tts_speak()` | text, voice, params | `PathBuf` | audio -T tts |
+|  | `convert_tts_file()` | txt_path, params | `PathBuf` | audio -T tts |
+|  | `convert_tts_dir()` | dir_path, params | `Vec<PathBuf>` | audio -T tts |
 | **元数据** | `read_info_list()` | dir | `(book_id, title, fmt, chapters)` | update |
 |  | `write_info_list()` | dir, metadata | `()` | download, update |
 |  | `read_audio_info_list()` | dir | `(book_id, title, chapters)` | update_audio |
@@ -147,7 +147,7 @@ pub fn workflow_download(api: &Client, book_id: &str, out: PathBuf, range: Optio
 | `update::run` | `update` | 增量更新（正文/音频） |
 | `audio::run` | `audio` | 纯音频下载 |
 | `search::run` | `search` | 搜索列表（`-D` 可续下载） |
-| `audio::run_tts` | `tts` / `audio --tts` | TTS 文件/目录转换 |
+| `audio::run_tts` | `tts` / `audio -T tts` | TTS 文件/目录转换 |
 | `shelf::run` | `shelf <子命令>` | 本地/云端书架管理 |
 | `info::run` | `info` | 书籍概览/sections/个人数据 |
 | `discover::recommend` | `info recommend` | 首页推荐流 |
@@ -544,7 +544,7 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 ### 7.3 已知问题
 
 - 第三方 API 不稳定（偶发 5xx）→ **已解决（v0.6.0）**：vendor fqapi-core（签名+设备池直连官方）为主通道，第三方源降级备选
-- **Opus-in-MP4**：番茄官方源解密后为 MP4(Opus)；默认 `ffmpeg -c copy` remux Ogg(Opus)（v0.29.0，零转码秒级），`--mp3` 转码 MP3，`--keep-m4a` 保原容器，无 ffmpeg 降级保留 .m4a
+- **Opus-in-MP4**：番茄官方源解密后为 MP4(Opus)；默认 `ffmpeg -c copy` remux Ogg(Opus)（v0.29.0，零转码秒级），`-c mp3` 转码 MP3，`-c m4a` 保原容器，无 ffmpeg 降级保留 .m4a
 - edge-tts 需要 Python 环境
 - 编译只能用 rustls（Termux 无 libssl-dev）
 - 本地 `cargo build` 为 debug 模式（release 需 cross，耗时长）
