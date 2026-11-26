@@ -618,23 +618,16 @@ fn ensure_cursor_visible(rd: &mut Reader, height: u16) {
     let Some(p) = rd.paras.get(rd.cursor) else {
         return;
     };
+    // yazi 式边缘滚动（103②）：光标进边缘带（ui.scroll_edge% 屏高）→
+    // 内容平移把光标贴回带沿，光标相对屏幕停在带边不动；两种翻页模式统一。
     let view = rd.view_h(height) as usize;
+    let edge = (view * rd.scroll_edge as usize / 100).max(1);
     let (top, bot) = (p.start, p.end.max(p.start + 1));
     let scroll = rd.scroll as usize;
-    match rd.page_mode {
-        PageMode::RightLeft => {
-            if top < scroll || bot > scroll + view {
-                rd.scroll = top as u16;
-            }
-        }
-        PageMode::UpDown => {
-            let q = view / 4;
-            if top < scroll + q {
-                rd.scroll = top.saturating_sub(q) as u16;
-            } else if bot > scroll + view - q {
-                rd.scroll = (bot + q).saturating_sub(view) as u16;
-            }
-        }
+    if top < scroll + edge {
+        rd.scroll = top.saturating_sub(edge) as u16;
+    } else if bot > scroll + view - edge {
+        rd.scroll = (bot + edge).saturating_sub(view) as u16;
     }
 }
 
@@ -1612,7 +1605,7 @@ mod tests {
 
     /// 91 批B：左右模式光标出视窗→段顶对齐（自动翻页）；上下模式 1/4 平移不许超出。
     #[test]
-    fn ensure_visible_by_page_mode() {
+    fn ensure_cursor_edge_scroll() {
         let mut rd = Reader::new("t".into(), vec![]);
         let mut lines = Vec::new();
         for seg in 0..10 {
@@ -1625,29 +1618,33 @@ mod tests {
         rebuild_paras(&mut rd);
         let h = 24;
         let view = rd.view_h(h) as usize; // 103④：19
-        let q = view / 4; // 4
-                          // --- RightLeft：光标跳到屏外段 → 段顶对齐 ---
-        rd.page_mode = PageMode::RightLeft;
+        let q = view * rd.scroll_edge as usize / 100; // 25% → 4
+        // --- 屏外段（原 RightLeft 跳页）→ 边缘滚动贴底带 ---
         rd.scroll = 0;
-        rd.cursor = 3; // start=33 > view
+        rd.cursor = 3; // start=33, bot=43 > view-q → 下移
         ensure_cursor_visible(&mut rd, h);
-        assert_eq!(rd.scroll, 33, "段顶对齐=整页跳");
-        // --- UpDown：1/4 平移 ---
-        rd.page_mode = PageMode::UpDown;
+        assert_eq!(rd.scroll as usize, 43 + q - view, "屏外段 bot+edge-view 贴底带");
+        // --- 光标进下边缘带 → 平移 ---
         rd.scroll = 0;
-        rd.cursor = 1; // start=11, bot=21；bot(21) > view-q(15) → 下移
+        rd.cursor = 1; // start=11, bot=21；bot(21) > view-q(15)
         ensure_cursor_visible(&mut rd, h);
-        assert_eq!(rd.scroll as usize, 21 + q - view, "bot+q-view");
-        // 段在屏内 1/4 上方 → 上移
+        assert_eq!(rd.scroll as usize, 21 + q - view, "bot+edge-view");
+        // 段在屏内边缘带上 → 上移
         rd.scroll = 20;
         rd.cursor = 1; // top=11 < 20+4 → scroll = 11-4
         ensure_cursor_visible(&mut rd, h);
-        assert_eq!(rd.scroll as usize, 11 - q, "top-q 平移");
+        assert_eq!(rd.scroll as usize, 11 - q, "top-edge 平移");
         // 不越界：首段
         rd.scroll = 10;
         rd.cursor = 0;
         ensure_cursor_visible(&mut rd, h);
-        assert_eq!(rd.scroll, 0, "top-q 钳 0");
+        assert_eq!(rd.scroll, 0, "top-edge 钳 0");
+        // --- scroll_edge 配置生效：带宽随比例变 ---
+        rd.scroll_edge = 40; // edge = 19*40/100 = 7
+        rd.scroll = 20;
+        rd.cursor = 1; // top=11 < 20+7 → 11-7
+        ensure_cursor_visible(&mut rd, h);
+        assert_eq!(rd.scroll as usize, 11 - 7, "scroll_edge=40 吃配置");
     }
 
     /// 91 光标移动钳制端点且保持可见。
