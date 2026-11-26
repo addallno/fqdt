@@ -70,6 +70,7 @@ fqdt --help                       # 全部命令
 | `space` | 放大光标处图片（`i` 视窗第一张） |
 | `z` | zen 全屏（四边框、标题章节名、底框进度） |
 | `?` / `h` | 打开 / 关闭帮助（`Esc` 返回） |
+| `e` | 外部编辑器只读打开当前章（`-e` / `config ui.editor` / `EDITOR`；vim 系自动 `-R`） |
 | `q` | 退出（记忆进度） |
 
 翻页方向：`config ui.page_mode` = `right-left`（默认）左右渲染 / `up-down` 上下渲染。

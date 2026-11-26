@@ -105,6 +105,7 @@ impl Config {
                         "scroll_edge" => cfg.ui_scroll_edge = v.parse().unwrap_or(25),
                         "tail_blank" => cfg.ui_tail_blank = v.parse().unwrap_or(1),
                         "anim_frames" => cfg.ui_anim_frames = v.parse().unwrap_or(3),
+                        "editor" => cfg.ui_editor = v.into(),
                         "preset" => cfg.ui_theme = v.into(),
                         "border" => cfg.theme_border = v.into(),
                         "title" => cfg.theme_title = v.into(),
@@ -242,6 +243,8 @@ scroll_edge = 25
 tail_blank = 1
 # 过渡动画帧数（0=关闭动画；越大越平滑）
 anim_frames = 3
+# 外部编辑器命令（view 按 e 打开）：空=依次 VISUAL/EDITOR→探测 nvim/vim/micro/leaf/glow
+editor =
 
 ## Theme
 [theme]
@@ -523,6 +526,9 @@ pub const KEYS: &[KeyEntry] = &[
     ("ui.anim_frames", "anim_frames", "ui", Kind::Int, |c| {
         c.ui_anim_frames.to_string()
     }),
+    ("ui.editor", "editor", "ui", Kind::Str, |c| {
+        c.ui_editor.clone()
+    }),
     ("theme.preset", "preset", "theme", Kind::Str, |c| {
         c.ui_theme.clone()
     }),
@@ -594,6 +600,7 @@ const CONFIG_HELP: &[(&str, &str, &str)] = &[
     ("ui.scroll_edge", "滚动边缘区", "上下滚动触发光标停驻区（距上端百分比）：25=1/4 屏（默认）、33≈1/3 屏"),
     ("ui.tail_blank", "页尾空行", "翻页末尾保留空行数：1（默认）或 0"),
     ("ui.anim_frames", "动画帧数", "翻页/滚动过渡帧数：3（默认）、0=关闭动画"),
+    ("ui.editor", "外部编辑器", "view 按 e 打开；空=依次 VISUAL/EDITOR→探测 nvim/vim/micro/leaf/glow"),
     ("theme.preset", "TUI 主题预设", "default=现版配色（默认）/ nord / dracula / gruvbox"),
     ("theme.border", "主题·边框", "view 边框色，#RRGGBB；留空=用预设"),
     ("theme.title", "主题·标题", "面板标题与章题色，#RRGGBB；留空=用预设"),

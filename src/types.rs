@@ -130,6 +130,8 @@ pub struct Config {
     pub ui_tail_blank: usize,
     /// 过渡动画帧数（103，0=关闭）
     pub ui_anim_frames: usize,
+    /// 外部编辑器命令（87）：空=VISUAL/EDITOR→探测 nvim/vim/micro/leaf/glow
+    pub ui_editor: String,
     /// TUI 主题单项覆盖 #RRGGBB（84，空=用预设）：边框/标题/正文/目录/选中/状态
     pub theme_border: String,
     pub theme_title: String,
@@ -231,6 +233,7 @@ impl Default for Config {
             ui_scroll_edge: 25,
             ui_tail_blank: 1,
             ui_anim_frames: 3,
+            ui_editor: String::new(),
             theme_border: String::new(),
             theme_title: String::new(),
             theme_content: String::new(),

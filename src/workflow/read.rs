@@ -104,6 +104,8 @@ struct Reader {
     pending_end: bool,
     /// 翻页模式（90/91，ui.page_mode）
     page_mode: PageMode,
+    /// 外部编辑器命令（87：e 挂起 TUI 只读打开当前章，run 启动时解析）
+    editor: Option<String>,
 }
 
 /// 按键动作（由 on_key 判定，循环里执行）。
@@ -126,6 +128,8 @@ enum Action {
     CloseHelp,
     /// 帮助框滚动（103F 超屏）：±行
     HelpScroll(i16),
+    /// 外部编辑器只读打开当前章（87）
+    OpenEditor,
     /// 整页切换（91）：±1 页，光标段行相对偏移保持（左右平行/上下整屏）
     PageFlip(i32),
     /// 目录：焦点回到正文
@@ -159,6 +163,7 @@ impl Reader {
             paras: Vec::new(),
             cursor: 0,
             page_mode: PageMode::RightLeft,
+            editor: None,
             help_shown: false,
             theme: crate::theme::resolve("default", &crate::theme::ThemeOverride::default()),
             help_scroll: 0,
@@ -261,6 +266,7 @@ pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config, title_hint: O
     rd.scroll_edge = cfg.ui_scroll_edge.clamp(5, 45);
     rd.tail_blank = cfg.ui_tail_blank.min(4) as u16;
     rd.anim_frames = cfg.ui_anim_frames.min(12) as u16;
+    rd.editor = resolve_editor(cfg);
     if let Some(p) = store::read_get(book_id) {
         if let Some(i) = rd.chs.iter().position(|c| c.item_id == p.item_id) {
             rd.cur = i;
@@ -361,6 +367,10 @@ async fn loop_with(rd: &mut Reader, api: &Client, out: &mut Stdout) -> Result<()
             }
             Event::Key(k) if k.kind == KeyEventKind::Press => {
                 let act = on_key(k.code, rd, height);
+                if matches!(act, Action::OpenEditor) {
+                    open_editor(rd, &mut term)?;
+                    continue;
+                }
                 if apply_action(act, rd, height) {
                     return Ok(());
                 }
@@ -502,6 +512,8 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
             let n = rd.chs.len() as i64;
             rd.sel = ((rd.sel as i64 + d as i64).clamp(0, n - 1)) as usize;
         }
+        // 编辑器在 loop_with 拦截执行（需挂起终端），此处仅兜底
+        Action::OpenEditor => {}
         // 带 guard 的臂不满足时落到此（首章 p / 末章 n）
         Action::PrevCh | Action::NextCh => {}
     }
@@ -760,6 +772,91 @@ fn settle_pending(rd: &mut Reader, height: u16) {
     }
 }
 
+/// 编辑器命令行拆分（87 纯函数）；vim 系自动插 -R（已有 -R 不重复）。
+fn editor_argv(cmd: &str) -> (String, Vec<String>) {
+    let mut it = cmd.split_whitespace().map(str::to_string);
+    let bin = it.next().unwrap_or_default();
+    let mut args: Vec<String> = it.collect();
+    let base = bin.rsplit(['/', '\\']).next().unwrap_or("");
+    if matches!(base, "vi" | "vim" | "nvim" | "gvim" | "view") && !args.iter().any(|a| a == "-R") {
+        args.insert(0, "-R".into());
+    }
+    (bin, args)
+}
+
+/// 编辑器来源优先级（87 纯函数）：config/flag 值 > VISUAL > EDITOR > PATH 探测结果。
+fn pick_editor(
+    cfg_val: &str,
+    visual: Option<&str>,
+    editor: Option<&str>,
+    probed: Option<&str>,
+) -> Option<String> {
+    for cand in [
+        cfg_val,
+        visual.unwrap_or(""),
+        editor.unwrap_or(""),
+        probed.unwrap_or(""),
+    ] {
+        if !cand.trim().is_empty() {
+            return Some(cand.trim().to_string());
+        }
+    }
+    None
+}
+
+/// PATH 探测（87）：按 nvim→vim→micro→leaf→glow 顺序取第一个存在的。
+fn probe_editor() -> Option<String> {
+    let path = std::env::var_os("PATH")?;
+    for bin in ["nvim", "vim", "micro", "leaf", "glow"] {
+        if std::env::split_paths(&path).any(|d| d.join(bin).is_file()) {
+            return Some(bin.to_string());
+        }
+    }
+    None
+}
+
+/// 解析外部编辑器（87；run 启动一次）。
+fn resolve_editor(cfg: &Config) -> Option<String> {
+    let visual = std::env::var("VISUAL").ok();
+    let editor = std::env::var("EDITOR").ok();
+    pick_editor(
+        &cfg.ui_editor,
+        visual.as_deref(),
+        editor.as_deref(),
+        probe_editor().as_deref(),
+    )
+}
+
+/// 挂起 TUI → 外部编辑器只读打开当前章 → 恢复（87）。
+/// raw/备用屏的进出行用新 stdout 句柄（同 event_loop teardown 先例）。
+fn open_editor(
+    rd: &mut Reader,
+    term: &mut Terminal<CrosstermBackend<&mut Stdout>>,
+) -> Result<(), String> {
+    let Some(cmd) = rd.editor.clone() else {
+        rd.msg = "未找到编辑器；可用 -e/--editor、config ui.editor 或 EDITOR 指定".into();
+        return Ok(());
+    };
+    let path = std::env::temp_dir().join(format!("fqdt-chapter-{}.txt", rd.cur));
+    std::fs::write(&path, &rd.raw).map_err(|e| format!("写临时文件失败: {e}"))?;
+    let _ = disable_raw_mode();
+    let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+    let (bin, args) = editor_argv(&cmd);
+    let res = std::process::Command::new(&bin)
+        .args(&args)
+        .arg(&path)
+        .status();
+    let _ = enable_raw_mode();
+    let _ = execute!(std::io::stdout(), EnterAlternateScreen);
+    term.clear().map_err(|e| e.to_string())?;
+    match res {
+        Ok(st) if st.success() => rd.msg = format!("已用 {bin} 打开 {}", path.display()),
+        Ok(st) => rd.msg = format!("编辑器退出码 {}", st.code().unwrap_or(-1)),
+        Err(e) => rd.msg = format!("启动 {bin} 失败: {e}"),
+    }
+    Ok(())
+}
+
 /// 按键 → 动作（按焦点分发；键位习惯同 baca/epubreader-cli：j/k、n/p、g/G、Tab）。
 fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
     // 帮助框开着：Esc/q/?/h 关闭；k/j/↑↓/PgUp/PgDn 滚动（103F），其余不穿透
@@ -785,6 +882,7 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
             return Action::Quit;
         }
         KeyCode::Char('z') => return Action::ToggleZen,
+        KeyCode::Char('e') => return Action::OpenEditor,
         KeyCode::Tab => return Action::ToggleFocus,
         KeyCode::Char('i') => {
             if rd.img_focus.is_some() {
@@ -2039,5 +2137,48 @@ mod tests {
             "7185478854738185271"
         );
         assert_eq!(resolve_title(Some("  "), Some("  "), "42"), "42");
+    }
+
+    /// 87：e 键、编辑器命令行拆分与来源优先级。
+    #[test]
+    fn editor_key_argv_and_priority() {
+        let rd = Reader::new("t".into(), vec![]);
+        assert!(matches!(
+            on_key(KeyCode::Char('e'), &rd, 24),
+            Action::OpenEditor
+        ));
+        // vim 系自动插 -R；已有 -R 不重复；非 vim 系不加
+        let (b, a) = editor_argv("nvim");
+        assert_eq!(b, "nvim");
+        assert_eq!(a, vec!["-R"]);
+        let (b, a) = editor_argv("vim -u NONE");
+        assert_eq!(b, "vim");
+        assert_eq!(a, vec!["-R", "-u", "NONE"]);
+        let (_, a) = editor_argv("nvim -R");
+        assert_eq!(a, vec!["-R"]);
+        let (b, a) = editor_argv("micro");
+        assert_eq!(b, "micro");
+        assert!(a.is_empty());
+        let (_, a) = editor_argv("glow");
+        assert!(a.is_empty());
+        // 优先级：config/flag > VISUAL > EDITOR > 探测；全空 → None
+        assert_eq!(
+            pick_editor("nvim", Some("vim"), Some("micro"), Some("glow")).as_deref(),
+            Some("nvim")
+        );
+        assert_eq!(
+            pick_editor("", Some("vim"), Some("micro"), Some("glow")).as_deref(),
+            Some("vim")
+        );
+        assert_eq!(
+            pick_editor("", None, Some("micro"), Some("glow")).as_deref(),
+            Some("micro")
+        );
+        assert_eq!(
+            pick_editor("", None, None, Some("glow")).as_deref(),
+            Some("glow")
+        );
+        assert_eq!(pick_editor("", None, None, None), None);
+        assert_eq!(pick_editor("  ", Some(" "), None, None), None);
     }
 }

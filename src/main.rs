@@ -279,6 +279,12 @@ enum Cmd {
         book_id: String,
         #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
         range: Option<String>,
+        #[arg(
+            short = 'e',
+            long = "editor",
+            help = "外部编辑器命令（只读打开当前章）"
+        )]
+        editor: Option<String>,
         #[command(flatten)]
         pick: PickArgs,
     },
@@ -1245,12 +1251,18 @@ async fn main() {
         Cmd::View {
             book_id,
             range,
+            editor,
             pick,
         } => {
             let Some((id, title_hint)) = resolve_book_id(book_id, &cfg, verbose, pick.nth).await
             else {
                 return;
             };
+            // -e 优先级最高：覆盖 config ui.editor（87）
+            let mut cfg = cfg.clone();
+            if let Some(e) = editor {
+                cfg.ui_editor = e;
+            }
             workflow::read::run(&id, range.as_deref(), &cfg, title_hint.as_deref()).await;
         }
         Cmd::Login {
