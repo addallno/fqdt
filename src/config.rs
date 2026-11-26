@@ -57,6 +57,8 @@ impl Config {
                         "ui_clip_len" => cfg.ui_clip_len = v.parse().unwrap_or(40),
                         "ui_color" => cfg.ui_color = v != "false",
                         "ui_help_examples" => cfg.ui_help_examples = v != "false",
+                        "page_mode" => cfg.ui_page_mode = v.into(),
+                        "view_mode" => cfg.ui_view_mode = v.into(),
                         _ => {}
                     }
                 }
@@ -168,6 +170,10 @@ ui_clip_len = 40
 ui_color = true
 # false=help 不带 Examples 段（默认），true=各命令 help 底部追加示例
 ui_help_examples = false
+# 阅读翻页模式：right-left=左右渲染（默认）/ up-down=上下渲染
+page_mode = right-left
+# 阅读视图默认模式：normal=分栏（默认）/ zen=全屏四边框（TUI 内 z 临时切换当次）
+view_mode = normal
 ";
 
     pub fn apply_cli_overrides(&mut self, search_url: Option<&str>, catalog_url: Option<&str>, content_url: Option<&str>) {
@@ -244,6 +250,7 @@ pub const KEYS: &[KeyEntry] = &[
     ("ui.color", "ui_color", "ui", Kind::Bool, |c| c.ui_color.to_string()),
     ("ui.help_examples", "ui_help_examples", "ui", Kind::Bool, |c| c.ui_help_examples.to_string()),
     ("ui.page_mode", "page_mode", "ui", Kind::Str, |c| c.ui_page_mode.clone()),
+    ("ui.view_mode", "view_mode", "ui", Kind::Str, |c| c.ui_view_mode.clone()),
 ];
 
 // ===== config 键详情（`fqdt config <key> --help`，v0.17.0） =====
@@ -284,6 +291,7 @@ const CONFIG_HELP: &[(&str, &str, &str)] = &[
     ("ui.color", "彩色输出开关", "false 等价 NO_COLOR=1；非 TTY 本就纯文本"),
     ("ui.help_examples", "help 示例段开关", "默认关闭；true 在子命令 help 底部追加示例段"),
     ("ui.page_mode", "阅读翻页模式", "right-left=左右渲染（默认）/ up-down=上下渲染"),
+    ("ui.view_mode", "视图默认模式", "normal=分栏（默认）/ zen=全屏四边框；view TUI 内 z 临时切换当次"),
 ];
 
 fn kind_label(k: Kind) -> &'static str {
@@ -475,4 +483,16 @@ pub fn add_bookmark(id: &str, title: &str) -> Result<(), String> { crate::store:
 pub fn remove_bookmark(idx: usize) -> Result<(), String> {
     if idx == 0 { return Err("无效编号".into()); }
     crate::store::bookmark_remove(idx - 1).map(|_| ()).ok_or_else(|| "无效编号".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_view_and_page_mode() {
+        let c = Config::default();
+        assert_eq!(c.ui_view_mode, "normal");
+        assert_eq!(c.ui_page_mode, "right-left");
+    }
 }

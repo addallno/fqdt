@@ -158,6 +158,18 @@ impl Reader {
 }
 
 /// `fqdt read` 入口：TTY 检查 → 目录/书名 → 恢复进度 → 进入 TUI 循环。
+/// 启动模式应用（89）：ui.page_mode 翻页 + ui.view_mode 默认视图（zen 启动）。
+fn apply_startup_modes(rd: &mut Reader, cfg: &Config) {
+    rd.page_mode = if cfg.ui_page_mode.eq_ignore_ascii_case("up-down")
+        || cfg.ui_page_mode.eq_ignore_ascii_case("ud")
+    {
+        PageMode::UpDown
+    } else {
+        PageMode::RightLeft
+    };
+    rd.zen = cfg.ui_view_mode.eq_ignore_ascii_case("zen");
+}
+
 pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config) {
     if !std::io::stdout().is_terminal() {
         eprintln!("  err read 需要交互式终端；可先 download 下载后用其他工具阅读");
@@ -185,13 +197,7 @@ pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config) {
         Err(_) => book_id.to_string(),
     };
     let mut rd = Reader::new(title, chs);
-    rd.page_mode = if cfg.ui_page_mode.eq_ignore_ascii_case("up-down")
-        || cfg.ui_page_mode.eq_ignore_ascii_case("ud")
-    {
-        PageMode::UpDown
-    } else {
-        PageMode::RightLeft
-    };
+    apply_startup_modes(&mut rd, cfg);
     if let Some(p) = store::read_get(book_id) {
         if let Some(i) = rd.chs.iter().position(|c| c.item_id == p.item_id) {
             rd.cur = i;
@@ -1056,6 +1062,20 @@ mod tests {
 
 
     /// 83：目录选中行恒显选择箭头 + 章题头部完整（m0085-1）。
+    #[test]
+    fn startup_modes_from_config() {
+        let mut rd = Reader::new("t".into(), Vec::new());
+        let mut cfg = Config::default();
+        apply_startup_modes(&mut rd, &cfg);
+        assert!(!rd.zen, "默认 normal 不应 zen");
+        assert_eq!(rd.page_mode, PageMode::RightLeft);
+        cfg.ui_view_mode = "zen".into();
+        cfg.ui_page_mode = "up-down".into();
+        apply_startup_modes(&mut rd, &cfg);
+        assert!(rd.zen, "zen 启动");
+        assert_eq!(rd.page_mode, PageMode::UpDown);
+    }
+
     #[test]
     fn toc_selected_row_shows_arrow_and_full_title() {
         use ratatui::{Terminal, backend::TestBackend};
