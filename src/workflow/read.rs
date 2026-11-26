@@ -90,6 +90,8 @@ struct Reader {
     help_shown: bool,
     /// TUI 主题（84）：预设+覆盖已解析
     theme: crate::theme::ThemeColors,
+    /// 帮助框滚动偏移（103F）
+    help_scroll: u16,
     /// 正文/zen/help 内边距空格数（103 ui.gutter）
     gutter: u16,
     /// 滚动边缘区百分比（103 ui.scroll_edge）
@@ -122,6 +124,8 @@ enum Action {
     Help,
     /// 关闭帮助框（批C③）
     CloseHelp,
+    /// 帮助框滚动（103F 超屏）：±行
+    HelpScroll(i16),
     /// 整页切换（91）：±1 页，光标段行相对偏移保持（左右平行/上下整屏）
     PageFlip(i32),
     /// 目录：焦点回到正文
@@ -157,6 +161,7 @@ impl Reader {
             page_mode: PageMode::RightLeft,
             help_shown: false,
             theme: crate::theme::resolve("default", &crate::theme::ThemeOverride::default()),
+            help_scroll: 0,
             gutter: 1,
             scroll_edge: 25,
             tail_blank: 1,
@@ -389,8 +394,18 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
                 }
             }
         }
-        Action::Help => rd.help_shown = true,
+        Action::Help => {
+            rd.help_shown = true;
+            rd.help_scroll = 0;
+        }
         Action::CloseHelp => rd.help_shown = false,
+        Action::HelpScroll(d) => {
+            if d < 0 {
+                rd.help_scroll = rd.help_scroll.saturating_sub(d.unsigned_abs());
+            } else {
+                rd.help_scroll = rd.help_scroll.saturating_add(d as u16);
+            }
+        }
         Action::ToggleFocus => {
             rd.focus = match rd.focus {
                 Focus::Content => Focus::Nav,
@@ -684,12 +699,16 @@ fn settle_pending(rd: &mut Reader, height: u16) {
 
 /// 按键 → 动作（按焦点分发；键位习惯同 baca/epubreader-cli：j/k、n/p、g/G、Tab）。
 fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
-    // 帮助框开着：Esc/q/?/h 关闭，其余键不穿透（批C③）
+    // 帮助框开着：Esc/q/?/h 关闭；k/j/↑↓/PgUp/PgDn 滚动（103F），其余不穿透
     if rd.help_shown {
         return match code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') | KeyCode::Char('h') => {
                 Action::CloseHelp
             }
+            KeyCode::Up | KeyCode::Char('k') => Action::HelpScroll(-1),
+            KeyCode::Down | KeyCode::Char('j') => Action::HelpScroll(1),
+            KeyCode::PageUp => Action::HelpScroll(-10),
+            KeyCode::PageDown => Action::HelpScroll(10),
             _ => Action::Scroll(0),
         };
     }
@@ -1010,7 +1029,6 @@ fn draw_help_box(f: &mut Frame, rd: &Reader) {
     };
     let t = |s: &str| Span::styled(s.to_string(), util::fg_t(theme.content));
     let head = |s: &str| Span::styled(s.to_string(), util::fg_t(theme.title));
-    let dim = |s: &str| Span::styled(s.to_string(), util::fg(DIM));
     let lines = vec![
         Line::from(vec![t("阅读视图（view）")]),
         Line::from(vec![t("  连贯阅读一章内容：左侧目录面板，右侧正文面板。")]),
@@ -1040,10 +1058,13 @@ fn draw_help_box(f: &mut Frame, rd: &Reader) {
         Line::from(vec![t("  退出时自动记忆阅读位置，下次进入回到原处。")]),
         Line::from(vec![t("  光标停在图片段时可放大查看。")]),
         Line::default(),
-        Line::from(vec![dim("完整快捷键见 ~/.config/fqdt/help.txt")]),
-        Line::from(vec![dim("Esc 返回")]),
+        Line::from(vec![t("完整快捷键见 ~/.config/fqdt/help.txt")]),
+        Line::from(vec![t("<Esc>/? 关闭返回；k/j/↑↓ 翻动")]),
     ];
-    f.render_widget(Paragraph::new(lines), body);
+    // 103F：超一屏可滚动，偏移钳在总行数-屏高内
+    let max = lines.len().saturating_sub(body.height as usize) as u16;
+    let off = rd.help_scroll.min(max);
+    f.render_widget(Paragraph::new(lines).scroll((off, 0)), body);
     f.render_widget(block, f.area());
 }
 
@@ -1782,5 +1803,59 @@ mod tests {
         }];
         assert!(chs.iter().position(|c| c.item_id == "missing").is_none());
         assert_eq!(chs.iter().position(|c| c.item_id == "x"), Some(0));
+    }
+
+    /// 103F+⑫：帮助框超屏滚动、键位、底部提示提亮与段首缩进。
+    #[test]
+    fn help_scroll_and_indent() {
+        use ratatui::backend::TestBackend;
+        let mut rd = Reader::new("t".into(), vec![]);
+        rd.help_shown = true;
+        // 键位 → 滚动动作
+        assert!(matches!(
+            on_key(KeyCode::Char('j'), &rd, 24),
+            Action::HelpScroll(1)
+        ));
+        assert!(matches!(on_key(KeyCode::Up, &rd, 24), Action::HelpScroll(-1)));
+        assert!(matches!(on_key(KeyCode::PageDown, &rd, 24), Action::HelpScroll(10)));
+        // 关闭键仍有效
+        assert!(matches!(on_key(KeyCode::Esc, &rd, 24), Action::CloseHelp));
+        // apply 累加与负向饱和
+        apply_action(Action::HelpScroll(3), &mut rd, 24);
+        apply_action(Action::HelpScroll(-5), &mut rd, 24);
+        assert_eq!(rd.help_scroll, 0, "负向饱和到 0");
+        // 矮屏 60x14：未滚到底部提示在屏外，超量偏移被钳到底可见
+        let w = 60usize;
+        let draw_buf = |rd: &Reader| -> Vec<String> {
+            let backend = TestBackend::new(60, 14);
+            let mut t = ratatui::Terminal::new(backend).unwrap();
+            t.draw(|f| draw_help_box(f, rd)).unwrap();
+            t.backend()
+                .buffer()
+                .content()
+                .iter()
+                .map(|c| c.symbol().to_string())
+                .collect()
+        };
+        let row_of = |buf: &[String], needle: &str| -> Option<usize> {
+            (0..buf.len() / w).find(|&r| {
+                buf[r * w..(r + 1) * w]
+                    .concat()
+                    .replace(' ', "")
+                    .contains(needle)
+            })
+        };
+        rd.help_scroll = 0;
+        let top = draw_buf(&rd);
+        assert_eq!(row_of(&top, "关闭返回"), None, "未滚动底部提示在屏外");
+        // ⑫③ 段首缩进两格（未滚状态正文行在屏内）
+        let r0 = row_of(&top, "正文按段落").expect("正文行在屏内");
+        let line0 = top[r0 * w..(r0 + 1) * w].concat();
+        let col0 = line0.find('正').unwrap();
+        assert!(col0 >= 2, "段首缩进两格，实际列 {col0}");
+        rd.help_scroll = 99; // 超量由 draw 钳到 max
+        let bot = draw_buf(&rd);
+        assert!(row_of(&bot, "关闭返回").is_some(), "滚到底底部提示可见");
+
     }
 }
