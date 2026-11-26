@@ -163,6 +163,18 @@ impl Reader {
     }
 
     /// 正文可用宽度：zen 全屏，普通模式扣掉目录面板与两侧边框。
+    /// 正文视窗高（103④⑦）：与渲染区逐像素一致——翻页/滚动/光标跟随共用，
+    /// 杜绝 view 散算（-2/-3/-4）与渲染差造成的页边界跳行。
+    fn view_h(&self, screen: u16) -> u16 {
+        if self.zen {
+            // 框 2 + 上 1 + 下 1
+            screen.saturating_sub(4).max(1)
+        } else {
+            // 框 2 + 状态 1 + 空行 1 + 页尾 tail_blank
+            screen.saturating_sub(4 + self.tail_blank).max(1)
+        }
+    }
+
     fn content_width(&self, total: u16) -> u16 {
         // 对称边距（103⑩⑬）：框线 2 + 左右各 gutter；normal 另扣目录栏 NAV_W（含其框线）
         let pad = 2 + self.gutter * 2;
@@ -322,7 +334,7 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
             }
         }
         Action::PageFlip(d) => {
-            let view = height.saturating_sub(2).max(1) as usize;
+            let view = rd.view_h(height) as usize;
             let max = rd.lines.len().saturating_sub(view) as i64;
             // 光标段相对视窗顶的行偏移（91：翻页后落大致相同段）
             let rel = rd
@@ -586,7 +598,7 @@ fn ensure_cursor_visible(rd: &mut Reader, height: u16) {
     let Some(p) = rd.paras.get(rd.cursor) else {
         return;
     };
-    let view = height.saturating_sub(2).max(1) as usize;
+    let view = rd.view_h(height) as usize;
     let (top, bot) = (p.start, p.end.max(p.start + 1));
     let scroll = rd.scroll as usize;
     match rd.page_mode {
@@ -611,7 +623,7 @@ fn sync_cursor_from_view(rd: &mut Reader, height: u16) {
     if rd.paras.is_empty() {
         return;
     }
-    let view = height.saturating_sub(2).max(1) as usize;
+    let view = rd.view_h(height) as usize;
     let lo = rd.scroll as usize;
     let hi = lo + view;
     if let Some(p) = rd.paras.get(rd.cursor) {
@@ -627,7 +639,7 @@ fn sync_cursor_from_view(rd: &mut Reader, height: u16) {
 }
 
 fn scroll_by(rd: &mut Reader, delta: i32, height: u16) {
-    let view = height.saturating_sub(2).max(1);
+    let view = rd.view_h(height);
     let max = rd.lines.len().saturating_sub(view as usize) as i64;
     let next = (rd.scroll as i64 + delta as i64).clamp(0, max);
     // 仅逐行/半页级滚动到底（含已停在底部）自动进下一章；G 等大跳停在章尾
@@ -668,7 +680,7 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
                 return Action::CloseImg;
             }
             // 视窗内第一张图放大（77：查看位置太少 → 聚焦态）
-            let view = height.saturating_sub(3) as usize;
+            let view = rd.view_h(height) as usize;
             let lo = rd.scroll as usize;
             let hi = lo + view;
             if let Some((_, _, url)) = rd.imgs.iter().find(|(s, e, _)| *e > lo && *s < hi) {
@@ -680,7 +692,7 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
     }
     match rd.focus {
         Focus::Content => {
-            let view = height.saturating_sub(4).max(2) as i32;
+            let view = rd.view_h(height) as i32;
             let half = (view / 2).max(1);
             let two_third = (view * 2 / 3).max(1);
             match code {
@@ -1071,6 +1083,38 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
+    /// 103 步骤4：view_h 与渲染区一致（zen=屏-4；normal=屏-4-tail）。
+    #[test]
+    fn view_h_matches_render() {
+        let mut rd = Reader::new("t".into(), vec![]);
+        rd.zen = true;
+        assert_eq!(rd.view_h(24), 20);
+        rd.zen = false;
+        rd.tail_blank = 1;
+        assert_eq!(rd.view_h(24), 19);
+        rd.tail_blank = 0;
+        assert_eq!(rd.view_h(24), 20);
+        assert_eq!(rd.view_h(1), 1); // 不下溢
+    }
+
+    /// 103 步骤4：PageFlip 整页步长=视窗高（页边界不跳行）。
+    #[test]
+    fn page_flip_steps_by_view() {
+        let chs = vec![Chapter { index: 1, item_id: "a".into(), title: "t".into() }];
+        let mut rd = Reader::new("b".into(), chs);
+        rd.lines = (0..100).map(|i| Line::from(format!("L{i}"))).collect();
+        rd.zen = true;
+        let h = 24u16;
+        let view = rd.view_h(h) as usize;
+        apply_action(Action::PageFlip(1), &mut rd, h);
+        assert_eq!(rd.scroll as usize, view, "正翻一步=视窗高");
+        apply_action(Action::PageFlip(-1), &mut rd, h);
+        assert_eq!(rd.scroll, 0);
+        // 末页 clamp 不越界
+        apply_action(Action::PageFlip(99), &mut rd, h);
+        assert_eq!(rd.scroll as usize, 100 - view);
+    }
+
     /// 103 步骤2：content_width 对称吃 gutter（框线 2 + 左右各 g；normal 另扣 NAV_W）。
     #[test]
     fn content_width_gutter_pad() {
@@ -1469,18 +1513,17 @@ mod tests {
         rd.lines = lines;
         rebuild_paras(&mut rd);
         assert_eq!(rd.paras.len(), 4);
-        let h = 24; // view = 22
-                    // 光标第 1 段（start=11），scroll=0 → rel=11
-        rd.cursor = 1;
+        let h = 24;
+        let view = rd.view_h(h); // 103④：整页=渲染视窗（normal=24-4-1=19）
+        rd.cursor = 1; // start=11，scroll=0 → rel=11
         apply_action(Action::PageFlip(1), &mut rd, h);
-        assert_eq!(rd.scroll, 22, "整页=22 行");
-        // target = 22+11 = 33 → 第 3 段（start=22..32 文本 + 空 32？段3 start=22? s2 段 start=22
-        // 段界：s0:0-9, s1:11-20, s2:22-31, s3:33-42；target=33 → 段 3
-        assert_eq!(rd.cursor, 3, "target=33 落 s3 段: {:?}", rd.paras);
-        // 回翻
+        assert_eq!(rd.scroll, view, "整页=view_h");
+        // target = 19+11 = 30 → 段界 s0:0-9, s1:11-20, s2:22-31 → 落 s2
+        assert_eq!(rd.cursor, 2, "target=30 落 s2 段: {:?}", rd.paras);
+        // 回翻：rel=22-19=3 → target=3 落 s0
         apply_action(Action::PageFlip(-1), &mut rd, h);
         assert_eq!(rd.scroll, 0);
-        assert_eq!(rd.cursor, 1, "rel 回到 s1");
+        assert_eq!(rd.cursor, 0, "rel=3 回到 s0");
     }
 
     /// 91 批B：左右模式光标出视窗→段顶对齐（自动翻页）；上下模式 1/4 平移不许超出。
@@ -1496,24 +1539,26 @@ mod tests {
         }
         rd.lines = lines;
         rebuild_paras(&mut rd);
-        let h = 24; // view=22, q=5
-                    // --- RightLeft：光标跳到屏外段 → 段顶对齐 ---
+        let h = 24;
+        let view = rd.view_h(h) as usize; // 103④：19
+        let q = view / 4; // 4
+                          // --- RightLeft：光标跳到屏外段 → 段顶对齐 ---
         rd.page_mode = PageMode::RightLeft;
         rd.scroll = 0;
-        rd.cursor = 3; // start=33 > 22
+        rd.cursor = 3; // start=33 > view
         ensure_cursor_visible(&mut rd, h);
         assert_eq!(rd.scroll, 33, "段顶对齐=整页跳");
         // --- UpDown：1/4 平移 ---
         rd.page_mode = PageMode::UpDown;
         rd.scroll = 0;
-        rd.cursor = 1; // start=11, bot=21；q=5 → top(11) >= q(5) 不触发上移；bot(21) > view-q(17) → 下移
+        rd.cursor = 1; // start=11, bot=21；bot(21) > view-q(15) → 下移
         ensure_cursor_visible(&mut rd, h);
-        assert_eq!(rd.scroll, 21 + 5 - 22, "bot+q-view = 4");
+        assert_eq!(rd.scroll as usize, 21 + q - view, "bot+q-view");
         // 段在屏内 1/4 上方 → 上移
         rd.scroll = 20;
-        rd.cursor = 1; // top=11 < 20+5=25 → scroll = 11-5 = 6
+        rd.cursor = 1; // top=11 < 20+4 → scroll = 11-4
         ensure_cursor_visible(&mut rd, h);
-        assert_eq!(rd.scroll, 6, "top-q 平移");
+        assert_eq!(rd.scroll as usize, 11 - q, "top-q 平移");
         // 不越界：首段
         rd.scroll = 10;
         rd.cursor = 0;
@@ -1600,7 +1645,8 @@ mod tests {
         scroll_by(&mut rd, -5, 10);
         assert_eq!(rd.scroll, 0, "上界钳制");
         scroll_by(&mut rd, i32::MAX / 2, 10);
-        assert_eq!(rd.scroll, 92, "下界钳制");
+        // 103④：下界=lines-view_h（h=10 → view=10-4-1=5 → 95）
+        assert_eq!(rd.scroll as usize, 100 - rd.view_h(10) as usize, "下界钳制");
         scroll_by(&mut rd, 1, 10);
         assert_eq!(rd.cur, 1, "滚到底自动下一章");
         assert_eq!(rd.scroll, 0);
