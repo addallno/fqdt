@@ -98,6 +98,7 @@ impl Config {
                         "ui_clip_len" => cfg.ui_clip_len = v.parse().unwrap_or(40),
                         "ui_color" => cfg.ui_color = v != "false",
                         "ui_help_examples" => cfg.ui_help_examples = v != "false",
+                        "mode" => cfg.search_mode = v.into(),
                         "page_mode" => cfg.ui_page_mode = v.into(),
                         "view_mode" => cfg.ui_view_mode = v.into(),
                         "gutter" => cfg.ui_gutter = v.parse().unwrap_or(1),
@@ -217,6 +218,11 @@ info_comments_count = 20
 info_author_count = 20
 
 ## UI
+[search]
+# key 搜索选书模式：first=多结果默认取第 1 个（默认）/ pick=列出结果后输入序号
+# 单次 -n <n> flag 优先级最高
+mode = first
+
 [ui]
 # 评论/摘要/相关书作者名截断字数，0=不截断
 ui_clip_len = 40
@@ -290,6 +296,12 @@ status =
         let mut issues: Vec<String> = vec![];
         if self.search_urls.is_empty() {
             issues.push("search_urls 为空".into());
+        }
+        if self.search_mode != "first" && self.search_mode != "pick" {
+            issues.push(format!(
+                "search.mode 非法: {}（可用 first/pick）",
+                self.search_mode
+            ));
         }
         if self.catalog_urls.is_empty() {
             issues.push("catalog_urls 为空".into());
@@ -490,6 +502,9 @@ pub const KEYS: &[KeyEntry] = &[
         Kind::Bool,
         |c| c.ui_help_examples.to_string(),
     ),
+    ("search.mode", "mode", "search", Kind::Str, |c| {
+        c.search_mode.clone()
+    }),
     ("ui.page_mode", "page_mode", "ui", Kind::Str, |c| {
         c.ui_page_mode.clone()
     }),
@@ -568,6 +583,11 @@ const CONFIG_HELP: &[(&str, &str, &str)] = &[
     ("ui.clip_len", "UI 文本截断字数", "评论/摘要/相关书作者名截断；0=不截断"),
     ("ui.color", "彩色输出开关", "false 等价 NO_COLOR=1；非 TTY 本就纯文本"),
     ("ui.help_examples", "help 示例段开关", "默认关闭；true 在子命令 help 底部追加示例段"),
+    (
+        "search.mode",
+        "key 搜索选书模式",
+        "first=多结果默认取第 1 个（默认）/ pick=列出后输入序号（-n 优先）",
+    ),
     ("ui.page_mode", "阅读翻页模式", "right-left=左右渲染（默认）/ up-down=上下渲染"),
     ("ui.view_mode", "视图默认模式", "normal=分栏（默认）/ zen=全屏四边框；view TUI 内 z 临时切换当次"),
     ("ui.gutter", "正文内边距", "正文/zen/help 距框空格数 1-2（默认 1），左右对称"),

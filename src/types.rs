@@ -116,6 +116,8 @@ pub struct Config {
     pub ui_help_examples: bool,
     /// UI：阅读翻页模式（90/91）：right-left=左右渲染（默认）/ up-down=上下渲染
     pub ui_page_mode: String,
+    /// key 搜索选书模式（99）：first=多结果默认取第 1 个（默认）/ pick=列出后输序号
+    pub search_mode: String,
     /// UI：阅读视图默认模式（89）：normal=分栏（默认）/ zen=全屏四边框（TUI 内 z 临时切换）
     pub ui_view_mode: String,
     /// TUI 主题预设（84）：default=现版配色 / nord / dracula / gruvbox
@@ -222,6 +224,7 @@ impl Default for Config {
             ui_color: true,
             ui_help_examples: false,
             ui_page_mode: "right-left".into(),
+            search_mode: "first".into(),
             ui_view_mode: "normal".into(),
             ui_theme: "default".into(),
             ui_gutter: 1,

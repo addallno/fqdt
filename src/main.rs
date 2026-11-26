@@ -124,6 +124,8 @@ enum Cmd {
         force: bool,
         #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 下载语音
     #[command(alias = "a")]
@@ -173,6 +175,8 @@ enum Cmd {
         voice: String,
         #[arg(long, help = "新下载 MP3 嵌入书籍封面")]
         cover: bool,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 增量更新已下载的书籍
     #[command(alias = "u")]
@@ -275,6 +279,8 @@ enum Cmd {
         book_id: String,
         #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
         range: Option<String>,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 对外 HTTP 服务
     #[command(display_order = 40)]
@@ -292,6 +298,18 @@ enum Cmd {
     Custom(Vec<String>),
 }
 
+/// key 搜索选书序号 flag（99/104）：多结果时取第 n 个、跳过手动输入；-n 优先于 search.mode
+#[derive(clap::Args)]
+struct PickArgs {
+    #[arg(
+        short = 'n',
+        long = "nth",
+        value_name = "n",
+        help = "key 多结果时取第 n 个（跳过手动输入）"
+    )]
+    nth: Option<usize>,
+}
+
 /// `fqdt info` 子命令：书籍 section + 发现流 + 个人数据。
 /// 原位置参数 section 改为真子命令，flag 按子命令归属（通用 flag 仅 --timeout/-v）。
 #[derive(Subcommand)]
@@ -307,6 +325,8 @@ enum InfoCmd {
         show: bool,
         #[arg(long, help = "加入云端书架")]
         add: bool,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 目录（含 item_id）
     Chapters {
@@ -316,6 +336,8 @@ enum InfoCmd {
         range: Option<String>,
         #[arg(long, help = "加入云端书架")]
         add: bool,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 完整简介
     Intro {
@@ -323,6 +345,8 @@ enum InfoCmd {
         book_id: String,
         #[arg(long, help = "加入云端书架")]
         add: bool,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 作者资料与书单
     Author {
@@ -330,6 +354,8 @@ enum InfoCmd {
         book_id: String,
         #[arg(long, help = "加入云端书架")]
         add: bool,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 书评
     Comments {
@@ -337,6 +363,8 @@ enum InfoCmd {
         book_id: String,
         #[arg(long, help = "加入云端书架")]
         add: bool,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 封面图 URL
     Cover {
@@ -344,6 +372,8 @@ enum InfoCmd {
         book_id: String,
         #[arg(long, help = "加入云端书架")]
         add: bool,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 相关推荐
     Relative {
@@ -351,6 +381,8 @@ enum InfoCmd {
         book_id: String,
         #[arg(long, help = "加入云端书架")]
         add: bool,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 本书可用 AI 音色
     Audio {
@@ -358,6 +390,8 @@ enum InfoCmd {
         book_id: String,
         #[arg(long, help = "加入云端书架")]
         add: bool,
+        #[command(flatten)]
+        pick: PickArgs,
     },
     /// 首页推荐
     Recommend {
@@ -1151,9 +1185,10 @@ async fn main() {
             jobs,
             force,
             interval,
+            pick,
         } => {
             dispatch_download(
-                book_id, output, range, format, jobs, force, verbose, interval, &cfg,
+                book_id, output, range, format, jobs, force, verbose, interval, pick.nth, &cfg,
             )
             .await
         }
@@ -1170,6 +1205,7 @@ async fn main() {
             container,
             voice,
             cover,
+            pick,
         } => {
             dispatch_audio(
                 book_id,
@@ -1185,6 +1221,7 @@ async fn main() {
                 container.as_deref(),
                 &voice,
                 cover,
+                pick.nth,
                 &cfg,
             )
             .await
@@ -1205,8 +1242,13 @@ async fn main() {
         }
         Cmd::Tts { path, voice, jobs } => dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
         Cmd::Shelf { cmd } => workflow::shelf::run(cmd, &cfg).await,
-        Cmd::View { book_id, range } => {
-            let Some((id, title_hint)) = resolve_book_id(book_id, &cfg, verbose).await else {
+        Cmd::View {
+            book_id,
+            range,
+            pick,
+        } => {
+            let Some((id, title_hint)) = resolve_book_id(book_id, &cfg, verbose, pick.nth).await
+            else {
                 return;
             };
             workflow::read::run(&id, range.as_deref(), &cfg, title_hint.as_deref()).await;
@@ -1314,28 +1356,42 @@ async fn dispatch_info(cmd: InfoCmd, verbose: bool, cfg: &Config) {
 
 /// 书籍类 info 子命令：统一映射到 workflow::info::run 的 section。
 async fn dispatch_info_book(cmd: InfoCmd, vb: bool, cfg: &Config) {
-    let (id, section, range, show, add) = match cmd {
+    let (id, section, range, show, add, nth) = match cmd {
         InfoCmd::Overview {
             book_id,
             range,
             show,
             add,
-        } => (book_id, None, range, show, add),
+            pick,
+        } => (book_id, None, range, show, add, pick.nth),
         InfoCmd::Chapters {
             book_id,
             range,
             add,
-        } => (book_id, Some("chapters"), range, false, add),
-        InfoCmd::Intro { book_id, add } => (book_id, Some("intro"), None, false, add),
-        InfoCmd::Author { book_id, add } => (book_id, Some("author"), None, false, add),
-        InfoCmd::Comments { book_id, add } => (book_id, Some("comments"), None, false, add),
-        InfoCmd::Cover { book_id, add } => (book_id, Some("cover"), None, false, add),
-        InfoCmd::Relative { book_id, add } => (book_id, Some("relative"), None, false, add),
-        InfoCmd::Audio { book_id, add } => (book_id, Some("audio"), None, false, add),
+            pick,
+        } => (book_id, Some("chapters"), range, false, add, pick.nth),
+        InfoCmd::Intro { book_id, add, pick } => {
+            (book_id, Some("intro"), None, false, add, pick.nth)
+        }
+        InfoCmd::Author { book_id, add, pick } => {
+            (book_id, Some("author"), None, false, add, pick.nth)
+        }
+        InfoCmd::Comments { book_id, add, pick } => {
+            (book_id, Some("comments"), None, false, add, pick.nth)
+        }
+        InfoCmd::Cover { book_id, add, pick } => {
+            (book_id, Some("cover"), None, false, add, pick.nth)
+        }
+        InfoCmd::Relative { book_id, add, pick } => {
+            (book_id, Some("relative"), None, false, add, pick.nth)
+        }
+        InfoCmd::Audio { book_id, add, pick } => {
+            (book_id, Some("audio"), None, false, add, pick.nth)
+        }
         _ => return,
     };
-    // id 位支持书名关键词交互选书（纯数字/作者 id 原样，同 download/audio）
-    let Some((id, _)) = resolve_book_id(id, cfg, vb).await else {
+    // id 位支持 key 交互选书（纯数字/作者 id 原样，同 download/audio；-n 指定序号最高优先）
+    let Some((id, _)) = resolve_book_id(id, cfg, vb, nth).await else {
         return;
     };
     workflow::info::run(&id, section, range.as_deref(), show, vb, cfg).await;
@@ -1352,6 +1408,7 @@ async fn resolve_book_id(
     target: String,
     cfg: &Config,
     vb: bool,
+    nth: Option<usize>,
 ) -> Option<(String, Option<String>)> {
     if target.chars().all(|c| c.is_ascii_digit()) && target.len() >= 10 {
         return Some((target, None));
@@ -1361,7 +1418,7 @@ async fn resolve_book_id(
             return Some((target, None));
         }
     }
-    match workflow::search::pick(&target, cfg, vb).await {
+    match workflow::search::pick(&target, cfg, vb, nth).await {
         Some((id, title)) => {
             config::add_bookmark(&id, &title).ok();
             Some((id, Some(title)))
@@ -1380,10 +1437,11 @@ async fn dispatch_download(
     force: bool,
     verbose: bool,
     _interval: u64,
+    nth: Option<usize>,
     cfg: &Config,
 ) {
     let vb = verbose || cfg.verbose;
-    let Some((book_id, _)) = resolve_book_id(target, cfg, vb).await else {
+    let Some((book_id, _)) = resolve_book_id(target, cfg, vb, nth).await else {
         return;
     };
     let p = types::DownloadParams {
@@ -1418,6 +1476,7 @@ async fn dispatch_audio(
     container: Option<&str>,
     voice: &str,
     cover: bool,
+    nth: Option<usize>,
     base_cfg: &Config,
 ) {
     // -T/--type 来源归一（real|ai|tts 互斥，m0064 分组 flag）
@@ -1468,7 +1527,7 @@ async fn dispatch_audio(
     let book_id = if Path::new(&book_id).is_dir() {
         book_id
     } else {
-        match resolve_book_id(book_id, cfg, vb).await {
+        match resolve_book_id(book_id, cfg, vb, nth).await {
             Some((id, _)) => id,
             None => return,
         }
