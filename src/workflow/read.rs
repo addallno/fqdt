@@ -90,6 +90,14 @@ struct Reader {
     help_shown: bool,
     /// TUI 主题（84）：预设+覆盖已解析
     theme: crate::theme::ThemeColors,
+    /// 正文/zen/help 内边距空格数（103 ui.gutter）
+    gutter: u16,
+    /// 滚动边缘区百分比（103 ui.scroll_edge）
+    scroll_edge: u32,
+    /// 页尾空行数（103 ui.tail_blank）
+    tail_blank: u16,
+    /// 过渡动画帧数（103 ui.anim_frames，0=关）
+    anim_frames: u16,
     /// 翻页模式（90/91，ui.page_mode）
     page_mode: PageMode,
 }
@@ -147,16 +155,21 @@ impl Reader {
             page_mode: PageMode::RightLeft,
             help_shown: false,
             theme: crate::theme::resolve("default", &crate::theme::ThemeOverride::default()),
+            gutter: 1,
+            scroll_edge: 25,
+            tail_blank: 1,
+            anim_frames: 3,
         }
     }
 
     /// 正文可用宽度：zen 全屏，普通模式扣掉目录面板与两侧边框。
     fn content_width(&self, total: u16) -> u16 {
-        // 右侧留 2 格（m3000：行末离右框 1-2 空格）；zen 另扣 2 框线，normal 扣目录+框线
+        // 对称边距（103⑩⑬）：框线 2 + 左右各 gutter；normal 另扣目录栏 NAV_W（含其框线）
+        let pad = 2 + self.gutter * 2;
         if self.zen {
-            total.saturating_sub(4)
+            total.saturating_sub(pad)
         } else {
-            total.saturating_sub(NAV_W + 5)
+            total.saturating_sub(NAV_W + pad)
         }
     }
 }
@@ -206,6 +219,10 @@ pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config) {
     let mut rd = Reader::new(title, chs);
     apply_startup_modes(&mut rd, cfg);
     rd.theme = crate::theme::resolve(&cfg.ui_theme, &cfg.theme_override());
+    rd.gutter = cfg.ui_gutter.min(4) as u16;
+    rd.scroll_edge = cfg.ui_scroll_edge.clamp(5, 45);
+    rd.tail_blank = cfg.ui_tail_blank.min(4) as u16;
+    rd.anim_frames = cfg.ui_anim_frames.min(12) as u16;
     if let Some(p) = store::read_get(book_id) {
         if let Some(i) = rd.chs.iter().position(|c| c.item_id == p.item_id) {
             rd.cur = i;
@@ -706,7 +723,7 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
 /// 渲染主入口：zen 全屏 / 普通分栏（bookokrat draw 同构）。
 fn draw(f: &mut Frame, rd: &Reader) {
     if rd.help_shown {
-        draw_help_box(f, &rd.theme);
+        draw_help_box(f, rd);
         return;
     }
     if let Some(url) = &rd.img_focus {
@@ -785,9 +802,9 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
     let inner = block.inner(area);
     // 上 1 行、下 1 行；宽 = 内宽 - 2（右留 2，与 content_width zen 一致）
     let body = Rect {
-        x: inner.x,
+        x: inner.x.saturating_add(rd.gutter),
         y: inner.y.saturating_add(1),
-        width: inner.width.saturating_sub(2),
+        width: inner.width.saturating_sub(rd.gutter * 2),
         height: inner.height.saturating_sub(2).max(1),
     };
     f.render_widget(
@@ -899,9 +916,9 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
     };
     let inner = {
         let mut r = area;
-        r.x += 1;
+        r.x += 1 + rd.gutter;
         r.y += 1;
-        r.width = r.width.saturating_sub(2);
+        r.width = r.width.saturating_sub(2 + rd.gutter * 2);
         r.height = r.height.saturating_sub(2);
         r
     };
@@ -928,7 +945,8 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
 
 /// ?/h 全屏帮助框（批C③，m0137）：一个大框叙述 UI；键位明细只在
 /// README/help.txt，此处不列 ?/h 键位（Esc 返回提示保留）。
-fn draw_help_box(f: &mut Frame, theme: &crate::theme::ThemeColors) {
+fn draw_help_box(f: &mut Frame, rd: &Reader) {
+    let theme = &rd.theme;
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(util::fg_t(theme.border).add_modifier(ratatui::style::Modifier::BOLD))
@@ -938,9 +956,9 @@ fn draw_help_box(f: &mut Frame, theme: &crate::theme::ThemeColors) {
         ));
     let inner = block.inner(f.area());
     let body = Rect {
-        x: inner.x,
+        x: inner.x.saturating_add(rd.gutter),
         y: inner.y.saturating_add(1),
-        width: inner.width.saturating_sub(2),
+        width: inner.width.saturating_sub(rd.gutter * 2),
         height: inner.height.saturating_sub(2).max(1),
     };
     let t = |s: &str| Span::styled(s.to_string(), util::fg_t(theme.content));
@@ -1056,6 +1074,20 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
+    /// 103 步骤2：content_width 对称吃 gutter（框线 2 + 左右各 g；normal 另扣 NAV_W）。
+    #[test]
+    fn content_width_gutter_pad() {
+        let mut rd = Reader::new("t".into(), vec![]);
+        rd.gutter = 1;
+        rd.zen = false;
+        assert_eq!(rd.content_width(80), 80 - (NAV_W + 4));
+        rd.zen = true;
+        assert_eq!(rd.content_width(80), 80 - 4);
+        rd.gutter = 2;
+        assert_eq!(rd.content_width(80), 80 - 6);
+    }
+
+
     use super::*;
     use crossterm::event::KeyCode;
 
