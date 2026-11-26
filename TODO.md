@@ -131,7 +131,7 @@
 
 86. **📐 段落缩进：正文两格、zen 非空行两格（m0085-4 用户）** — 原话：「我希望对于它显示的每一段可以添加一个两格的空格或一个缩进来表示一个段落，并且在 z mode 当中，同时对每一行非空格行除了章节以外都添加两个或一个空格。」——**m0091 澄清：段落两格缩进在所有模式统一（zen 与 normal 都做）**，章节标题行除外。**完成：段首缩进 2 空格全模式统一、章节行除外（read.rs 段首缩进 2 空格）。** `[x]` ✅v0.38.0（bf4bf44）
 
-87. **🛠 view 快捷键只读打开外部 TUI 编辑器（m0085-5 + m0086 用户）** — 原话：「添加一个快捷键，能够以只读方式打开系统默认的tui编辑器，或者通过已经设置的环境变量或者通过已经设定的config ini或者通过flag。Like micro, leaf, nvim, glow, vim。」——view 内按某键（如 `e`）挂起 TUI→用配置的编辑器只读打开当前章文本（:ro / -R 等编辑器各异）；编辑器来源优先级：flag > config.ini > 环境变量 > 探测（nvim/vim/micro/glow/leaf）。**待办：定键位与优先级 → 实现（临时文件+spawn+恢复 TUI）→ 文档。** `[ ]`
+87. **🛠 view 快捷键只读打开外部 TUI 编辑器（m0085-5 + m0086 用户）** — 原话：「添加一个快捷键，能够以只读方式打开系统默认的tui编辑器，或者通过已经设置的环境变量或者通过已经设定的config ini或者通过flag。Like micro, leaf, nvim, glow, vim。」——view 内按某键（如 `e`）挂起 TUI→用配置的编辑器只读打开当前章文本（:ro / -R 等编辑器各异）；编辑器来源优先级：flag > config.ini > 环境变量 > 探测（nvim/vim/micro/glow/leaf）。**完成（3ed9a00）**：键位 `e`（全局）；优先级 view -e > config ui.editor > VISUAL/EDITOR > PATH 探测（nvim→vim→micro→leaf→glow，run 启动解析一次）；editor_argv vim 系自动插 -R；open_editor 写原文临时文件→挂起 TUI→spawn→恢复（term.clear 全量重绘）→状态栏回报；config 四件套+README 键位表。59 passed + clippy 0；view -h、config get/set/unset 全链验证。**`[x]` ✅v0.39.0 后
 
 88. **🐛 key tip dock 出现怪字符 "5"（m0087 用户）** — 原话：「a strange "5" appeared in the key tip dock, like: ────… / j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退出 / 5」——目录焦点帮助栏下方多一行孤立 "5"。**已随 85 消失（无需修，2026-11-26 验证）**：FQDT_DNS=223.5.5.5 pty 复现（系统 DNS 双挂 26.128.128.2/192.168.153.254 全超时，公共 DNS 通）——现版 Tab 焦点帧 24 行满屏两栏+底框闭合，无 dock 行、无孤立 "5"（draw_helpbar 已随 85/bf4bf44 删除，HELP_NAV 仅剩帮助框引用）；旧 target/debug/fqdt 系 85 前构建曾误导复现，cargo build 后确认。`[x]`
 
