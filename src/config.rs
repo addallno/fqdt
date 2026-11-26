@@ -100,6 +100,10 @@ impl Config {
                         "ui_help_examples" => cfg.ui_help_examples = v != "false",
                         "page_mode" => cfg.ui_page_mode = v.into(),
                         "view_mode" => cfg.ui_view_mode = v.into(),
+                        "gutter" => cfg.ui_gutter = v.parse().unwrap_or(1),
+                        "scroll_edge" => cfg.ui_scroll_edge = v.parse().unwrap_or(25),
+                        "tail_blank" => cfg.ui_tail_blank = v.parse().unwrap_or(1),
+                        "anim_frames" => cfg.ui_anim_frames = v.parse().unwrap_or(3),
                         "preset" => cfg.ui_theme = v.into(),
                         "border" => cfg.theme_border = v.into(),
                         "title" => cfg.theme_title = v.into(),
@@ -224,6 +228,14 @@ ui_help_examples = false
 page_mode = right-left
 # 阅读视图默认模式：normal=分栏（默认）/ zen=全屏四边框（TUI 内 z 临时切换当次）
 view_mode = normal
+# 正文/zen/help 距框内边距空格数（1 或 2，左右对称）
+gutter = 1
+# 上下滚动边缘区（距上端百分比：25=1/4 屏、33≈1/3 屏；下端对称）
+scroll_edge = 25
+# 翻页末尾保留空行数（1 或 0）
+tail_blank = 1
+# 过渡动画帧数（0=关闭动画；越大越平滑）
+anim_frames = 3
 
 ## Theme
 [theme]
@@ -484,6 +496,10 @@ pub const KEYS: &[KeyEntry] = &[
     ("ui.view_mode", "view_mode", "ui", Kind::Str, |c| {
         c.ui_view_mode.clone()
     }),
+    ("ui.gutter", "gutter", "ui", Kind::Int, |c| c.ui_gutter.to_string()),
+    ("ui.scroll_edge", "scroll_edge", "ui", Kind::Int, |c| c.ui_scroll_edge.to_string()),
+    ("ui.tail_blank", "tail_blank", "ui", Kind::Int, |c| c.ui_tail_blank.to_string()),
+    ("ui.anim_frames", "anim_frames", "ui", Kind::Int, |c| c.ui_anim_frames.to_string()),
     ("theme.preset", "preset", "theme", Kind::Str, |c| {
         c.ui_theme.clone()
     }),
@@ -546,6 +562,10 @@ const CONFIG_HELP: &[(&str, &str, &str)] = &[
     ("ui.help_examples", "help 示例段开关", "默认关闭；true 在子命令 help 底部追加示例段"),
     ("ui.page_mode", "阅读翻页模式", "right-left=左右渲染（默认）/ up-down=上下渲染"),
     ("ui.view_mode", "视图默认模式", "normal=分栏（默认）/ zen=全屏四边框；view TUI 内 z 临时切换当次"),
+    ("ui.gutter", "正文内边距", "正文/zen/help 距框空格数 1-2（默认 1），左右对称"),
+    ("ui.scroll_edge", "滚动边缘区", "上下滚动触发光标停驻区（距上端百分比）：25=1/4 屏（默认）、33≈1/3 屏"),
+    ("ui.tail_blank", "页尾空行", "翻页末尾保留空行数：1（默认）或 0"),
+    ("ui.anim_frames", "动画帧数", "翻页/滚动过渡帧数：3（默认）、0=关闭动画"),
     ("theme.preset", "TUI 主题预设", "default=现版配色（默认）/ nord / dracula / gruvbox"),
     ("theme.border", "主题·边框", "view 边框色，#RRGGBB；留空=用预设"),
     ("theme.title", "主题·标题", "面板标题与章题色，#RRGGBB；留空=用预设"),
@@ -870,5 +890,20 @@ mod tests {
         let c = Config::default();
         assert_eq!(c.ui_view_mode, "normal");
         assert_eq!(c.ui_page_mode, "right-left");
+    }
+
+    /// 103：config 四键默认值与 KEYS 在位。
+    #[test]
+    fn ui_render_keys_roundtrip() {
+        let c = Config::default();
+        assert_eq!(c.ui_gutter, 1);
+        assert_eq!(c.ui_scroll_edge, 25);
+        assert_eq!(c.ui_tail_blank, 1);
+        assert_eq!(c.ui_anim_frames, 3);
+        for k in ["ui.gutter", "ui.scroll_edge", "ui.tail_blank", "ui.anim_frames"] {
+            let e = super::KEYS.iter().find(|x| x.0 == k).unwrap_or_else(|| panic!("{k} 应在 KEYS"));
+            assert_eq!(e.1, k.strip_prefix("ui.").unwrap());
+            assert_eq!(e.2, "ui");
+        }
     }
 }

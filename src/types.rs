@@ -120,6 +120,14 @@ pub struct Config {
     pub ui_view_mode: String,
     /// TUI 主题预设（84）：default=现版配色 / nord / dracula / gruvbox
     pub ui_theme: String,
+    /// 正文/zen/help 距框内边距空格数（103，1 或 2，左右对称）
+    pub ui_gutter: usize,
+    /// 上下滚动边缘区（103，距上端百分比：25=1/4 屏、33≈1/3；下端对称）
+    pub ui_scroll_edge: u32,
+    /// 翻页末尾保留空行数（103，1 或 0）
+    pub ui_tail_blank: usize,
+    /// 过渡动画帧数（103，0=关闭）
+    pub ui_anim_frames: usize,
     /// TUI 主题单项覆盖 #RRGGBB（84，空=用预设）：边框/标题/正文/目录/选中/状态
     pub theme_border: String,
     pub theme_title: String,
@@ -216,6 +224,10 @@ impl Default for Config {
             ui_page_mode: "right-left".into(),
             ui_view_mode: "normal".into(),
             ui_theme: "default".into(),
+            ui_gutter: 1,
+            ui_scroll_edge: 25,
+            ui_tail_blank: 1,
+            ui_anim_frames: 3,
             theme_border: String::new(),
             theme_title: String::new(),
             theme_content: String::new(),
