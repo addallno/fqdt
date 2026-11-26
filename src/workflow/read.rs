@@ -791,10 +791,16 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(util::fg_t(rd.theme.border).add_modifier(ratatui::style::Modifier::BOLD))
-        .title(Span::styled(
-            format!(" {} ", ch.title),
-            util::fg_t(rd.theme.title).add_modifier(ratatui::style::Modifier::REVERSED),
-        ))
+        .title(ratatui::text::Line::from(vec![
+            Span::styled(
+                format!(" {}", rd.title),
+                util::fg_t(rd.theme.selected).add_modifier(ratatui::style::Modifier::REVERSED),
+            ),
+            Span::styled(
+                format!(" {} ", ch.title),
+                util::fg_t(rd.theme.title).add_modifier(ratatui::style::Modifier::REVERSED),
+            ),
+        ]))
         .title_bottom(Span::styled(
             format!(" {} ", zen_status_fit(rd, area.width.saturating_sub(2))),
             util::fg_t(rd.theme.status),
@@ -822,9 +828,9 @@ fn zen_status_fit(rd: &Reader, width: u16) -> String {
     let line_t = rd.lines.len();
     let w = |s: &str| Span::raw(s.to_string()).width() as u16;
     let cands = [
-        format!("---- {ch_n}/{ch_t} 章 · 行 {pos}/{line_t} ----"),
-        format!("{ch_n}/{ch_t} 章 · 行 {pos}/{line_t}"),
-        format!("{ch_n}/{ch_t} 章"),
+        format!("---- {ch_n}/{ch_t}章 · {pos}/{line_t}行 ----"),
+        format!("{ch_n}/{ch_t}章 · {pos}/{line_t}行"),
+        format!("{ch_n}/{ch_t}章"),
         format!("{ch_n}/{ch_t}"),
     ];
     cands
@@ -907,7 +913,7 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(border)
-        .title(Span::styled(" 正文 ", title_style));
+        .title(Span::styled(format!(" {} ", rd.title), title_style));
     // 非焦点面板整体降权（正文行全 DIM），切换时色阶反转即时可见
     let body_style = if focused {
         util::fg_t(rd.theme.content)
@@ -925,15 +931,15 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
     // 顶行进度 + 正文
     let body = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(0)])
         .split(inner);
     f.render_widget(
         Paragraph::new(top_line_fit(rd, body[0].width)).style(body_style),
         body[0],
     );
-    // 下留 1 行（m3000：最后一行距下框 1 行；上 1 行由顶行状态占）
-    let mut para_area = body[1];
-    para_area.height = para_area.height.saturating_sub(1).max(1);
+    // 页尾空行走 ui.tail_blank（103⑪：末行距下框 N 行）
+    let mut para_area = body[2];
+    para_area.height = para_area.height.saturating_sub(rd.tail_blank).max(1);
     f.render_widget(
         Paragraph::new(highlight_lines(rd))
             .style(body_style)
@@ -1024,22 +1030,14 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
     let total = rd.lines.len();
     let pos = (rd.scroll as usize + 1).min(total.max(1));
     let progress = format!(
-        "  {}/{} 章 · 行 {}/{}",
+        "  {}/{}章 · {}/{}行",
         rd.cur + 1,
         rd.chs.len(),
         pos,
         total
     );
-    let ch_only = format!("  {}/{} 章", rd.cur + 1, rd.chs.len());
-    // 候选层级（由全到简）：(spans 构造闭包, 总显示宽)
-    let mk_full = |rd: &Reader, ch: &Chapter| {
-        Line::from(vec![
-            Span::styled(rd.title.clone(), util::fg_t(rd.theme.selected)),
-            Span::styled(" · ", util::fg(DIM)),
-            Span::styled(ch.title.clone(), util::fg_t(rd.theme.title)),
-            Span::styled(progress.clone(), util::fg_t(rd.theme.status)),
-        ])
-    };
+    let ch_only = format!("  {}/{}章", rd.cur + 1, rd.chs.len());
+    // 候选层级（由全到简）；⑧ 顶行统一去书名（书名进框标题）
     let mk_no_title = |_rd: &Reader, ch: &Chapter| {
         Line::from(vec![
             Span::styled(ch.title.clone(), util::fg_t(rd.theme.title)),
@@ -1061,7 +1059,6 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
     let w = width as usize;
     let fits = |l: &Line| l.spans.iter().map(|s| s.width()).sum::<usize>() <= w;
     let cands = [
-        mk_full(rd, ch),
         mk_no_title(rd, ch),
         mk_progress(),
         mk_ch(),
@@ -1338,12 +1335,12 @@ mod tests {
                     .collect::<Vec<_>>()
             );
         }
-        // 极宽 → 全量（含书名与进度）
+        // 极宽 → 全量：⑧ 顶行统一去书名（书名进框标题），状态 `138/173章 · 1/199行`
         let full = top_line_fit(&rd, 200);
         let text: String = full.spans.iter().map(|s| s.content.to_string()).collect();
-        assert!(text.contains("超长书名"), "全量应含书名: {text}");
-        assert!(text.contains("1/1 章"), "全量应含章进度: {text}");
-        assert!(text.contains("行 1/50"), "全量应含行进度: {text}");
+        assert!(!text.contains("超长书名"), "⑧ 顶行不应含书名: {text}");
+        assert!(text.contains("1/1章"), "全量应含章进度: {text}");
+        assert!(text.contains("1/50行"), "全量应含行进度: {text}");
         // 中宽 → 砍掉书名仍含章/行进度
         let mid = top_line_fit(&rd, 30);
         let mtext: String = mid.spans.iter().map(|s| s.content.to_string()).collect();
