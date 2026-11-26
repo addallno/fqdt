@@ -98,6 +98,8 @@ struct Reader {
     tail_blank: u16,
     /// 过渡动画帧数（103 ui.anim_frames，0=关）
     anim_frames: u16,
+    /// 跨上章后落章尾（103⑥，reload 完成后消费）
+    pending_end: bool,
     /// 翻页模式（90/91，ui.page_mode）
     page_mode: PageMode,
 }
@@ -159,6 +161,7 @@ impl Reader {
             scroll_edge: 25,
             tail_blank: 1,
             anim_frames: 3,
+            pending_end: false,
         }
     }
 
@@ -278,6 +281,7 @@ async fn loop_with(rd: &mut Reader, api: &Client, out: &mut Stdout) -> Result<()
         if rd.need_load {
             reload(rd, api, width).await?;
             rd.need_load = false;
+            settle_pending(rd, height);
         }
         term.draw(|f| draw(f, rd)).map_err(|e| e.to_string())?;
         let ev = event::read().map_err(|e| e.to_string())?;
@@ -342,6 +346,22 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
                 .get(rd.cursor)
                 .map(|p| p.start as i64 - rd.scroll as i64)
                 .unwrap_or(0);
+            // ⑥ 页边界跨章：第一页←上章（落章尾）、最后一页→下章（落章首）
+            if d < 0 && rd.scroll == 0 && rd.cur > 0 {
+                rd.cur -= 1;
+                rd.scroll = 0;
+                rd.pending_end = true;
+                rd.need_load = true;
+                return false;
+            }
+            if d > 0 && rd.scroll as i64 >= max && rd.cur + 1 < rd.chs.len() {
+                rd.cur += 1;
+                rd.scroll = 0;
+                rd.cursor = 0;
+                rd.paras.clear();
+                rd.need_load = true;
+                return false;
+            }
             let next = (rd.scroll as i64 + d as i64 * view as i64).clamp(0, max);
             rd.scroll = next as u16;
             // 新视窗中包含 rel 行的段 → cursor
@@ -643,6 +663,14 @@ fn scroll_by(rd: &mut Reader, delta: i32, height: u16) {
     let max = rd.lines.len().saturating_sub(view as usize) as i64;
     let next = (rd.scroll as i64 + delta as i64).clamp(0, max);
     // 仅逐行/半页级滚动到底（含已停在底部）自动进下一章；G 等大跳停在章尾
+    // ⑥ 首行↑：上滚到顶且小幅 → 上一章（落章尾）
+    if delta < 0 && (-delta) as u16 <= view && next == 0 && rd.cur > 0 {
+        rd.cur -= 1;
+        rd.scroll = 0;
+        rd.pending_end = true;
+        rd.need_load = true;
+        return;
+    }
     let small = delta > 0 && delta as i64 <= view as i64;
     if small && next == max && rd.cur + 1 < rd.chs.len() {
         rd.cur += 1;
@@ -651,6 +679,14 @@ fn scroll_by(rd: &mut Reader, delta: i32, height: u16) {
         return;
     }
     rd.scroll = next as u16;
+}
+
+/// 103⑥：跨上章挂起 → 加载完落章尾（末页），实现"第一页 ← 上章"连续回翻。
+fn settle_pending(rd: &mut Reader, height: u16) {
+    if rd.pending_end {
+        rd.pending_end = false;
+        rd.scroll = rd.lines.len().saturating_sub(rd.view_h(height) as usize) as u16;
+    }
 }
 
 /// 按键 → 动作（按焦点分发；键位习惯同 baca/epubreader-cli：j/k、n/p、g/G、Tab）。
@@ -1083,6 +1119,54 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
+    /// 103⑥：页边界/首行末行四触发跨章。
+    #[test]
+    fn chapter_boundary_triggers() {
+        let chs = vec![
+            Chapter { index: 1, item_id: "a".into(), title: "一".into() },
+            Chapter { index: 2, item_id: "b".into(), title: "二".into() },
+        ];
+        let mut rd = Reader::new("b".into(), chs);
+        rd.lines = (0..100).map(|i| Line::from(format!("L{i}"))).collect();
+        rd.zen = true;
+        let h = 24u16;
+        let view = rd.view_h(h);
+        // 最后一页 → 下章（scroll=0）
+        rd.scroll = 100 - view;
+        apply_action(Action::PageFlip(1), &mut rd, h);
+        assert_eq!(rd.cur, 1, "最后一页→下章");
+        assert_eq!(rd.scroll, 0);
+        assert!(rd.need_load);
+        // 第一页 ← 上章（pending_end → settle 落章尾）
+        rd.need_load = false;
+        rd.cur = 1;
+        rd.scroll = 0;
+        apply_action(Action::PageFlip(-1), &mut rd, h);
+        assert_eq!(rd.cur, 0, "第一页←上章");
+        assert!(rd.pending_end);
+        rd.lines = (0..80).map(|i| Line::from(format!("M{i}"))).collect();
+        settle_pending(&mut rd, h);
+        assert_eq!(rd.scroll as usize, 80 - view as usize, "落章尾末页");
+        assert!(!rd.pending_end);
+        // 首行↑ 触发上章
+        rd.cur = 1;
+        rd.scroll = 0;
+        rd.pending_end = false;
+        rd.need_load = false;
+        scroll_by(&mut rd, -1, h);
+        assert_eq!(rd.cur, 0, "首行↑上章");
+        assert!(rd.pending_end);
+        settle_pending(&mut rd, h);
+        // 末行↓：滚到本章底自动下章（small）
+        rd.cur = 0;
+        rd.scroll = 0;
+        rd.lines = (0..100).map(|i| Line::from(format!("L{i}"))).collect();
+        scroll_by(&mut rd, i32::MAX / 2, h); // 到底
+        scroll_by(&mut rd, 1, h); // small 到底 → 下章
+        assert_eq!(rd.cur, 1, "末行↓下章");
+        assert!(rd.need_load);
+    }
+
     /// 103 步骤4：view_h 与渲染区一致（zen=屏-4；normal=屏-4-tail）。
     #[test]
     fn view_h_matches_render() {
