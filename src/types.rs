@@ -110,6 +110,15 @@ pub struct Config {
     pub ui_page_mode: String,
     /// UI：阅读视图默认模式（89）：normal=分栏（默认）/ zen=全屏四边框（TUI 内 z 临时切换）
     pub ui_view_mode: String,
+    /// TUI 主题预设（84）：default=现版配色 / nord / dracula / gruvbox
+    pub ui_theme: String,
+    /// TUI 主题单项覆盖 #RRGGBB（84，空=用预设）：边框/标题/正文/目录/选中/状态
+    pub theme_border: String,
+    pub theme_title: String,
+    pub theme_content: String,
+    pub theme_toc: String,
+    pub theme_selected: String,
+    pub theme_status: String,
 }
 
 /// 下载工作流参数（来自 CLI 或默认值）
@@ -198,6 +207,27 @@ impl Default for Config {
             ui_help_examples: false,
             ui_page_mode: "right-left".into(),
             ui_view_mode: "normal".into(),
+            ui_theme: "default".into(),
+            theme_border: String::new(),
+            theme_title: String::new(),
+            theme_content: String::new(),
+            theme_toc: String::new(),
+            theme_selected: String::new(),
+            theme_status: String::new(),
+        }
+    }
+}
+
+impl Config {
+    /// 84：聚合成主题覆盖（空串=用预设）。
+    pub fn theme_override(&self) -> crate::theme::ThemeOverride {
+        crate::theme::ThemeOverride {
+            border: self.theme_border.clone(),
+            title: self.theme_title.clone(),
+            content: self.theme_content.clone(),
+            toc: self.theme_toc.clone(),
+            selected: self.theme_selected.clone(),
+            status: self.theme_status.clone(),
         }
     }
 }

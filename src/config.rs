@@ -59,6 +59,13 @@ impl Config {
                         "ui_help_examples" => cfg.ui_help_examples = v != "false",
                         "page_mode" => cfg.ui_page_mode = v.into(),
                         "view_mode" => cfg.ui_view_mode = v.into(),
+                        "preset" => cfg.ui_theme = v.into(),
+                        "border" => cfg.theme_border = v.into(),
+                        "title" => cfg.theme_title = v.into(),
+                        "content" => cfg.theme_content = v.into(),
+                        "toc" => cfg.theme_toc = v.into(),
+                        "selected" => cfg.theme_selected = v.into(),
+                        "status" => cfg.theme_status = v.into(),
                         _ => {}
                     }
                 }
@@ -174,6 +181,18 @@ ui_help_examples = false
 page_mode = right-left
 # 阅读视图默认模式：normal=分栏（默认）/ zen=全屏四边框（TUI 内 z 临时切换当次）
 view_mode = normal
+
+## Theme
+[theme]
+# TUI 主题预设：default=现版配色（默认）/ nord / dracula / gruvbox
+preset = default
+# 单项覆盖 #RRGGBB（留空=用预设）：边框/标题/正文/目录/选中/状态
+border =
+title =
+content =
+toc =
+selected =
+status =
 ";
 
     pub fn apply_cli_overrides(&mut self, search_url: Option<&str>, catalog_url: Option<&str>, content_url: Option<&str>) {
@@ -251,6 +270,13 @@ pub const KEYS: &[KeyEntry] = &[
     ("ui.help_examples", "ui_help_examples", "ui", Kind::Bool, |c| c.ui_help_examples.to_string()),
     ("ui.page_mode", "page_mode", "ui", Kind::Str, |c| c.ui_page_mode.clone()),
     ("ui.view_mode", "view_mode", "ui", Kind::Str, |c| c.ui_view_mode.clone()),
+    ("theme.preset", "preset", "theme", Kind::Str, |c| c.ui_theme.clone()),
+    ("theme.border", "border", "theme", Kind::Str, |c| c.theme_border.clone()),
+    ("theme.title", "title", "theme", Kind::Str, |c| c.theme_title.clone()),
+    ("theme.content", "content", "theme", Kind::Str, |c| c.theme_content.clone()),
+    ("theme.toc", "toc", "theme", Kind::Str, |c| c.theme_toc.clone()),
+    ("theme.selected", "selected", "theme", Kind::Str, |c| c.theme_selected.clone()),
+    ("theme.status", "status", "theme", Kind::Str, |c| c.theme_status.clone()),
 ];
 
 // ===== config 键详情（`fqdt config <key> --help`，v0.17.0） =====
@@ -292,6 +318,13 @@ const CONFIG_HELP: &[(&str, &str, &str)] = &[
     ("ui.help_examples", "help 示例段开关", "默认关闭；true 在子命令 help 底部追加示例段"),
     ("ui.page_mode", "阅读翻页模式", "right-left=左右渲染（默认）/ up-down=上下渲染"),
     ("ui.view_mode", "视图默认模式", "normal=分栏（默认）/ zen=全屏四边框；view TUI 内 z 临时切换当次"),
+    ("theme.preset", "TUI 主题预设", "default=现版配色（默认）/ nord / dracula / gruvbox"),
+    ("theme.border", "主题·边框", "view 边框色，#RRGGBB；留空=用预设"),
+    ("theme.title", "主题·标题", "面板标题与章题色，#RRGGBB；留空=用预设"),
+    ("theme.content", "主题·正文", "正文文本色，#RRGGBB；留空=用预设"),
+    ("theme.toc", "主题·目录", "目录面板文本色，#RRGGBB；留空=用预设"),
+    ("theme.selected", "主题·选中", "目录选中行与书名色，#RRGGBB；留空=用预设"),
+    ("theme.status", "主题·状态", "状态行与进度色，#RRGGBB；留空=用预设"),
 ];
 
 fn kind_label(k: Kind) -> &'static str {

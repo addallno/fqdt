@@ -42,6 +42,11 @@ pub fn fg(c: Color) -> ratatui::style::Style {
     ratatui::style::Style::default().fg(to_tcolor(c))
 }
 
+/// TColor 直入前景 Style（84 主题槽用：预设/RGB 覆盖已解析到 ratatui Color）。
+pub fn fg_t(c: ratatui::style::Color) -> ratatui::style::Style {
+    ratatui::style::Style::default().fg(c)
+}
+
 /// 语义色 → 背景 Style（91 段落光标高亮；色值仍单点来自本文件）。
 pub fn bg(c: Color) -> ratatui::style::Style {
     ratatui::style::Style::default().bg(to_tcolor(c))

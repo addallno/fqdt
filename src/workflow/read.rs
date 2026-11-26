@@ -13,7 +13,7 @@
 use crate::api::{self, Client};
 use crate::store::{self, ReadPos};
 use crate::types::{Chapter, ChapterRange, Config};
-use crate::util::{self, CYAN, DIM, MAGENTA, YELLOW};
+use crate::util::{self, DIM};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -87,6 +87,8 @@ struct Reader {
     cursor: usize,
     /// ?/h 帮助框（批C③）
     help_shown: bool,
+    /// TUI 主题（84）：预设+覆盖已解析
+    theme: crate::theme::ThemeColors,
     /// 翻页模式（90/91，ui.page_mode）
     page_mode: PageMode,
 }
@@ -143,6 +145,7 @@ impl Reader {
             cursor: 0,
             page_mode: PageMode::RightLeft,
             help_shown: false,
+            theme: crate::theme::resolve("default", &crate::theme::ThemeOverride::default()),
         }
     }
 
@@ -198,6 +201,7 @@ pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config) {
     };
     let mut rd = Reader::new(title, chs);
     apply_startup_modes(&mut rd, cfg);
+    rd.theme = crate::theme::resolve(&cfg.ui_theme, &cfg.theme_override());
     if let Some(p) = store::read_get(book_id) {
         if let Some(i) = rd.chs.iter().position(|c| c.item_id == p.item_id) {
             rd.cur = i;
@@ -669,11 +673,11 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
 /// 渲染主入口：zen 全屏 / 普通分栏（bookokrat draw 同构）。
 fn draw(f: &mut Frame, rd: &Reader) {
     if rd.help_shown {
-        draw_help_box(f);
+        draw_help_box(f, &rd.theme);
         return;
     }
     if let Some(url) = &rd.img_focus {
-        draw_img_focus(f, url);
+        draw_img_focus(f, url, &rd.theme);
         return;
     }
     if rd.zen {
@@ -684,7 +688,7 @@ fn draw(f: &mut Frame, rd: &Reader) {
 }
 
 /// 图片聚焦态（77）：全屏放大单图，顶=url、底=返回提示；加载失败→占位行。
-fn draw_img_focus(f: &mut Frame, url: &str) {
+fn draw_img_focus(f: &mut Frame, url: &str, theme: &crate::theme::ThemeColors) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -695,7 +699,7 @@ fn draw_img_focus(f: &mut Frame, url: &str) {
         .split(f.area());
     f.render_widget(
         Paragraph::new(format!(" 图片 · {}", url))
-            .style(util::fg(YELLOW).add_modifier(ratatui::style::Modifier::BOLD)),
+            .style(util::fg_t(theme.status).add_modifier(ratatui::style::Modifier::BOLD)),
         chunks[0],
     );
     let inner_w = chunks[1].width.saturating_sub(2);
@@ -736,14 +740,14 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
     let ch = &rd.chs[rd.cur];
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(util::fg(CYAN).add_modifier(ratatui::style::Modifier::BOLD))
+        .border_style(util::fg_t(rd.theme.border).add_modifier(ratatui::style::Modifier::BOLD))
         .title(Span::styled(
             format!(" {} ", ch.title),
-            util::fg(CYAN).add_modifier(ratatui::style::Modifier::REVERSED),
+            util::fg_t(rd.theme.title).add_modifier(ratatui::style::Modifier::REVERSED),
         ))
         .title_bottom(Span::styled(
             format!(" {} ", zen_status_fit(rd, area.width.saturating_sub(2))),
-            util::fg(YELLOW),
+            util::fg_t(rd.theme.status),
         ));
     let inner = block.inner(area);
     // 上 1 行、下 1 行；宽 = 内宽 - 2（右留 2，与 content_width zen 一致）
@@ -783,12 +787,12 @@ fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
     let focused = rd.focus == Focus::Nav;
     // 焦点：粗体青边 + 标题反白底块；非焦点：灰边（m2816 视觉表达打磨）
     let border = if focused {
-        util::fg(CYAN).add_modifier(ratatui::style::Modifier::BOLD)
+        util::fg_t(rd.theme.border).add_modifier(ratatui::style::Modifier::BOLD)
     } else {
         util::fg(DIM)
     };
     let title_style = if focused {
-        util::fg(CYAN).add_modifier(ratatui::style::Modifier::REVERSED)
+        util::fg_t(rd.theme.title).add_modifier(ratatui::style::Modifier::REVERSED)
     } else {
         util::fg(DIM)
     };
@@ -821,13 +825,13 @@ fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
             if i == rd.sel {
                 Line::from(Span::styled(
                     title,
-                    util::fg(MAGENTA).add_modifier(ratatui::style::Modifier::REVERSED),
+                    util::fg_t(rd.theme.selected).add_modifier(ratatui::style::Modifier::REVERSED),
                 ))
             } else if i == rd.cur {
-                Line::from(Span::styled(title, util::fg(CYAN)))
+                Line::from(Span::styled(title, util::fg_t(rd.theme.title)))
             } else if focused {
                 // 焦点面板普通行提亮：与非焦点面板（全 DIM）拉开色阶
-                Line::from(Span::styled(title, util::fg(util::RST)))
+                Line::from(Span::styled(title, util::fg_t(rd.theme.content)))
             } else {
                 Line::from(Span::styled(title, util::fg(DIM)))
             }
@@ -840,12 +844,12 @@ fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
 fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
     let focused = rd.focus == Focus::Content;
     let border = if focused {
-        util::fg(CYAN).add_modifier(ratatui::style::Modifier::BOLD)
+        util::fg_t(rd.theme.border).add_modifier(ratatui::style::Modifier::BOLD)
     } else {
         util::fg(DIM)
     };
     let title_style = if focused {
-        util::fg(CYAN).add_modifier(ratatui::style::Modifier::REVERSED)
+        util::fg_t(rd.theme.title).add_modifier(ratatui::style::Modifier::REVERSED)
     } else {
         util::fg(DIM)
     };
@@ -854,7 +858,7 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         .border_style(border)
         .title(Span::styled(" 正文 ", title_style));
     // 非焦点面板整体降权（正文行全 DIM），切换时色阶反转即时可见
-    let body_style = if focused { util::fg(util::RST) } else { util::fg(DIM) };
+    let body_style = if focused { util::fg_t(rd.theme.content) } else { util::fg(DIM) };
     let inner = {
         let mut r = area;
         r.x += 1;
@@ -881,13 +885,13 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
 
 /// ?/h 全屏帮助框（批C③，m0137）：一个大框叙述 UI；键位明细只在
 /// README/help.txt，此处不列 ?/h 键位（Esc 返回提示保留）。
-fn draw_help_box(f: &mut Frame) {
+fn draw_help_box(f: &mut Frame, theme: &crate::theme::ThemeColors) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(util::fg(CYAN).add_modifier(ratatui::style::Modifier::BOLD))
+        .border_style(util::fg_t(theme.border).add_modifier(ratatui::style::Modifier::BOLD))
         .title(Span::styled(
             " --Help-- ",
-            util::fg(CYAN).add_modifier(ratatui::style::Modifier::REVERSED),
+            util::fg_t(theme.title).add_modifier(ratatui::style::Modifier::REVERSED),
         ));
     let inner = block.inner(f.area());
     let body = Rect {
@@ -896,8 +900,8 @@ fn draw_help_box(f: &mut Frame) {
         width: inner.width.saturating_sub(2),
         height: inner.height.saturating_sub(2).max(1),
     };
-    let t = |s: &str| Span::styled(s.to_string(), util::fg(util::RST));
-    let head = |s: &str| Span::styled(s.to_string(), util::fg(CYAN));
+    let t = |s: &str| Span::styled(s.to_string(), util::fg_t(theme.content));
+    let head = |s: &str| Span::styled(s.to_string(), util::fg_t(theme.title));
     let dim = |s: &str| Span::styled(s.to_string(), util::fg(DIM));
     let lines = vec![
         Line::from(vec![t("阅读视图（view）")]),
@@ -948,17 +952,17 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
     let ch_only = format!("  {}/{} 章", rd.cur + 1, rd.chs.len());
     // 候选层级（由全到简）：(spans 构造闭包, 总显示宽)
     let mk_full = |rd: &Reader, ch: &Chapter| Line::from(vec![
-        Span::styled(rd.title.clone(), util::fg(MAGENTA)),
+        Span::styled(rd.title.clone(), util::fg_t(rd.theme.selected)),
         Span::styled(" · ", util::fg(DIM)),
-        Span::styled(ch.title.clone(), util::fg(CYAN)),
-        Span::styled(progress.clone(), util::fg(YELLOW)),
+        Span::styled(ch.title.clone(), util::fg_t(rd.theme.title)),
+        Span::styled(progress.clone(), util::fg_t(rd.theme.status)),
     ]);
     let mk_no_title = |_rd: &Reader, ch: &Chapter| Line::from(vec![
-        Span::styled(ch.title.clone(), util::fg(CYAN)),
-        Span::styled(progress.clone(), util::fg(YELLOW)),
+        Span::styled(ch.title.clone(), util::fg_t(rd.theme.title)),
+        Span::styled(progress.clone(), util::fg_t(rd.theme.status)),
     ]);
-    let mk_progress = || Line::from(Span::styled(progress.trim_start().to_string(), util::fg(YELLOW)));
-    let mk_ch = || Line::from(Span::styled(ch_only.trim_start().to_string(), util::fg(YELLOW)));
+    let mk_progress = || Line::from(Span::styled(progress.trim_start().to_string(), util::fg_t(rd.theme.status)));
+    let mk_ch = || Line::from(Span::styled(ch_only.trim_start().to_string(), util::fg_t(rd.theme.status)));
     let w = width as usize;
     let fits = |l: &Line| l.spans.iter().map(|s| s.width()).sum::<usize>() <= w;
     let cands = [
@@ -1026,7 +1030,7 @@ mod tests {
         terminal
             .draw(|f| {
                 if let Some(u) = rd.img_focus.clone() {
-                    draw_img_focus(f, &u);
+                    draw_img_focus(f, &u, &rd.theme);
                 }
             })
             .unwrap();

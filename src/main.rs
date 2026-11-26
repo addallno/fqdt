@@ -7,6 +7,7 @@ mod fqapi;
 mod helpfile;
 mod imgtool;
 mod store;
+mod theme;
 mod types;
 mod util;
 mod workflow;
