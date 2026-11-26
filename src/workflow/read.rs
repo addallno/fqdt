@@ -295,18 +295,63 @@ async fn event_loop(rd: &mut Reader, api: &Client) -> Result<(), String> {
     res
 }
 
+/// 过渡动画判定（103⑮ 纯函数）：|new-old| ≤ 2 屏才滑动（章跳/大跳瞬切，防千行插值乱跳）。
+fn scroll_animateable(old: u16, new: u16, view: usize) -> bool {
+    let v = (view as i64).max(1) * 2;
+    ((new as i64) - (old as i64)).abs() <= v
+}
+
+/// 过渡插值（103⑮ 纯函数）：第 k/frames 帧的窗口起点（帧 0=old，frames=new）。
+fn scroll_lerp(old: u16, new: u16, k: u32, frames: u32) -> u16 {
+    let (o, n) = (old as i64, new as i64);
+    let v = o + (n - o) * k as i64 / frames.max(1) as i64;
+    v.clamp(0, u16::MAX as i64) as u16
+}
+
+/// 翻页/滚动过渡帧循环（103⑮，克制）：anim_frames 帧 × 16ms，末帧落 new。
+/// 超过 2 屏的大跳（切章、G 等）直接单帧；anim_frames ≤1 由调用方跳过。
+fn animate_scroll(
+    term: &mut Terminal<CrosstermBackend<&mut Stdout>>,
+    rd: &mut Reader,
+    old: u16,
+    new: u16,
+    height: u16,
+) -> Result<(), String> {
+    let view = rd.view_h(height) as usize;
+    if !scroll_animateable(old, new, view) {
+        term.draw(|f| draw(f, rd)).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    let frames = rd.anim_frames.max(2);
+    for k in 1..frames {
+        rd.scroll = scroll_lerp(old, new, k as u32, frames as u32);
+        term.draw(|f| draw(f, rd)).map_err(|e| e.to_string())?;
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+    rd.scroll = new;
+    term.draw(|f| draw(f, rd)).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 同步事件循环：draw → 取事件 → 处理；切章时 block_in_place 加载正文。
 async fn loop_with(rd: &mut Reader, api: &Client, out: &mut Stdout) -> Result<(), String> {
     let mut term = Terminal::new(CrosstermBackend::new(&mut *out)).map_err(|e| e.to_string())?;
     let mut width: u16 = term.size().map(|s| s.width).unwrap_or(80);
     let mut height: u16 = term.size().map(|s| s.height).unwrap_or(24);
+    let mut shown: u16 = rd.scroll; // 上次绘制的窗口起点（103⑮ 过渡动画基准）
     loop {
         if rd.need_load {
             reload(rd, api, width).await?;
             rd.need_load = false;
             settle_pending(rd, height);
         }
-        term.draw(|f| draw(f, rd)).map_err(|e| e.to_string())?;
+        // 103⑮ 翻页/滚动过渡：scroll 变化 → 小步逐帧滑动（大跳瞬切）
+        if rd.scroll != shown && rd.anim_frames > 1 {
+            animate_scroll(&mut term, rd, shown, rd.scroll, height)?;
+        } else {
+            term.draw(|f| draw(f, rd)).map_err(|e| e.to_string())?;
+        }
+        shown = rd.scroll;
         let ev = event::read().map_err(|e| e.to_string())?;
         match ev {
             Event::Resize(w, h) => {
@@ -1898,6 +1943,23 @@ mod tests {
         // edge 更大（45%）→ 更早开始滚动
         assert_eq!(toc_start(11, 20, 45), 1); // bottom=20-9=11，12>11 → 12-11
         assert_eq!(toc_start(9, 20, 45), 0); // 刚出带上沿不滚
+    }
+
+    #[test]
+    fn scroll_animate_and_lerp() {
+        // 小步（翻页/滚动）→ 滑动；大跳（切章）→ 瞬切
+        assert!(scroll_animateable(10, 30, 20)); // 半屏
+        assert!(scroll_animateable(0, 40, 20)); // 恰 2 屏
+        assert!(!scroll_animateable(0, 41, 20)); // 超 2 屏
+        assert!(!scroll_animateable(900, 0, 20)); // 跨章大跳
+                                                  // 插值：帧 0=old、frames=new、单调、钳 u16
+        assert_eq!(scroll_lerp(10, 30, 0, 3), 10);
+        assert_eq!(scroll_lerp(10, 30, 3, 3), 30);
+        assert_eq!(scroll_lerp(10, 30, 1, 3), 16); // 10 + 20/3
+        assert_eq!(scroll_lerp(30, 10, 1, 3), 24); // 反向：-20/3 向零取整 -6
+        assert_eq!(scroll_lerp(0, u16::MAX, 4, 4), u16::MAX);
+        // frames=0 防除零 → 视作 1
+        assert_eq!(scroll_lerp(0, 9, 0, 0), 0);
     }
 
     #[test]
