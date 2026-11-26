@@ -60,7 +60,7 @@ fn book_line(book: &Value, indent: &str) -> String {
     let cat = get(book, "category");
     let id = get(book, "book_id");
     format!(
-        "{indent}{CYAN}{name}{RST} {YELLOW}{author}{RST} {DIM}{cat} #{id}{RST}"
+        "{indent}{CYAN}「{name}」{RST} {YELLOW}{author}{RST} {DIM}{cat} #{id}{RST}"
     )
 }
 
@@ -84,7 +84,7 @@ pub async fn recommend(tab_type: u32, tab_index: u32, offset: u32, json: bool, _
     for tab in tabs {
         let title = get(tab, "title");
         if !title.is_empty() {
-            println!("  {CYAN}【{title}】{RST}");
+            println!("  {CYAN}[{title}]{RST}");
         }
         let cells = tab
             .get("cell_data")
@@ -228,7 +228,7 @@ pub async fn author(author_id: &str, count: usize, json: bool, cfg: &Config) {
     else {
         return;
     };
-    println!("\n  {CYAN}【书单】{RST}");
+    println!("\n  {CYAN}[书单]{RST}");
     for it in items {
         if let Some(b) = it.get("book") {
             if !get(b, "book_name").is_empty() {

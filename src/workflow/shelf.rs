@@ -72,9 +72,9 @@ fn local_list() {
         println!("  书架为空");
         return;
     }
-    println!("  {CYAN}【书架】{RST} · {} 本", books.len());
+    println!("  {CYAN}[书架]{RST} · {} 本", books.len());
     for (i, (id, t)) in books.iter().enumerate() {
-        println!("  {:>2}. {CYAN}{}{RST}  {DIM}#{}{RST}", i + 1, t, id);
+        println!("  {:>2}. {CYAN}「{}」{RST}  {DIM}#{}{RST}", i + 1, t, id);
     }
 }
 
@@ -109,9 +109,9 @@ async fn local_update(cfg: &Config) {
         println!("  书架为空");
         return;
     }
-    println!("  {CYAN}【更新书架】{RST} · {} 本", books.len());
+    println!("  {CYAN}[更新书架]{RST} · {} 本", books.len());
     for (i, (id, title)) in books.iter().enumerate() {
-        println!("\n  [{}/{}] {CYAN}{}{RST}", i + 1, books.len(), title);
+        println!("\n  [{}/{}] {CYAN}「{}」{RST}", i + 1, books.len(), title);
         super::download::run(id, &types::DownloadParams {
             output: None, range: None, format: None, concurrent: None,
             audio: false, tone: 1, abr: 0,

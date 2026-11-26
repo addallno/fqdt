@@ -9,7 +9,7 @@ use std::time::Instant;
 fn print_list(books: &[Book]) {
     for (i, b) in books.iter().enumerate() {
         println!(
-            "  {CYAN}{:>2}.{RST} {}  {YELLOW}{}{RST} · {} · {MAGENTA}{}{RST} · {} {DIM}#{}{RST}",
+            "  {CYAN}{:>2}.{RST} 「{}」  {YELLOW}{}{RST} · {} · {MAGENTA}{}{RST} · {} {DIM}#{}{RST}",
             i + 1, b.title, b.author, b.category, b.score, b.status_text(), b.book_id
         );
     }
@@ -54,7 +54,7 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
     }
     let book = &books[n - 1];
     println!(
-        "\n  {CYAN}{title}{RST}  {YELLOW}{author}{RST} · {category} · {MAGENTA}{score}{RST} · {status}",
+        "\n  {CYAN}「{title}」{RST}  {YELLOW}{author}{RST} · {category} · {MAGENTA}{score}{RST} · {status}",
         title = book.title, author = book.author, category = book.category,
         score = book.score, status = book.status_text(),
     );

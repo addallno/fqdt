@@ -123,7 +123,7 @@
 
 82. **🔤 列表显示字符改 [] 与书名包裹（m0083 用户）** — 原话：「change the characters to display a set of books and books, [] to display instead of like 【Reading】, and books just name, or <> or「」.」——`【】` 全角括号改 `[]`（调查：account.rs:538/539/566 书架【组名】、discover.rs:87/231【标题】【书单】、shelf.rs:75/112【书架】【更新书架】）；书名显示用纯名或 `<>` 或 `「」` 包裹（待定哪种，可问）。**待办：定书名包裹字符 → 全局替换 → 三绿。** `[ ]`
 
-83. **🐛 view 目录选中高亮显示不完整（m0085-1 用户）** — 原话：「view ui when tab to select in the contents, the selection that highlighted with pink will display incompletely, like 72 编外也是编 but it should be <select arrow> 第172章 ... .」——目录焦点 Tab 选中行（MAGENTA+REVERSED）截断：只显示「72 编外也是编」缺选中箭头与完整章题。**待办：查 draw_toc 选中行渲染（宽度计算/REVERSED 反白区截断）→ 修 → TestBackend 断言完整。** `[ ]`
+83. **🐛 view 目录选中高亮显示不完整（m0085-1 用户）** — 原话：「view ui when tab to select in the contents, the selection that highlighted with pink will display incompletely, like 72 编外也是编 but it should be <select arrow> 第172章 ... .」——目录焦点 Tab 选中行（MAGENTA+REVERSED）截断：只显示「72 编外也是编」缺选中箭头与完整章题。**已修（commit e45c00b，40 passed + clippy 0）**：探针 TestBackend 复现=sel≠cur 选中行无箭头（原报「缺章题头」现版 Paragraph 左起截尾不复现）；draw_toc mark 三档 cur=▶/sel≠cur=▸/其余空格；测试 toc_selected_row_shows_arrow_and_full_title 断言选中行 ▸+完整章题、当前行 ▶。`[x]`
 
 84. **🎨 TUI 主题配置：预设 + RGB 单设 + 分部分渲染（m0085-2 用户）** — 原话：「in configure, i wanna set different topic for tui but just change the highlight colors. There's some preset themes, but also could set by rgb for some single one, 我们应该将它按部分渲染部分的好好拆开，让它在使用适当的颜色之后看起来仍然美观。」——config.ini 加 TUI 主题：预设主题集 + 单项 RGB 覆盖；颜色按部分（目录/正文/边框/标题/选中/帮助栏…）拆开定义，换色后仍协调。**前置：84 与 78 焦点视觉、util 颜色常量体系衔接（78 曾回滚主题系统因 topic 误读——本次用户明确要主题，重新设计但按部分拆）。待办：设计 ini 结构 + util 取色入口 + 应用。** `[ ]`
 
@@ -133,9 +133,9 @@
 
 87. **🛠 view 快捷键只读打开外部 TUI 编辑器（m0085-5 + m0086 用户）** — 原话：「添加一个快捷键，能够以只读方式打开系统默认的tui编辑器，或者通过已经设置的环境变量或者通过已经设定的config ini或者通过flag。Like micro, leaf, nvim, glow, vim。」——view 内按某键（如 `e`）挂起 TUI→用配置的编辑器只读打开当前章文本（:ro / -R 等编辑器各异）；编辑器来源优先级：flag > config.ini > 环境变量 > 探测（nvim/vim/micro/glow/leaf）。**待办：定键位与优先级 → 实现（临时文件+spawn+恢复 TUI）→ 文档。** `[ ]`
 
-88. **🐛 key tip dock 出现怪字符 "5"（m0087 用户）** — 原话：「a strange "5" appeared in the key tip dock, like: ────… / j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退出 / 5」——目录焦点帮助栏下方多一行孤立 "5"。**待办：复现（pty Tab 后截图）→ 查 draw_helpbar/draw_toc 绘制（疑宽度溢出/残留渲染）→ 修。** `[ ]`
+88. **🐛 key tip dock 出现怪字符 "5"（m0087 用户）** — 原话：「a strange "5" appeared in the key tip dock, like: ────… / j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退出 / 5」——目录焦点帮助栏下方多一行孤立 "5"。**已随 85 消失（无需修，2026-11-26 验证）**：FQDT_DNS=223.5.5.5 pty 复现（系统 DNS 双挂 26.128.128.2/192.168.153.254 全超时，公共 DNS 通）——现版 Tab 焦点帧 24 行满屏两栏+底框闭合，无 dock 行、无孤立 "5"（draw_helpbar 已随 85/bf4bf44 删除，HELP_NAV 仅剩帮助框引用）；旧 target/debug/fqdt 系 85 前构建曾误导复现，cargo build 后确认。`[x]`
 
-89. **⚙ config.ini 设置默认 zen/normal 启动模式（m0091 用户）** — 原话：「I wanna set config ini have a value to set default use zen or normal.」——config.ini 加键（如 `[ui] default_zen = true/false` 或 `view_mode = zen|normal`），view 启动按它初始 zen；TUI 内 z 手动切换仍可覆盖当次。**待办：Config struct 加字段 + DEFAULT_INI 注释三要素 + read.rs 启动应用 + config init 键清单同步。** `[ ]`
+89. **⚙ config.ini 设置默认 zen/normal 启动模式（m0091 用户）** — 原话：「I wanna set config ini have a value to set default use zen or normal.」——config.ini 加键（如 `[ui] default_zen = true/false` 或 `view_mode = zen|normal`），view 启动按它初始 zen；TUI 内 z 手动切换仍可覆盖当次。**已实现（commit ee9de82，42 passed + clippy 0）**：`ui.view_mode = normal|zen`（types 字段+Default、KEYS/CONFIG_HELP/DEFAULT_INI、read.rs apply_startup_modes 启动应用、z 仍可当次覆盖）；连带修 90 遗留死键——load() match 原缺 page_mode 分支，set 后读不回，已补 page_mode/view_mode 两 arm + DEFAULT_INI 补 page_mode 行；测试 startup_modes_from_config + default_view_and_page_mode。`[x]`
 
 90. **📖 view 翻页方向可配置 + 默认左右翻页（m0099 用户）** — 用户原话：「同时我希望也可以配置它是左右翻页还是上下翻页。并且默认改成左右翻页。」范围：view TUI 正文翻页模式——左右翻页（整屏横向切换，类似电子书阅读器）vs 上下滚动（现行 j/k/d/u 纵向滚动）；config.ini 配置项（如 `[ui] page_mode = horizontal|vertical`，默认 **horizontal 左右**）；左右翻页的键位语义需设计（j/k 或 ←→ 或 d/u 换页、进度/自动切章如何衔接、与 83 目录跳章/85 去 helpbar/86 缩进的视觉配合）。**待办：设计左右翻页交互（键位+滚动条+进度显示）→ 实施 → 与 86/89 同批发版。** `[ ]`
 
@@ -154,3 +154,7 @@
 97. **🐛 info history/folders 不显示内容（m0181 用户，优先于 UI）** — 用户原话：「我觉得你还是得先修info的bug，尽管它现在能显示了，但实际上比如说history他完全不显示内容，他的获取方式肯定错了，同时审计因素的其他子命令，因为我这样已经读了这么久，那么他肯定就是有读了很多书的，但是他说history里面一本书都没有。当然你也可以先写UI。」94 延伸的 render_history/render_folders 递归查找逻辑在真数据上落空（显示空/结构未知）。排查：远端 `fqdt i history --json` 拿原始响应 → 对比查找键；**审计 info 全部子命令**（history/folders/progress/highlights/user/work/finished 等）的数据通路。修复→三绿（与 91 批次一起发版）。 `[ ]`
 
 98. **⏱ shelf 缓存时效：缓存期内加新书不显示（m0188 用户）** — 用户原话：「他那个不是shelf它的显示有缓存吗？可能其他的命令没有这样的缓存吧？比如我已经拉完缓存了，然后此时我又加了一本书，在缓存失效的期间，它就不会显示。不会显示我新加入书架这本书。」待办：定位 shelf 缓存 TTL/失效机制（store.rs？shelf.rs？）→ 评估其他命令（i user/progress 等）是否同样缓存 → 修复方案（加 --refresh 强刷 / 写操作后失效缓存 / 缩短 TTL）→ 与 97 同批发版。 `[ ]`
+
+99. **🔍 子命令 TARGET 兼容搜索关键词（m0102 用户，延后 m0108）** — 用户原话：「我可能会觉得先搜索，再复制，再info过于麻烦。我们使其他能够兼容并且能够好用的地方同时支持搜索关键词。并且呢我们可以配置config，默认呢是默认截取搜索当中的第一个。也可以呢是给出搜索的列表，然后说输入序号。」——现状已大半存在：`resolve_book_id`（main.rs:1009）已接 info/download/audio/view（关键词→`search::pick`：单结果直选、多结果 TTY 输序号）；缺口=① config 开关 `resolve 模式 = first|pick`，**默认改 first**（多结果直接取第一个，非交互也能用）；② 盘点未走 resolve 的子命令（info 子命令 intro/comments/cover/audio/relative 等 id|key 直传处）逐一接入。**待办：config 键设计 → pick 加 first 模式 → 子命令接入审计 → 三绿。** `[ ]`
+
+100. **🗂 子命令 TARGET 路径引用 pass（m0102/m0103 用户，延后 m0108）** — 用户原话：「对能够支持的子命令添加pass。这个pass他同时可能可以支持书籍，就是本地的一个目录。同时呢他也可能可以支持shelf的路径。也有可能两者都支持。当引用shelf的路径时，like @shelf/.. or @shelf.Reading...., or @ % ^ : or others.」——TARGET 支持三形态：id（现有）/ 关键词（90 号）/ 路径引用：本地书籍目录（批量）+ `@shelf/组名` shelf 分组引用（前缀符待定 @ % ^ : 之一，倾向 @）。**待办：语义澄清（组内全部书批量?单本选择入口?）→ 前缀符拍板 → 解析层 → 批量子命令（download/update/shelf）接入 → 三绿。** `[ ]`

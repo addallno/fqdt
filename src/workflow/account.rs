@@ -291,7 +291,7 @@ fn render_progress(v: &Value, json: bool, search: Option<&str>) {
     for it in &items {
         let s = |k: &str| it.get(k).and_then(|x| x.as_str()).unwrap_or("");
         let ts = fmt_ts(it.get("read_timestamp").and_then(num_u64).unwrap_or(0));
-        let mut line = format!("  {DIM}{ts}{RST} {CYAN}{}{RST}", s("book_name"));
+        let mut line = format!("  {DIM}{ts}{RST} {CYAN}「{}」{RST}", s("book_name"));
         if !s("chapter").is_empty() { line += &format!(" · {}", s("chapter")); }
         line += &format!(" · {YELLOW}{}%{RST}", it.get("pct").and_then(num_u64).unwrap_or(0));
         line += &format!(" {BLUE}#{}{RST}", s("book_id"));
@@ -539,8 +539,8 @@ fn shelf_flat(arr: &[Value], kw: Option<&str>, group: Option<&str>) {
     }
     let head = match (group, kw) {
         (Some(g), Some(k)) =>
-            format!("{GREEN}ok{RST} 书架【{g}】{}/{} 本（匹配 \"{k}\"）", items.len(), arr.len()),
-        (Some(g), None) => format!("{GREEN}ok{RST} 书架【{g}】{} 本", items.len()),
+            format!("{GREEN}ok{RST} 书架[{g}]{}/{} 本（匹配 \"{k}\"）", items.len(), arr.len()),
+        (Some(g), None) => format!("{GREEN}ok{RST} 书架[{g}]{} 本", items.len()),
         (None, Some(k)) =>
             format!("{GREEN}ok{RST} 书架 {}/{} 本（匹配 \"{k}\"）", items.len(), arr.len()),
         (None, None) => format!("{GREEN}ok{RST} 书架 {} 本", items.len()),
@@ -548,7 +548,7 @@ fn shelf_flat(arr: &[Value], kw: Option<&str>, group: Option<&str>) {
     crate::emit_line(&head);
 }
 
-/// 顶层第一层视图：未分组书逐行 + 分组条目行 `【组名】N 本`（保持首次出现顺序）。
+/// 顶层第一层视图：未分组书逐行 + 分组条目行 `[组名] N 本`（保持首次出现顺序）。
 fn shelf_top(arr: &[Value]) {
     if arr.is_empty() { return crate::emit_line(&format!("  {DIM}书架为空{RST}")); }
     let ungrouped: Vec<&Value> = arr.iter()
@@ -567,7 +567,7 @@ fn shelf_top(arr: &[Value]) {
         if let Some(line) = shelf_line(it) { crate::emit_line(&line); }
     }
     for (g, n) in &groups {
-        crate::emit_line(&format!("  {CYAN}【{g}】{RST} {DIM}{n} 本{RST}"));
+        crate::emit_line(&format!("  {CYAN}[{g}]{RST} {DIM}{n} 本{RST}"));
     }
     let head = if groups.is_empty() {
         format!("{GREEN}ok{RST} 书架 {} 本", ungrouped.len())
@@ -581,7 +581,7 @@ fn shelf_top(arr: &[Value]) {
 fn shelf_line(it: &Value) -> Option<String> {
     let s = |k: &str| it.get(k).and_then(|x| x.as_str()).unwrap_or("");
     if s("book_name").is_empty() { return None; }
-    let mut line = format!("  {CYAN}{}{RST}", s("book_name"));
+    let mut line = format!("  {CYAN}「{}」{RST}", s("book_name"));
     if !s("author").is_empty() { line += &format!(" {MAGENTA}{}{RST}", s("author")); }
     if !s("chapter").is_empty() { line += &format!(" · {}", s("chapter")); }
     match it.get("pct").and_then(|x| x.as_u64()) {
@@ -778,7 +778,7 @@ fn render_section(v: &Value, json: bool, section: &str, search: Option<&str>) {
         let author: String = author.chars().take(24).collect();
         let id_part = if id.is_empty() { String::new() } else { format!(" {BLUE}#{id}{RST}") };
         let author_part = if author.is_empty() { String::new() } else { format!(" {MAGENTA}{author}{RST}") };
-        crate::emit_line(&format!("  {CYAN}{name}{RST}{author_part}{id_part}"));
+        crate::emit_line(&format!("  {CYAN}「{name}」{RST}{author_part}{id_part}"));
     }
     crate::emit_line(&match search {
         Some(k) => format!("{GREEN}ok{RST} {section} {n}/{} 项（匹配 \"{k}\"）", items.len()),
@@ -885,7 +885,7 @@ fn render_highlights(v: &Value, json: bool) {
         let author: String = author.chars().take(20).collect();
         let author_part = if author.is_empty() { String::new() } else { format!(" {MAGENTA}{author}{RST}") };
         crate::emit_line(&format!(
-            "  {CYAN}{name}{RST}{author_part} {DIM}划线{RST} {YELLOW}{u}{RST} · {DIM}书签{RST} {YELLOW}{b}{RST} · {DIM}笔记{RST} {YELLOW}{n}{RST}"));
+            "  {CYAN}「{name}」{RST}{author_part} {DIM}划线{RST} {YELLOW}{u}{RST} · {DIM}书签{RST} {YELLOW}{b}{RST} · {DIM}笔记{RST} {YELLOW}{n}{RST}"));
     }
     let total = v.pointer("/data/book_num").and_then(|x| x.as_i64()).unwrap_or(arr.len() as i64);
     crate::emit_line(&format!("{GREEN}ok{RST} highlights {n} 本（共 {total}）", n = arr.len()));

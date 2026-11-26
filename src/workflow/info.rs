@@ -362,7 +362,7 @@ async fn relative(book_id: &str, cfg: &Config) {
                 if name.is_empty() { continue; }
                 n += 1;
                 let author: String = author.chars().take(cfg.ui_clip_len).collect();
-                crate::emit_line(&format!("  {CYAN}{name}{RST} {MAGENTA}{author}{RST} {BLUE}#{id}{RST}"));
+                crate::emit_line(&format!("  {CYAN}「{name}」{RST} {MAGENTA}{author}{RST} {BLUE}#{id}{RST}"));
             }
         }
     }
