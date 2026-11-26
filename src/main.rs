@@ -1206,10 +1206,10 @@ async fn main() {
         Cmd::Tts { path, voice, jobs } => dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
         Cmd::Shelf { cmd } => workflow::shelf::run(cmd, &cfg).await,
         Cmd::View { book_id, range } => {
-            let Some(id) = resolve_book_id(book_id, &cfg, verbose).await else {
+            let Some((id, title_hint)) = resolve_book_id(book_id, &cfg, verbose).await else {
                 return;
             };
-            workflow::read::run(&id, range.as_deref(), &cfg).await;
+            workflow::read::run(&id, range.as_deref(), &cfg, title_hint.as_deref()).await;
         }
         Cmd::Login {
             cookie,
@@ -1335,7 +1335,7 @@ async fn dispatch_info_book(cmd: InfoCmd, vb: bool, cfg: &Config) {
         _ => return,
     };
     // id 位支持书名关键词交互选书（纯数字/作者 id 原样，同 download/audio）
-    let Some(id) = resolve_book_id(id, cfg, vb).await else {
+    let Some((id, _)) = resolve_book_id(id, cfg, vb).await else {
         return;
     };
     workflow::info::run(&id, section, range.as_deref(), show, vb, cfg).await;
@@ -1346,19 +1346,25 @@ async fn dispatch_info_book(cmd: InfoCmd, vb: bool, cfg: &Config) {
 
 /// 选书：纯数字（≥10 位，book_id/item_id/uid）或作者 id（N_数字）视为 id 原样，
 /// 否则关键词交互选书并自动加书架（download/audio/info 共用）
-async fn resolve_book_id(target: String, cfg: &Config, vb: bool) -> Option<String> {
+/// 解析 TARGET → (book_id, 关键词搜索命中的书名 hint)。数字/N_ 直传无 hint；
+/// 关键词走 search::pick，命中书名一并带回（103⑰：详情接口失败时 view 标题兜底）。
+async fn resolve_book_id(
+    target: String,
+    cfg: &Config,
+    vb: bool,
+) -> Option<(String, Option<String>)> {
     if target.chars().all(|c| c.is_ascii_digit()) && target.len() >= 10 {
-        return Some(target);
+        return Some((target, None));
     }
     if let Some(rest) = target.strip_prefix("N_") {
         if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
-            return Some(target);
+            return Some((target, None));
         }
     }
     match workflow::search::pick(&target, cfg, vb).await {
         Some((id, title)) => {
             config::add_bookmark(&id, &title).ok();
-            Some(id)
+            Some((id, Some(title)))
         }
         None => None,
     }
@@ -1377,7 +1383,7 @@ async fn dispatch_download(
     cfg: &Config,
 ) {
     let vb = verbose || cfg.verbose;
-    let Some(book_id) = resolve_book_id(target, cfg, vb).await else {
+    let Some((book_id, _)) = resolve_book_id(target, cfg, vb).await else {
         return;
     };
     let p = types::DownloadParams {
@@ -1463,7 +1469,7 @@ async fn dispatch_audio(
         book_id
     } else {
         match resolve_book_id(book_id, cfg, vb).await {
-            Some(id) => id,
+            Some((id, _)) => id,
             None => return,
         }
     };

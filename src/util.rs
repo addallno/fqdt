@@ -47,6 +47,44 @@ pub fn fg_t(c: ratatui::style::Color) -> ratatui::style::Style {
     ratatui::style::Style::default().fg(c)
 }
 
+/// 槽色 → 反白等价样式（103⑱）：显式 bg=槽色、fg=对比字色。
+/// 替代 Modifier::REVERSED——reverse video 在部分终端/配色下把 fg/bg 同化成"透明"。
+pub fn rev(c: ratatui::style::Color) -> ratatui::style::Style {
+    ratatui::style::Style::default().bg(c).fg(contrast(c))
+}
+
+/// 槽色的可读前景：luma≥128 → 黑字，否则白字（RGB 与常见命名色都覆盖）。
+fn contrast(c: ratatui::style::Color) -> ratatui::style::Color {
+    use ratatui::style::Color as C;
+    let (r, g, b): (u32, u32, u32) = match c {
+        C::Rgb(r, g, b) => (r as u32, g as u32, b as u32),
+        C::Black => (0, 0, 0),
+        C::Red => (205, 0, 0),
+        C::Green => (0, 205, 0),
+        C::Yellow => (205, 205, 0),
+        C::Blue => (0, 0, 238),
+        C::Magenta => (205, 0, 205),
+        C::Cyan => (0, 205, 205),
+        C::Gray => (128, 128, 128),
+        C::DarkGray => (128, 128, 128),
+        C::LightRed => (255, 0, 0),
+        C::LightGreen => (0, 255, 0),
+        C::LightYellow => (255, 255, 0),
+        C::LightBlue => (95, 95, 255),
+        C::LightMagenta => (255, 0, 255),
+        C::LightCyan => (0, 255, 255),
+        C::White => (255, 255, 255),
+        // Reset / Indexed / 未知：按亮色处理（终端默认前景多为浅色）
+        _ => (255, 255, 255),
+    };
+    let luma = (r * 299 + g * 587 + b * 114) / 1000;
+    if luma >= 128 {
+        C::Black
+    } else {
+        C::White
+    }
+}
+
 /// 语义色 → 背景 Style（91 段落光标高亮；色值仍单点来自本文件）。
 pub fn bg(c: Color) -> ratatui::style::Style {
     ratatui::style::Style::default().bg(to_tcolor(c))
@@ -383,8 +421,25 @@ pub fn jq_display(v: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::jq_extract;
+    use super::{jq_extract, rev};
     use serde_json::json;
+
+    #[test]
+    fn rev_explicit_bg_with_contrast_fg() {
+        use ratatui::style::Color as C;
+        // 亮色槽 → 黑字；暗色槽 → 白字；显式 bg 不依赖 reverse video（103⑱ 透明修复）
+        let st = rev(C::Rgb(255, 255, 0));
+        assert_eq!(st.bg, Some(C::Rgb(255, 255, 0)));
+        assert_eq!(st.fg, Some(C::Black));
+        let st = rev(C::Rgb(10, 10, 10));
+        assert_eq!(st.bg, Some(C::Rgb(10, 10, 10)));
+        assert_eq!(st.fg, Some(C::White));
+        let st = rev(C::Cyan);
+        assert_eq!(st.bg, Some(C::Cyan));
+        assert_eq!(st.fg, Some(C::Black));
+        // 断言里不出现 REVERSED：透明问题根因
+        assert!(st.add_modifier.is_empty());
+    }
 
     #[test]
     fn test_jq_simple_key() {

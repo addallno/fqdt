@@ -207,7 +207,24 @@ fn apply_startup_modes(rd: &mut Reader, cfg: &Config) {
     rd.zen = cfg.ui_view_mode.eq_ignore_ascii_case("zen");
 }
 
-pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config) {
+/// view 标题选择（103⑰）：详情首段可用且非纯数字 → 用详情；否则关键词 hint；再否则 book_id。
+/// 搜索进 view 时详情接口偶发失败，hint 来自 search::pick 命中书名，避免框标题退化成数字串。
+fn resolve_title(detail: Option<&str>, hint: Option<&str>, id: &str) -> String {
+    let d = detail
+        .map(|s| s.split('|').next().unwrap_or("").trim())
+        .unwrap_or("");
+    let usable = !d.is_empty() && !d.chars().all(|c| c.is_ascii_digit());
+    if usable {
+        return d.to_string();
+    }
+    let h = hint.map(str::trim).unwrap_or("");
+    if !h.is_empty() {
+        return h.to_string();
+    }
+    id.to_string()
+}
+
+pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config, title_hint: Option<&str>) {
     if !std::io::stdout().is_terminal() {
         eprintln!("  err read 需要交互式终端；可先 download 下载后用其他工具阅读");
         return;
@@ -232,10 +249,11 @@ pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config) {
         eprintln!("  err 空范围");
         return;
     }
-    let title = match api.fetch_detail(book_id).await {
-        Ok(d) => d.split('|').next().unwrap_or("小说").to_string(),
-        Err(_) => book_id.to_string(),
-    };
+    let title = resolve_title(
+        api.fetch_detail(book_id).await.ok().as_deref(),
+        title_hint,
+        book_id,
+    );
     let mut rd = Reader::new(title, chs);
     apply_startup_modes(&mut rd, cfg);
     rd.theme = crate::theme::resolve(&cfg.ui_theme, &cfg.theme_override());
@@ -852,14 +870,8 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
         .borders(Borders::ALL)
         .border_style(util::fg_t(rd.theme.border).add_modifier(ratatui::style::Modifier::BOLD))
         .title(ratatui::text::Line::from(vec![
-            Span::styled(
-                format!(" {}", rd.title),
-                util::fg_t(rd.theme.selected).add_modifier(ratatui::style::Modifier::REVERSED),
-            ),
-            Span::styled(
-                format!(" {} ", ch.title),
-                util::fg_t(rd.theme.title).add_modifier(ratatui::style::Modifier::REVERSED),
-            ),
+            Span::styled(format!(" {}", rd.title), util::rev(rd.theme.selected)),
+            Span::styled(format!(" {} ", ch.title), util::rev(rd.theme.title)),
         ]))
         .title_bottom(Span::styled(
             format!(" {} ", zen_status_fit(rd, area.width.saturating_sub(2))),
@@ -900,6 +912,16 @@ fn zen_status_fit(rd: &Reader, width: u16) -> String {
 }
 
 /// 左目录面板：边框按焦点高亮，当前章高亮，选中反白。
+/// 目录视窗起点（103⑯）：sel 进下带（屏位 ≥ view-edge）→ 平移贴带沿；上带贴顶 start=0。
+fn toc_start(sel: usize, view: usize, scroll_edge: u32) -> usize {
+    if view == 0 {
+        return 0;
+    }
+    let edge = (view * scroll_edge as usize / 100).max(1);
+    let bottom = view.saturating_sub(edge).max(1); // 光标最大屏位 + 1
+    (sel + 1).saturating_sub(bottom)
+}
+
 fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
     let focused = rd.focus == Focus::Nav;
     // 焦点：粗体青边 + 标题反白底块；非焦点：灰边（m2816 视觉表达打磨）
@@ -909,7 +931,7 @@ fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
         util::fg(DIM)
     };
     let title_style = if focused {
-        util::fg_t(rd.theme.title).add_modifier(ratatui::style::Modifier::REVERSED)
+        util::rev(rd.theme.title)
     } else {
         util::fg(DIM)
     };
@@ -918,11 +940,8 @@ fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
         .border_style(border)
         .title(Span::styled(" 目录 ", title_style));
     let inner_h = area.height.saturating_sub(2) as usize;
-    // 视窗：让选中项可见
-    let mut start = 0usize;
-    if rd.sel >= inner_h && inner_h > 0 {
-        start = rd.sel + 1 - inner_h;
-    }
+    // 视窗（103⑯）：yazi 式边缘带——与正文 ensure_cursor_visible 同一 scroll_edge 语义
+    let start = toc_start(rd.sel, inner_h, rd.scroll_edge);
     let lines: Vec<Line> = rd
         .chs
         .iter()
@@ -940,10 +959,7 @@ fn draw_toc(f: &mut Frame, rd: &Reader, area: Rect) {
             };
             let title = format!("{}{}", mark, c.title);
             if i == rd.sel {
-                Line::from(Span::styled(
-                    title,
-                    util::fg_t(rd.theme.selected).add_modifier(ratatui::style::Modifier::REVERSED),
-                ))
+                Line::from(Span::styled(title, util::rev(rd.theme.selected)))
             } else if i == rd.cur {
                 Line::from(Span::styled(title, util::fg_t(rd.theme.title)))
             } else if focused {
@@ -966,7 +982,7 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         util::fg(DIM)
     };
     let title_style = if focused {
-        util::fg_t(rd.theme.title).add_modifier(ratatui::style::Modifier::REVERSED)
+        util::rev(rd.theme.title)
     } else {
         util::fg(DIM)
     };
@@ -991,7 +1007,11 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
     // 顶行进度 + 正文
     let body = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(0)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
         .split(inner);
     f.render_widget(
         Paragraph::new(top_line_fit(rd, body[0].width)).style(body_style),
@@ -1016,10 +1036,7 @@ fn draw_help_box(f: &mut Frame, rd: &Reader) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(util::fg_t(theme.border).add_modifier(ratatui::style::Modifier::BOLD))
-        .title(Span::styled(
-            " --Help-- ",
-            util::fg_t(theme.title).add_modifier(ratatui::style::Modifier::REVERSED),
-        ));
+        .title(Span::styled(" --Help-- ", util::rev(theme.title)));
     let inner = block.inner(f.area());
     let body = Rect {
         x: inner.x.saturating_add(rd.gutter),
@@ -1091,13 +1108,7 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
     let ch = &rd.chs[rd.cur];
     let total = rd.lines.len();
     let pos = (rd.scroll as usize + 1).min(total.max(1));
-    let progress = format!(
-        "  {}/{}章 · {}/{}行",
-        rd.cur + 1,
-        rd.chs.len(),
-        pos,
-        total
-    );
+    let progress = format!("  {}/{}章 · {}/{}行", rd.cur + 1, rd.chs.len(), pos, total);
     let ch_only = format!("  {}/{}章", rd.cur + 1, rd.chs.len());
     // 候选层级（由全到简）；⑧ 顶行统一去书名（书名进框标题）
     let mk_no_title = |_rd: &Reader, ch: &Chapter| {
@@ -1120,12 +1131,7 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
     };
     let w = width as usize;
     let fits = |l: &Line| l.spans.iter().map(|s| s.width()).sum::<usize>() <= w;
-    let cands = [
-        mk_no_title(rd, ch),
-        mk_progress(),
-        mk_ch(),
-        Line::default(),
-    ];
+    let cands = [mk_no_title(rd, ch), mk_progress(), mk_ch(), Line::default()];
     cands.into_iter().find(fits).unwrap_or_default()
 }
 
@@ -1137,8 +1143,16 @@ mod tests {
     #[test]
     fn chapter_boundary_triggers() {
         let chs = vec![
-            Chapter { index: 1, item_id: "a".into(), title: "一".into() },
-            Chapter { index: 2, item_id: "b".into(), title: "二".into() },
+            Chapter {
+                index: 1,
+                item_id: "a".into(),
+                title: "一".into(),
+            },
+            Chapter {
+                index: 2,
+                item_id: "b".into(),
+                title: "二".into(),
+            },
         ];
         let mut rd = Reader::new("b".into(), chs);
         rd.lines = (0..100).map(|i| Line::from(format!("L{i}"))).collect();
@@ -1198,7 +1212,11 @@ mod tests {
     /// 103 步骤4：PageFlip 整页步长=视窗高（页边界不跳行）。
     #[test]
     fn page_flip_steps_by_view() {
-        let chs = vec![Chapter { index: 1, item_id: "a".into(), title: "t".into() }];
+        let chs = vec![Chapter {
+            index: 1,
+            item_id: "a".into(),
+            title: "t".into(),
+        }];
         let mut rd = Reader::new("b".into(), chs);
         rd.lines = (0..100).map(|i| Line::from(format!("L{i}"))).collect();
         rd.zen = true;
@@ -1225,7 +1243,6 @@ mod tests {
         rd.gutter = 2;
         assert_eq!(rd.content_width(80), 80 - 6);
     }
-
 
     use super::*;
     use crossterm::event::KeyCode;
@@ -1640,11 +1657,15 @@ mod tests {
         let h = 24;
         let view = rd.view_h(h) as usize; // 103④：19
         let q = view * rd.scroll_edge as usize / 100; // 25% → 4
-        // --- 屏外段（原 RightLeft 跳页）→ 边缘滚动贴底带 ---
+                                                      // --- 屏外段（原 RightLeft 跳页）→ 边缘滚动贴底带 ---
         rd.scroll = 0;
         rd.cursor = 3; // start=33, bot=43 > view-q → 下移
         ensure_cursor_visible(&mut rd, h);
-        assert_eq!(rd.scroll as usize, 43 + q - view, "屏外段 bot+edge-view 贴底带");
+        assert_eq!(
+            rd.scroll as usize,
+            43 + q - view,
+            "屏外段 bot+edge-view 贴底带"
+        );
         // --- 光标进下边缘带 → 平移 ---
         rd.scroll = 0;
         rd.cursor = 1; // start=11, bot=21；bot(21) > view-q(15)
@@ -1816,8 +1837,14 @@ mod tests {
             on_key(KeyCode::Char('j'), &rd, 24),
             Action::HelpScroll(1)
         ));
-        assert!(matches!(on_key(KeyCode::Up, &rd, 24), Action::HelpScroll(-1)));
-        assert!(matches!(on_key(KeyCode::PageDown, &rd, 24), Action::HelpScroll(10)));
+        assert!(matches!(
+            on_key(KeyCode::Up, &rd, 24),
+            Action::HelpScroll(-1)
+        ));
+        assert!(matches!(
+            on_key(KeyCode::PageDown, &rd, 24),
+            Action::HelpScroll(10)
+        ));
         // 关闭键仍有效
         assert!(matches!(on_key(KeyCode::Esc, &rd, 24), Action::CloseHelp));
         // apply 累加与负向饱和
@@ -1856,6 +1883,45 @@ mod tests {
         rd.help_scroll = 99; // 超量由 draw 钳到 max
         let bot = draw_buf(&rd);
         assert!(row_of(&bot, "关闭返回").is_some(), "滚到底底部提示可见");
+    }
 
+    #[test]
+    fn toc_start_edge_band() {
+        // 20 行视窗、edge=25% → bottom=15：sel≤14 不滚（屏内），15 起平移贴带
+        assert_eq!(toc_start(0, 20, 25), 0);
+        assert_eq!(toc_start(14, 20, 25), 0);
+        assert_eq!(toc_start(15, 20, 25), 1);
+        assert_eq!(toc_start(30, 20, 25), 16);
+        assert_eq!(toc_start(0, 0, 25), 0);
+        // 极小视窗 edge 至少 1，bottom 至少 1
+        assert_eq!(toc_start(2, 3, 5), 1);
+        // edge 更大（45%）→ 更早开始滚动
+        assert_eq!(toc_start(11, 20, 45), 1); // bottom=20-9=11，12>11 → 12-11
+        assert_eq!(toc_start(9, 20, 45), 0); // 刚出带上沿不滚
+    }
+
+    #[test]
+    fn resolve_title_fallback() {
+        // 详情可用（非纯数字）→ 详情优先
+        assert_eq!(
+            resolve_title(Some("十日终焉|作者"), Some("别的"), "123"),
+            "十日终焉"
+        );
+        // 详情失败 → 关键词 hint 兜底（搜索进 view 的书名保障）
+        assert_eq!(
+            resolve_title(None, Some("雪中悍刀行"), "7185478854738185271"),
+            "雪中悍刀行"
+        );
+        // 详情返回纯数字串（脏数据）→ hint
+        assert_eq!(
+            resolve_title(Some("123456"), Some("夜的命名术"), "999"),
+            "夜的命名术"
+        );
+        // 都没有 → book_id
+        assert_eq!(
+            resolve_title(None, None, "7185478854738185271"),
+            "7185478854738185271"
+        );
+        assert_eq!(resolve_title(Some("  "), Some("  "), "42"), "42");
     }
 }

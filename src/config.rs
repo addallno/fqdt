@@ -496,10 +496,18 @@ pub const KEYS: &[KeyEntry] = &[
     ("ui.view_mode", "view_mode", "ui", Kind::Str, |c| {
         c.ui_view_mode.clone()
     }),
-    ("ui.gutter", "gutter", "ui", Kind::Int, |c| c.ui_gutter.to_string()),
-    ("ui.scroll_edge", "scroll_edge", "ui", Kind::Int, |c| c.ui_scroll_edge.to_string()),
-    ("ui.tail_blank", "tail_blank", "ui", Kind::Int, |c| c.ui_tail_blank.to_string()),
-    ("ui.anim_frames", "anim_frames", "ui", Kind::Int, |c| c.ui_anim_frames.to_string()),
+    ("ui.gutter", "gutter", "ui", Kind::Int, |c| {
+        c.ui_gutter.to_string()
+    }),
+    ("ui.scroll_edge", "scroll_edge", "ui", Kind::Int, |c| {
+        c.ui_scroll_edge.to_string()
+    }),
+    ("ui.tail_blank", "tail_blank", "ui", Kind::Int, |c| {
+        c.ui_tail_blank.to_string()
+    }),
+    ("ui.anim_frames", "anim_frames", "ui", Kind::Int, |c| {
+        c.ui_anim_frames.to_string()
+    }),
     ("theme.preset", "preset", "theme", Kind::Str, |c| {
         c.ui_theme.clone()
     }),
@@ -900,8 +908,16 @@ mod tests {
         assert_eq!(c.ui_scroll_edge, 25);
         assert_eq!(c.ui_tail_blank, 1);
         assert_eq!(c.ui_anim_frames, 3);
-        for k in ["ui.gutter", "ui.scroll_edge", "ui.tail_blank", "ui.anim_frames"] {
-            let e = super::KEYS.iter().find(|x| x.0 == k).unwrap_or_else(|| panic!("{k} 应在 KEYS"));
+        for k in [
+            "ui.gutter",
+            "ui.scroll_edge",
+            "ui.tail_blank",
+            "ui.anim_frames",
+        ] {
+            let e = super::KEYS
+                .iter()
+                .find(|x| x.0 == k)
+                .unwrap_or_else(|| panic!("{k} 应在 KEYS"));
             assert_eq!(e.1, k.strip_prefix("ui.").unwrap());
             assert_eq!(e.2, "ui");
         }
