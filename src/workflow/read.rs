@@ -1945,6 +1945,60 @@ mod tests {
         assert_eq!(toc_start(9, 20, 45), 0); // 刚出带上沿不滚
     }
 
+    /// 全屏渲染后从正文列提取本测试的行号（"行NN"），供页边界行集断言。
+    fn screen_row_ids(rd: &Reader) -> Vec<u32> {
+        use ratatui::backend::TestBackend;
+        let mut term = Terminal::new(TestBackend::new(80, 16)).unwrap();
+        term.draw(|f| draw(f, rd)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let mut out = Vec::new();
+        for y in 0..16u16 {
+            let row: String = (29..78u16)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect();
+            let row: String = row.chars().filter(|c| !c.is_whitespace()).collect();
+            if let Some(pos) = row.find('行') {
+                let rest = &row[pos + '行'.len_utf8()..];
+                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if digits.len() == 2 {
+                    if let Ok(n) = digits.parse::<u32>() {
+                        out.push(n);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn page_boundary_row_set() {
+        // 103④：翻页交界行集连续——两页之间不许跳行/重复
+        let chs = vec![Chapter {
+            index: 1,
+            item_id: "1".into(),
+            title: "第1章".into(),
+        }];
+        let mut rd = Reader::new("t".into(), chs);
+        rd.lines = (0..50).map(|i| Line::from(format!("行{i:02}"))).collect();
+        rd.need_load = false;
+        let h = 16u16; // view = 16-4-tail(1) = 11
+        let page1 = screen_row_ids(&rd);
+        assert_eq!(*page1.first().unwrap(), 0, "第一页应从行00起");
+        let last1 = *page1.last().unwrap();
+        assert_eq!(last1, 10, "第一页末=行10（view=11 行），实际 {last1}");
+        apply_action(Action::PageFlip(1), &mut rd, h);
+        assert_eq!(rd.scroll, 11, "翻页步长=view");
+        let page2 = screen_row_ids(&rd);
+        assert_eq!(*page2.first().unwrap(), 11, "第二页首应紧接行11（不跳行）");
+        let expect_end = (*page1.last().unwrap() + 11).min(49);
+        assert_eq!(*page2.last().unwrap(), expect_end, "第二页满 view 行");
+        // 回翻交界：再翻回第一页，行集回到 0..10
+        apply_action(Action::PageFlip(-1), &mut rd, h);
+        assert_eq!(rd.scroll, 0);
+        let back = screen_row_ids(&rd);
+        assert_eq!(*back.last().unwrap(), 10, "回翻第一页末行不丢");
+    }
+
     #[test]
     fn scroll_animate_and_lerp() {
         // 小步（翻页/滚动）→ 滑动；大跳（切章）→ 瞬切
