@@ -120,7 +120,7 @@ pub async fn read_section(sec: &str, json: bool, search: Option<&str>) {
         let res = page_json(&url, &cookie).await;
         util_clear();
         return match res {
-            Ok(v) => render_highlights(&v, json),
+            Ok(v) => render_highlights(&v, json, search),
             Err(e) => eprintln!("  {RED}err{RST} {e}"),
         };
     }
@@ -867,7 +867,7 @@ async fn render_user() {
 }
 
 /// `fqdt info highlights`：有划线/书签的书（bookmark/personal_list）。
-fn render_highlights(v: &Value, json: bool) {
+fn render_highlights(v: &Value, json: bool, search: Option<&str>) {
     if json {
         return crate::emit_line(&serde_json::to_string_pretty(v).unwrap_or_default());
     }
@@ -876,7 +876,20 @@ fn render_highlights(v: &Value, json: bool) {
         return;
     };
     if arr.is_empty() { return crate::emit_line("  （暂无划线）"); }
-    for row in arr {
+    let kw = search.map(|s| s.to_lowercase());
+    let rows: Vec<&Value> = arr.iter().filter(|row| match &kw {
+        None => true,
+        Some(k) => {
+            let item = row.get("data");
+            ["book_name", "author"].iter().any(|f|
+                item.and_then(|x| x.get(*f)).and_then(|x| x.as_str())
+                    .is_some_and(|s| s.to_lowercase().contains(k)))
+        }
+    }).collect();
+    if rows.is_empty() {
+        return crate::emit_line(&format!("  {DIM}（无匹配条目）{RST}"));
+    }
+    for row in &rows {
         let item = row.get("data");
         let name = item.and_then(|x| x.get("book_name")).and_then(|x| x.as_str()).unwrap_or("?");
         let author = item.and_then(|x| x.get("author")).and_then(|x| x.as_str()).unwrap_or("");
@@ -888,7 +901,10 @@ fn render_highlights(v: &Value, json: bool) {
             "  {CYAN}「{name}」{RST}{author_part} {DIM}划线{RST} {YELLOW}{u}{RST} · {DIM}书签{RST} {YELLOW}{b}{RST} · {DIM}笔记{RST} {YELLOW}{n}{RST}"));
     }
     let total = v.pointer("/data/book_num").and_then(|x| x.as_i64()).unwrap_or(arr.len() as i64);
-    crate::emit_line(&format!("{GREEN}ok{RST} highlights {n} 本（共 {total}）", n = arr.len()));
+    match search {
+        Some(k) => crate::emit_line(&format!("{GREEN}ok{RST} highlights {}/{} 本（匹配 \"{k}\"，共 {total}）", rows.len(), arr.len())),
+        None => crate::emit_line(&format!("{GREEN}ok{RST} highlights {n} 本（共 {total}）", n = arr.len())),
+    }
 }
 
 /// 进度提示（复用 util，非 TTY 静默）。
@@ -946,6 +962,41 @@ mod tests {
         .unwrap();
         let arr2 = find_folders_arr(&v2, "folders").unwrap();
         assert_eq!(arr2.len(), 1);
+    }
+
+    /// 97：真 highlights 载荷——书目在条目 .data 内层，原实现 pointer 路径应命中。
+    #[test]
+    fn highlights_real_payload_pointer() {
+        let v: Value = serde_json::from_str(
+            r#"{"code":0,"data":{"book_num":1,"personal_bookmark_data":[
+                {"bookmark_num":2,"data":{"book_id":"7647845844611238974",
+                 "book_name":"异世界挂科自救指南","author":"巴比伦侦探"}}
+            ]}}"#,
+        )
+        .unwrap();
+        let arr = v.pointer("/data/personal_bookmark_data").and_then(|x| x.as_array())
+            .expect("pointer 路径应命中 personal_bookmark_data");
+        assert_eq!(arr.len(), 1);
+        let item = arr[0].get("data").expect("书目在 .data 内层");
+        assert_eq!(item.get("book_name").and_then(|x| x.as_str()), Some("异世界挂科自救指南"));
+        // 搜索匹配语义（render_highlights kw 同款）
+        let kw = "挂科".to_string();
+        assert!(item.get("book_name").and_then(|x| x.as_str())
+            .is_some_and(|s| s.to_lowercase().contains(&kw)));
+    }
+
+    /// 97：真 progress 载荷——items[] 直取路径（render_progress 同款）。
+    #[test]
+    fn progress_real_payload_items() {
+        let v: Value = serde_json::from_str(
+            r#"{"items":[{"book_id":"7701596232459766809","book_name":"催眠横行的末世",
+                 "chapter":"第6章","pct":10,"read_timestamp":1795694619}]}"#,
+        )
+        .unwrap();
+        let arr = v.get("items").and_then(|x| x.as_array()).expect("items 直取");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0].get("pct").and_then(|x| x.as_i64()), Some(10));
+        assert!(match_item(&arr[0], "催眠"));
     }
 
     /// 98：写操作失效快照——set 后 clear，snap 返回 None。

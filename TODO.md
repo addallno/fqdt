@@ -125,7 +125,7 @@
 
 83. **🐛 view 目录选中高亮显示不完整（m0085-1 用户）** — 原话：「view ui when tab to select in the contents, the selection that highlighted with pink will display incompletely, like 72 编外也是编 but it should be <select arrow> 第172章 ... .」——目录焦点 Tab 选中行（MAGENTA+REVERSED）截断：只显示「72 编外也是编」缺选中箭头与完整章题。**已修（commit e45c00b，40 passed + clippy 0）**：探针 TestBackend 复现=sel≠cur 选中行无箭头（原报「缺章题头」现版 Paragraph 左起截尾不复现）；draw_toc mark 三档 cur=▶/sel≠cur=▸/其余空格；测试 toc_selected_row_shows_arrow_and_full_title 断言选中行 ▸+完整章题、当前行 ▶。`[x]`
 
-84. **🎨 TUI 主题配置：预设 + RGB 单设 + 分部分渲染（m0085-2 用户）** — 原话：「in configure, i wanna set different topic for tui but just change the highlight colors. There's some preset themes, but also could set by rgb for some single one, 我们应该将它按部分渲染部分的好好拆开，让它在使用适当的颜色之后看起来仍然美观。」——config.ini 加 TUI 主题：预设主题集 + 单项 RGB 覆盖；颜色按部分（目录/正文/边框/标题/选中/帮助栏…）拆开定义，换色后仍协调。**前置：84 与 78 焦点视觉、util 颜色常量体系衔接（78 曾回滚主题系统因 topic 误读——本次用户明确要主题，重新设计但按部分拆）。待办：设计 ini 结构 + util 取色入口 + 应用。** `[ ]`
+84. **🎨 TUI 主题配置：预设 + RGB 单设 + 分部分渲染（m0085-2 用户）** — 原话：「in configure, i wanna set different topic for tui but just change the highlight colors. There's some preset themes, but also could set by rgb for some single one, 我们应该将它按部分渲染部分的好好拆开，让它在使用适当的颜色之后看起来仍然美观。」——config.ini 加 TUI 主题：预设主题集 + 单项 RGB 覆盖；颜色按部分（目录/正文/边框/标题/选中/帮助栏…）拆开定义，换色后仍协调。**前置：84 与 78 焦点视觉、util 颜色常量体系衔接（78 曾回滚主题系统因 topic 误读——本次用户明确要主题，重新设计但按部分拆）。待办：设计 ini 结构 + util 取色入口 + 应用。** `[x] ✅401517a` 四预设+[theme]段+六槽#RRGGBB，44 passed/clippy 0
 
 85. **🗑 非 zen 模式去掉底部按键提示栏（m0085-3 用户）** — 原话：「它底下那一栏按键的提示一直常驻，并且呢它占的空格很多。我们可以想一个办法把它去掉吗？在非zen mode下。」——draw_normal 的 3 行 helpbar 常驻占高；用户要去掉（非 zen）。**待办：方案——完全移除 / 改为按 ? 临时浮现 / 收进边框标题？（可问）改 draw_normal 布局。** `[ ]`
 
