@@ -6,25 +6,64 @@ use std::path::PathBuf;
 
 /// TTS 转换入口（从 get 命令调用）
 #[allow(clippy::too_many_arguments)]
-pub async fn run_tts(path: &str, output: Option<&str>, voice: &str, rate: &str, volume: &str, pitch: &str,
-               abr: u32, speed: Option<f32>, normalize: bool, cmd: &str, lrc_mode: &str, vb: bool) {
+pub async fn run_tts(
+    path: &str,
+    output: Option<&str>,
+    voice: &str,
+    rate: &str,
+    volume: &str,
+    pitch: &str,
+    abr: u32,
+    speed: Option<f32>,
+    normalize: bool,
+    cmd: &str,
+    lrc_mode: &str,
+    vb: bool,
+) {
     let p = std::path::Path::new(path);
     let params = audio::TtsParams {
-        voice: voice.into(), rate: rate.into(), volume: volume.into(), pitch: pitch.into(),
-        abr, speed, normalize, cmd: cmd.into(), lrc_mode: lrc_mode.into(), verbose: vb,
+        voice: voice.into(),
+        rate: rate.into(),
+        volume: volume.into(),
+        pitch: pitch.into(),
+        abr,
+        speed,
+        normalize,
+        cmd: cmd.into(),
+        lrc_mode: lrc_mode.into(),
+        verbose: vb,
     };
-    if p.is_dir() { audio::convert_tts_dir(p, output.map(PathBuf::from), &params); }
-    else if p.is_file() { audio::convert_tts_file(p, output.map(PathBuf::from), &params); }
-    else { eprintln!("  err 文件不存在: {}", path); }
+    if p.is_dir() {
+        audio::convert_tts_dir(p, output.map(PathBuf::from), &params);
+    } else if p.is_file() {
+        audio::convert_tts_file(p, output.map(PathBuf::from), &params);
+    } else {
+        eprintln!("  err 文件不存在: {}", path);
+    }
 }
 
 #[allow(clippy::too_many_arguments, dead_code)]
-pub async fn run(book_id: Option<&str>, output: Option<&str>, range: Option<&str>, tone: usize,
-           verbose: bool, tts_path: Option<&str>, voice: &str,
-           rate: Option<String>, volume: Option<String>, pitch: Option<String>,
-           abr: Option<u32>, speed: Option<f32>, normalize: bool,
-           audio_cmd: Option<String>, lrc_mode: &str, force: bool, _jobs: Option<usize>,
-           _interval: u64, cfg: &Config) {
+pub async fn run(
+    book_id: Option<&str>,
+    output: Option<&str>,
+    range: Option<&str>,
+    tone: usize,
+    verbose: bool,
+    tts_path: Option<&str>,
+    voice: &str,
+    rate: Option<String>,
+    volume: Option<String>,
+    pitch: Option<String>,
+    abr: Option<u32>,
+    speed: Option<f32>,
+    normalize: bool,
+    audio_cmd: Option<String>,
+    lrc_mode: &str,
+    force: bool,
+    _jobs: Option<usize>,
+    _interval: u64,
+    cfg: &Config,
+) {
     let vb = verbose || cfg.verbose;
     let tts_rate = rate.as_deref().unwrap_or(&cfg.tts_rate);
     let tts_volume = volume.as_deref().unwrap_or(&cfg.tts_volume);
@@ -65,7 +104,20 @@ pub async fn run(book_id: Option<&str>, output: Option<&str>, range: Option<&str
     };
 
     if std::path::Path::new(bid).is_dir() {
-        return run_dir(std::path::Path::new(bid), range, tone, abr_val, speed, normalize, post_cmd, lrc_mode, force, vb, cfg).await;
+        return run_dir(
+            std::path::Path::new(bid),
+            range,
+            tone,
+            abr_val,
+            speed,
+            normalize,
+            post_cmd,
+            lrc_mode,
+            force,
+            vb,
+            cfg,
+        )
+        .await;
     }
 
     let api = Client::from_config(cfg, vb);
@@ -93,12 +145,42 @@ pub async fn run(book_id: Option<&str>, output: Option<&str>, range: Option<&str
             p.push("Audio");
             p
         });
-    run_download(&chs, &api, &out, bid, tone, &cfg.audio_tone_fallbacks, abr_val, speed, normalize, post_cmd, lrc_mode, force, &cfg.filename_template, vb, cfg.audio_keep_m4a, cfg.audio_mp3, cfg.audio_cover).await;
+    run_download(
+        &chs,
+        &api,
+        &out,
+        bid,
+        tone,
+        &cfg.audio_tone_fallbacks,
+        abr_val,
+        speed,
+        normalize,
+        post_cmd,
+        lrc_mode,
+        force,
+        &cfg.filename_template,
+        vb,
+        cfg.audio_keep_m4a,
+        cfg.audio_mp3,
+        cfg.audio_cover,
+    )
+    .await;
 }
 
 #[allow(clippy::too_many_arguments, dead_code)]
-async fn run_dir(path: &std::path::Path, range: Option<&str>, tone: usize, abr: u32, speed: Option<f32>,
-           normalize: bool, post_cmd: &str, lrc_mode: &str, force: bool, vb: bool, cfg: &Config) {
+async fn run_dir(
+    path: &std::path::Path,
+    range: Option<&str>,
+    tone: usize,
+    abr: u32,
+    speed: Option<f32>,
+    normalize: bool,
+    post_cmd: &str,
+    lrc_mode: &str,
+    force: bool,
+    vb: bool,
+    cfg: &Config,
+) {
     use crate::download;
 
     let audio_dir;
@@ -106,13 +188,19 @@ async fn run_dir(path: &std::path::Path, range: Option<&str>, tone: usize, abr: 
         audio_dir = path.join("Audio");
         match download::read_audio_info_list(&audio_dir) {
             Ok(v) => v,
-            Err(e) => { eprintln!("  err {}", e); return; }
+            Err(e) => {
+                eprintln!("  err {}", e);
+                return;
+            }
         }
     } else if path.join("info.list").exists() {
         audio_dir = path.join("Audio");
         match download::read_info_list(path) {
             Ok((bid, btitle, _, _)) => (bid, btitle, vec![]),
-            Err(e) => { eprintln!("  err {}", e); return; }
+            Err(e) => {
+                eprintln!("  err {}", e);
+                return;
+            }
         }
     } else {
         eprintln!("  err 目录中未找到 info.list");
@@ -123,12 +211,17 @@ async fn run_dir(path: &std::path::Path, range: Option<&str>, tone: usize, abr: 
     util::progress("获取目录");
     let all = match api.fetch_catalog(&bid).await {
         Ok(c) => c,
-        Err(e) => { util::clear_progress(); eprintln!("  err {}", e); return; }
+        Err(e) => {
+            util::clear_progress();
+            eprintln!("  err {}", e);
+            return;
+        }
     };
     util::clear_progress();
 
     let r = range.and_then(ChapterRange::parse);
-    let new_chs: Vec<&crate::types::Chapter> = all.iter()
+    let new_chs: Vec<&crate::types::Chapter> = all
+        .iter()
         .filter(|c| !existing.iter().any(|(idx, _, _)| *idx == c.index))
         .filter(|c| r.as_ref().is_none_or(|x| x.contains(c.index)))
         .collect();
@@ -137,34 +230,84 @@ async fn run_dir(path: &std::path::Path, range: Option<&str>, tone: usize, abr: 
         println!("  音频已是最新 · 共 {} 章", all.len());
         return;
     }
-    println!("  新增 {} 章音频 · 已有 {}/{} 章", new_chs.len(), existing.len(), all.len());
+    println!(
+        "  新增 {} 章音频 · 已有 {}/{} 章",
+        new_chs.len(),
+        existing.len(),
+        all.len()
+    );
 
     let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
         vec![2, 4, 5, 6, 74, 91]
     } else {
         cfg.audio_tone_fallbacks.clone()
     };
-    run_download(&new_chs, &api, &audio_dir, &bid, tone, &fallbacks, abr, speed, normalize, post_cmd, lrc_mode, force, &cfg.filename_template, vb, cfg.audio_keep_m4a, cfg.audio_mp3, cfg.audio_cover).await;
+    run_download(
+        &new_chs,
+        &api,
+        &audio_dir,
+        &bid,
+        tone,
+        &fallbacks,
+        abr,
+        speed,
+        normalize,
+        post_cmd,
+        lrc_mode,
+        force,
+        &cfg.filename_template,
+        vb,
+        cfg.audio_keep_m4a,
+        cfg.audio_mp3,
+        cfg.audio_cover,
+    )
+    .await;
 }
 
 #[allow(clippy::too_many_arguments, dead_code)]
-async fn run_download(chs: &[&crate::types::Chapter], api: &Client, out: &std::path::Path,
-                book_id: &str, tone: usize, fallbacks: &[usize], abr: u32, speed: Option<f32>,
-                normalize: bool, post_cmd: &str, lrc_mode: &str, force: bool, ft: &str, vb: bool,
-                keep_m4a: bool, mp3: bool, cover: bool) {
+async fn run_download(
+    chs: &[&crate::types::Chapter],
+    api: &Client,
+    out: &std::path::Path,
+    book_id: &str,
+    tone: usize,
+    fallbacks: &[usize],
+    abr: u32,
+    speed: Option<f32>,
+    normalize: bool,
+    post_cmd: &str,
+    lrc_mode: &str,
+    force: bool,
+    ft: &str,
+    vb: bool,
+    keep_m4a: bool,
+    mp3: bool,
+    cover: bool,
+) {
     let fb = if fallbacks.is_empty() {
         vec![2, 4, 5, 6, 74, 91]
     } else {
         fallbacks.to_vec()
     };
     let dler = audio::AudioDownloader::new(
-        api.clone(), out.to_path_buf(), audio::AudioParams {
+        api.clone(),
+        out.to_path_buf(),
+        audio::AudioParams {
             book_id: book_id.to_string(),
-            tone, fallbacks: fb,
-            ft: ft.to_string(), force, verbose: vb,
-            abr, speed, normalize,
-            post_cmd: post_cmd.to_string(), lrc_mode: lrc_mode.to_string(),
-            keep_m4a, mp3, cover, cover_img: None,
+            tone,
+            fallbacks: fb,
+            ft: ft.to_string(),
+            force,
+            verbose: vb,
+            abr,
+            speed,
+            normalize,
+            post_cmd: post_cmd.to_string(),
+            lrc_mode: lrc_mode.to_string(),
+            keep_m4a,
+            mp3,
+            cover,
+            cover_img: None,
         },
     );
     dler.run(chs, None).await;

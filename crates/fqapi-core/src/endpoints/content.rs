@@ -136,8 +136,8 @@ pub fn full_item_content(v: &Value, item_id: &str) -> (String, String, bool) {
 async fn handle_batch(ctx: &Ctx, item_ids: &str, book_id: &str) -> ApiResult<Value> {
     let up = Upstream::new(ctx.up.clone());
     // 上游对 book_id=0 返回 content="Invalid"，必须带真实 book_id
-    let raw_url = build_content_url(item_ids, "batch")
-        .replace("book_id=0", &format!("book_id={book_id}"));
+    let raw_url =
+        build_content_url(item_ids, "batch").replace("book_id=0", &format!("book_id={book_id}"));
     let (raw, dev) = up
         .raw_with_device(&UpstreamRequestSpec {
             mode: UpstreamMode::DeviceSigned,

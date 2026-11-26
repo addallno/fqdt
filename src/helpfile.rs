@@ -3,8 +3,8 @@
 //! 要讲清格式与目的、要什么命令、端点有什么作用，不要 example）。
 //! 启动时 ensure：文件不存在或版本标记不一致才重写。
 
-use clap::Command;
 use crate::types::get_home;
+use clap::Command;
 
 /// 启动时确保 `~/.config/fqdt/help.txt` 存在且为当前版本。
 pub fn ensure_help_file() {
@@ -12,9 +12,13 @@ pub fn ensure_help_file() {
     let path = dir.join("help.txt");
     let marker = format!("fqdt {} -- 命令参考", env!("CARGO_PKG_VERSION"));
     if let Ok(old) = std::fs::read_to_string(&path) {
-        if old.starts_with(&marker) { return; }
+        if old.starts_with(&marker) {
+            return;
+        }
     }
-    if std::fs::create_dir_all(&dir).is_err() { return; }
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
     let body = render(&crate::cli_command());
     let _ = std::fs::write(path, format!("{marker}\n\n{body}"));
 }
@@ -49,19 +53,25 @@ fn render_cmd(cmd: &Command, prefix: &str, depth: usize, out: &mut String) {
     }
     let sub_prefix: &str = if depth == 0 { "" } else { &full };
     for sub in cmd.get_subcommands() {
-        if sub.get_name() == "help" || sub.is_hide_set() { continue; }
+        if sub.get_name() == "help" || sub.is_hide_set() {
+            continue;
+        }
         render_cmd(sub, sub_prefix, depth + 1, out);
     }
 }
 
 /// 参数与选项：每条一行，左侧对齐签名，右侧是作用说明。
 fn render_args(cmd: &Command, pad: &str, out: &mut String) {
-    let pos: Vec<&clap::Arg> = cmd.get_arguments()
-        .filter(|a| a.is_positional() && !a.is_hide_set()).collect();
+    let pos: Vec<&clap::Arg> = cmd
+        .get_arguments()
+        .filter(|a| a.is_positional() && !a.is_hide_set())
+        .collect();
     if !pos.is_empty() {
         out.push_str(&format!("{}参数:\n", pad));
         for a in pos {
-            if let Some(l) = arg_line(a) { out.push_str(&format!("{}{}\n", pad, l)); }
+            if let Some(l) = arg_line(a) {
+                out.push_str(&format!("{}{}\n", pad, l));
+            }
         }
     }
     let opts: Vec<&clap::Arg> = cmd.get_arguments().filter(|a| !a.is_positional()).collect();
@@ -70,7 +80,9 @@ fn render_args(cmd: &Command, pad: &str, out: &mut String) {
         for a in opts {
             let long = a.get_long().unwrap_or("");
             let is_sub = crate::SUBITEMS.iter().any(|(_, ch)| ch.contains(&long));
-            if a.is_hide_set() && !is_sub { continue; }
+            if a.is_hide_set() && !is_sub {
+                continue;
+            }
             if let Some(l) = arg_line(a) {
                 let l = if is_sub { format!("  {l}") } else { l };
                 out.push_str(&format!("{}{}\n", pad, l));
@@ -81,9 +93,13 @@ fn render_args(cmd: &Command, pad: &str, out: &mut String) {
 
 /// 子命令一览：名字 + 一句话目的。
 fn render_subs(cmd: &Command, pad: &str, label: &str, out: &mut String) {
-    let subs: Vec<&Command> = cmd.get_subcommands()
-        .filter(|s| s.get_name() != "help" && !s.is_hide_set()).collect();
-    if subs.is_empty() { return; }
+    let subs: Vec<&Command> = cmd
+        .get_subcommands()
+        .filter(|s| s.get_name() != "help" && !s.is_hide_set())
+        .collect();
+    if subs.is_empty() {
+        return;
+    }
     out.push_str(&format!("{}{}\n", pad, label));
     for s in subs {
         let about = s.get_about().map(|a| a.to_string()).unwrap_or_default();
@@ -94,14 +110,21 @@ fn render_subs(cmd: &Command, pad: &str, label: &str, out: &mut String) {
 /// 格式行：取 clap usage，去掉 `Usage: ` 前缀并补全父命令路径。
 pub(crate) fn usage_of(cmd: &Command, full: &str) -> String {
     let u = cmd.clone().render_usage().to_string();
-    let u = u.lines().find(|l| l.contains("Usage:"))
+    let u = u
+        .lines()
+        .find(|l| l.contains("Usage:"))
         .map(|l| l.trim_start().trim_start_matches("Usage: ").to_string())
         .unwrap_or_else(|| format!("fqdt {}", cmd.get_name()));
     // 词表大小写（m0160/m0162）：clap 全大写占位 → Options / Subcommands / Subcommand
-    let u = u.replace("[OPTIONS]", "[Options]")
+    let u = u
+        .replace("[OPTIONS]", "[Options]")
         .replace("[SUBCOMMANDS]", "[Subcommands]")
         .replace("<COMMAND>", "<Subcommand>");
-    let u = if u.starts_with("fqdt ") { u } else { format!("fqdt {u}") };
+    let u = if u.starts_with("fqdt ") {
+        u
+    } else {
+        format!("fqdt {u}")
+    };
     let name = format!("fqdt {} ", cmd.get_name());
     match u.strip_prefix(&name) {
         Some(rest) => format!("fqdt {full} {rest}"),
@@ -119,7 +142,10 @@ pub(crate) fn arg_left(a: &clap::Arg) -> String {
         (Some(s), None) => left.push_str(&format!("  -{} ", s)),
         (None, None) => left.push_str("  "),
     }
-    let takes_val = !matches!(a.get_action(), ArgAction::SetTrue | ArgAction::SetFalse | ArgAction::Count);
+    let takes_val = !matches!(
+        a.get_action(),
+        ArgAction::SetTrue | ArgAction::SetFalse | ArgAction::Count
+    );
     if takes_val {
         if let Some(v) = a.get_value_names().and_then(|v| v.first()) {
             left.push_str(&format!("<{}> ", v));
@@ -131,11 +157,21 @@ pub(crate) fn arg_left(a: &clap::Arg) -> String {
 /// 单条参数行：`-r, --range <RANGE>   作用`；自动 help/version flag 跳过（hide 过滤在调用方）。
 fn arg_line(a: &clap::Arg) -> Option<String> {
     use clap::ArgAction;
-    if matches!(a.get_action(), ArgAction::Help | ArgAction::Version) { return None; }
+    if matches!(a.get_action(), ArgAction::Help | ArgAction::Version) {
+        return None;
+    }
     let left = arg_left(a);
-    let help = a.get_help().or_else(|| a.get_long_help()).map(|h| h.to_string()).unwrap_or_default();
+    let help = a
+        .get_help()
+        .or_else(|| a.get_long_help())
+        .map(|h| h.to_string())
+        .unwrap_or_default();
     let first = help.lines().next().unwrap_or("").trim().to_string();
-    Some(format!("{:<36} {}", left.trim_end(), first).trim_end().to_string())
+    Some(
+        format!("{:<36} {}", left.trim_end(), first)
+            .trim_end()
+            .to_string(),
+    )
 }
 
 /// API 章节：api 命令格式与各 flag 作用 + 端点清单（与 ENDPOINTS 同步生成）。
@@ -289,7 +325,8 @@ fn view_tui_section() -> String {
     q                退出（记忆进度）
   说明
     翻页方向由 config ui.page_mode 决定：right-left（默认）左右渲染 / up-down 上下渲染
-"##.to_string()
+"##
+    .to_string()
 }
 
 fn strip_ansi(s: String) -> String {
@@ -298,7 +335,9 @@ fn strip_ansi(s: String) -> String {
     while let Some(c) = chars.next() {
         if c == '\x1b' {
             for n in chars.by_ref() {
-                if n.is_ascii_alphabetic() { break; }
+                if n.is_ascii_alphabetic() {
+                    break;
+                }
             }
         } else {
             out.push(c);

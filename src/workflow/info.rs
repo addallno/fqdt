@@ -11,32 +11,52 @@ enum IdKind {
     Book,
     Chapter(Value), // items 端点响应（章节+所属书全量字段）
     Author,
-    User(Value),    // authors 端点响应（读者公开资料）
-    Invalid,        // 三段探测均未命中
+    User(Value), // authors 端点响应（读者公开资料）
+    Invalid,     // 三段探测均未命中
 }
 
 /// 识别 ID 类型：`_` 前缀→作者；纯数字依次探测 detail（书）→ items（章节）→ authors（用户/作者）。
 /// 信号：书=detail code0 且有 book_name；章节=items 有 item_id+title；
 /// 作者=authors is_author=true；用户=user_name 非"用户{id前8位}"占位。
 async fn identify_id(raw: &str) -> IdKind {
-    if raw.contains('_') { return IdKind::Author; }
-    if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) { return IdKind::Book; }
-    if detail_silent(raw).await.is_some() { return IdKind::Book; }
+    if raw.contains('_') {
+        return IdKind::Author;
+    }
+    if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {
+        return IdKind::Book;
+    }
+    if detail_silent(raw).await.is_some() {
+        return IdKind::Book;
+    }
     let items = crate::fqapi::call("GET", &format!("/api/v1/items/{raw}"), "", Vec::new())
-        .await.ok().and_then(|r| r.json().ok());
+        .await
+        .ok()
+        .and_then(|r| r.json().ok());
     if let Some(v) = &items {
-        let hit = v.pointer("/data/0").map(|r| {
-            r.get("item_id").and_then(|x| x.as_str()).is_some_and(|s| !s.is_empty())
-                && r.get("title").and_then(|x| x.as_str()).is_some_and(|s| !s.is_empty())
-        }).unwrap_or(false);
-        if hit { return IdKind::Chapter(v.clone()); }
+        let hit = v
+            .pointer("/data/0")
+            .map(|r| {
+                r.get("item_id")
+                    .and_then(|x| x.as_str())
+                    .is_some_and(|s| !s.is_empty())
+                    && r.get("title")
+                        .and_then(|x| x.as_str())
+                        .is_some_and(|s| !s.is_empty())
+            })
+            .unwrap_or(false);
+        if hit {
+            return IdKind::Chapter(v.clone());
+        }
     }
     if let Ok(v) = crate::fqapi::get_json(&format!("/api/v1/authors/{raw}"), "").await {
         if v.get("code").and_then(|x| x.as_i64()) == Some(0) {
             if v.pointer("/data/is_author").and_then(|x| x.as_bool()) == Some(true) {
                 return IdKind::Author;
             }
-            let name = v.pointer("/data/user_name").and_then(|x| x.as_str()).unwrap_or("");
+            let name = v
+                .pointer("/data/user_name")
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
             let placeholder = format!("用户{}", &raw[..raw.len().min(8)]);
             if !name.is_empty() && name != placeholder {
                 return IdKind::User(v);
@@ -48,35 +68,65 @@ async fn identify_id(raw: &str) -> IdKind {
 
 /// 静默取书籍详情：code==0 且有 book_name 才算书（章节 id 会回 101109 BOOK_REMOVE）。
 async fn detail_silent(book_id: &str) -> Option<Value> {
-    let v = crate::fqapi::get_json(&format!("/api/v1/books/{book_id}"), "").await.ok()?;
-    let named = v.pointer("/data/book_name").and_then(|x| x.as_str()).is_some_and(|s| !s.is_empty());
+    let v = crate::fqapi::get_json(&format!("/api/v1/books/{book_id}"), "")
+        .await
+        .ok()?;
+    let named = v
+        .pointer("/data/book_name")
+        .and_then(|x| x.as_str())
+        .is_some_and(|s| !s.is_empty());
     (v.get("code").and_then(|x| x.as_i64()) == Some(0) && named).then_some(v)
 }
 
 /// 章节 id 卡片：章节信息 + 所属书 + 跳转指引（`--show` 附正文预览）。
 async fn chapter_card(item_id: &str, v: &Value, section: Option<&str>, show: bool, cfg: &Config) {
     let row = v.pointer("/data/0");
-    let s = |k: &str| row.and_then(|r| r.get(k)).and_then(|x| x.as_str()).unwrap_or("");
-    let (title, book_name, author, book_id) = (s("title"), s("book_name"), s("author"), s("book_id"));
+    let s = |k: &str| {
+        row.and_then(|r| r.get(k))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+    };
+    let (title, book_name, author, book_id) =
+        (s("title"), s("book_name"), s("author"), s("book_id"));
     let volume = s("volume_name");
-    let num = |k: &str| row.and_then(|r| r.get(k))
-        .and_then(|x| x.as_i64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
-        .unwrap_or(0);
+    let num = |k: &str| {
+        row.and_then(|r| r.get(k))
+            .and_then(|x| {
+                x.as_i64()
+                    .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+            })
+            .unwrap_or(0)
+    };
     let (order, words) = (num("order"), num("chapter_word_number"));
     let abstract_: String = s("abstract").chars().take(100).collect();
     crate::emit_line(&format!(
-        "{GREEN}ok{RST} {CYAN}{title}{RST} · {book_name} · {MAGENTA}{author}{RST}"));
+        "{GREEN}ok{RST} {CYAN}{title}{RST} · {book_name} · {MAGENTA}{author}{RST}"
+    ));
     let mut meta = format!("  {book_name} {MAGENTA}{author}{RST} {BLUE}#{book_id}{RST}");
-    if !volume.is_empty() { meta += &format!(" · {volume}"); }
-    if order > 0 { meta += &format!(" · 序 {YELLOW}{order}{RST}"); }
-    if words > 0 { meta += &format!(" · {YELLOW}{words}{RST} 字"); }
-    if !s("tones").is_empty() { meta += &format!(" · 音色 {YELLOW}{}{RST}", s("tones")); }
-    crate::emit_line(&meta);
-    if !abstract_.is_empty() { crate::emit_line(&format!("  {DIM}{abstract_}…{RST}")); }
-    if let Some(sec) = section {
-        crate::emit_line(&format!("  {DIM}章节 id 不支持 section（{sec}），先用所属书 id{RST}"));
+    if !volume.is_empty() {
+        meta += &format!(" · {volume}");
     }
-    if show { show_item_text(cfg, item_id).await; }
+    if order > 0 {
+        meta += &format!(" · 序 {YELLOW}{order}{RST}");
+    }
+    if words > 0 {
+        meta += &format!(" · {YELLOW}{words}{RST} 字");
+    }
+    if !s("tones").is_empty() {
+        meta += &format!(" · 音色 {YELLOW}{}{RST}", s("tones"));
+    }
+    crate::emit_line(&meta);
+    if !abstract_.is_empty() {
+        crate::emit_line(&format!("  {DIM}{abstract_}…{RST}"));
+    }
+    if let Some(sec) = section {
+        crate::emit_line(&format!(
+            "  {DIM}章节 id 不支持 section（{sec}），先用所属书 id{RST}"
+        ));
+    }
+    if show {
+        show_item_text(cfg, item_id).await;
+    }
     crate::emit_line(&format!(
         "  {DIM}概览 fqdt info {book_id} · 目录 fqdt info {book_id} chapters · 正文 fqdt api /api/v1/chapters/{item_id} --jq data.content{RST}"));
 }
@@ -87,7 +137,9 @@ async fn show_item_text(cfg: &Config, item_id: &str) {
     match api.fetch_content(item_id).await {
         Ok(text) => {
             let total = text.lines().count();
-            for line in text.lines().take(40) { println!("    {line}"); }
+            for line in text.lines().take(40) {
+                println!("    {line}");
+            }
             if total > 40 {
                 println!("  {DIM}… 共 {total} 行 · 全文 fqdt api /api/v1/chapters/{item_id} --jq data.content{RST}");
             }
@@ -103,13 +155,27 @@ async fn author_direct(id: &str, cfg: &Config) {
 
 /// 读者 uid 公开资料卡（authors 端点返回的非作者用户）。
 fn user_card(uid: &str, v: &Value) {
-    let g = |k: &str| v.pointer(&format!("/data/{k}")).and_then(|x| x.as_i64()).unwrap_or(0);
-    let name = v.pointer("/data/user_name").and_then(|x| x.as_str()).unwrap_or("?");
-    let desc = v.pointer("/data/author_desc").and_then(|x| x.as_str()).unwrap_or("");
+    let g = |k: &str| {
+        v.pointer(&format!("/data/{k}"))
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0)
+    };
+    let name = v
+        .pointer("/data/user_name")
+        .and_then(|x| x.as_str())
+        .unwrap_or("?");
+    let desc = v
+        .pointer("/data/author_desc")
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
     let mut head = format!("{GREEN}ok{RST} {CYAN}{name}{RST} · {BLUE}#{uid}{RST}");
     let (fans, follow, read_num) = (g("fans_num"), g("follow_user_num"), g("read_book_num"));
-    if fans + follow > 0 { head += &format!(" · 粉丝 {YELLOW}{fans}{RST} · 关注 {YELLOW}{follow}{RST}"); }
-    if read_num > 0 { head += &format!(" · 已读 {YELLOW}{read_num}{RST} 本"); }
+    if fans + follow > 0 {
+        head += &format!(" · 粉丝 {YELLOW}{fans}{RST} · 关注 {YELLOW}{follow}{RST}");
+    }
+    if read_num > 0 {
+        head += &format!(" · 已读 {YELLOW}{read_num}{RST} 本");
+    }
     if v.pointer("/data/is_author").and_then(|x| x.as_bool()) == Some(true) {
         head += &format!(" · {MAGENTA}作者{RST}");
     }
@@ -199,22 +265,43 @@ async fn overview(api: &Client, book_id: &str, range: Option<&str>, show: bool, 
 
 /// 概览头部：标题·作者 + 热度行（info_hot）+ 简介截断（info_intro_len，0=关）。
 fn print_head(d: &Value, cfg: &Config) {
-    let s = |p: &str| d.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
-    println!("  {} {YELLOW}{}{RST}", s("/data/book_name"), s("/data/author"));
+    let s = |p: &str| {
+        d.pointer(p)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    println!(
+        "  {} {YELLOW}{}{RST}",
+        s("/data/book_name"),
+        s("/data/author")
+    );
     if cfg.info_hot {
         let mut hot: Vec<String> = Vec::new();
         let read = {
             let t = s("/data/read_cnt_text");
-            if t.is_empty() { s("/data/read_cnt_fallback_text") } else { t }
+            if t.is_empty() {
+                s("/data/read_cnt_fallback_text")
+            } else {
+                t
+            }
         };
-        if !read.is_empty() { hot.push(read); }
+        if !read.is_empty() {
+            hot.push(read);
+        }
         if let Ok(sc) = s("/data/score").parse::<f64>() {
-            if sc > 0.0 { hot.push(format!("{}分", sc)); }
+            if sc > 0.0 {
+                hot.push(format!("{}分", sc));
+            }
         }
         if let Ok(n) = s("/data/all_bookshelf_count").parse::<u64>() {
-            if n > 0 { hot.push(format!("收藏 {}", fmt_wan(n))); }
+            if n > 0 {
+                hot.push(format!("收藏 {}", fmt_wan(n)));
+            }
         }
-        if !hot.is_empty() { println!("  {DIM}{}{RST}", hot.join(" · ")); }
+        if !hot.is_empty() {
+            println!("  {DIM}{}{RST}", hot.join(" · "));
+        }
     }
     if cfg.info_intro_len > 0 {
         let intro = s("/data/abstract").replace('\n', " ");
@@ -229,7 +316,9 @@ fn print_head(d: &Value, cfg: &Config) {
 
 /// 目录前 N 章（`-s` 附正文预览），超出部分给跳转尾注；top=0 关闭。
 async fn print_top_chapters(v: &[&crate::types::Chapter], top: usize, show: bool, api: &Client) {
-    if top == 0 { return; }
+    if top == 0 {
+        return;
+    }
     let take = v.len().min(top);
     for c in v.iter().take(take) {
         if !show {
@@ -240,7 +329,9 @@ async fn print_top_chapters(v: &[&crate::types::Chapter], top: usize, show: bool
         match api.fetch_content(&c.item_id).await {
             Ok(text) => {
                 let total = text.lines().count();
-                for line in text.lines().take(40) { println!("    {}", line); }
+                for line in text.lines().take(40) {
+                    println!("    {}", line);
+                }
                 if total > 40 {
                     println!("  {DIM}… 共 {} 行 · 全文 fqdt api /api/v1/chapters/{} --jq data.content{RST}", total, c.item_id);
                 }
@@ -268,22 +359,40 @@ async fn print_top_comments(book_id: &str, n: usize, clip: usize) {
         return;
     };
     for item in items.iter().take(n) {
-        let Some(c) = item.get("comment") else { continue };
-        let user = c.pointer("/common/user_info/base_info/user_name")
+        let Some(c) = item.get("comment") else {
+            continue;
+        };
+        let user = c
+            .pointer("/common/user_info/base_info/user_name")
             .or_else(|| c.pointer("/common/user_info/user_name"))
-            .and_then(|x| x.as_str()).filter(|s| !s.is_empty()).unwrap_or("匿名");
-        let digg = c.pointer("/stat/digg_count").and_then(|x| x.as_u64()).unwrap_or(0);
-        let text: String = c.pointer("/common/content/text").and_then(|x| x.as_str())
-            .unwrap_or("").chars().take(clip).collect::<String>().replace('\n', " ");
+            .and_then(|x| x.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("匿名");
+        let digg = c
+            .pointer("/stat/digg_count")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0);
+        let text: String = c
+            .pointer("/common/content/text")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .chars()
+            .take(clip)
+            .collect::<String>()
+            .replace('\n', " ");
         println!("  {YELLOW}{user}{RST} {DIM}· 赞 {digg}{RST}  {text}");
     }
 }
 
 /// 万/亿缩写（收藏数等大数字）。
 fn fmt_wan(n: u64) -> String {
-    if n >= 100_000_000 { format!("{:.1}亿", n as f64 / 100_000_000.0) }
-    else if n >= 10_000 { format!("{:.1}万", n as f64 / 10_000.0) }
-    else { n.to_string() }
+    if n >= 100_000_000 {
+        format!("{:.1}亿", n as f64 / 100_000_000.0)
+    } else if n >= 10_000 {
+        format!("{:.1}万", n as f64 / 10_000.0)
+    } else {
+        n.to_string()
+    }
 }
 
 /// 目录（含 item_id），`-r` 可筛选。
@@ -323,7 +432,9 @@ async fn intro(api: &Client, book_id: &str) {
 
 /// 封面图 URL。
 async fn cover(book_id: &str) {
-    let Some(v) = detail_json(book_id).await else { return };
+    let Some(v) = detail_json(book_id).await else {
+        return;
+    };
     let url = ["thumb_url", "detail_page_thumb_url"]
         .iter()
         .find_map(|k| v.pointer(&format!("/data/{k}")).and_then(|x| x.as_str()))
@@ -337,7 +448,9 @@ async fn cover(book_id: &str) {
 
 /// 作者资料 + 书单（id 取 detail 的 bind_author_ids / author_id）。
 async fn author(book_id: &str, cfg: &Config) {
-    let Some(v) = detail_json(book_id).await else { return };
+    let Some(v) = detail_json(book_id).await else {
+        return;
+    };
     let id = detail_author_id(&v);
     if id.is_empty() {
         return eprintln!("  {RED}err{RST} 详情中无作者 id");
@@ -355,53 +468,101 @@ async fn relative(book_id: &str, cfg: &Config) {
     let mut n = 0;
     if let Some(cells) = v.pointer("/data/cell_data").and_then(|x| x.as_array()) {
         for cell in cells {
-            let Some(books) = cell.get("book_data").and_then(|x| x.as_array()) else { continue };
+            let Some(books) = cell.get("book_data").and_then(|x| x.as_array()) else {
+                continue;
+            };
             for b in books {
                 let s = |k: &str| b.get(k).and_then(|x| x.as_str()).unwrap_or("");
                 let (id, name, author) = (s("book_id"), s("book_name"), s("author"));
-                if name.is_empty() { continue; }
+                if name.is_empty() {
+                    continue;
+                }
                 n += 1;
                 let author: String = author.chars().take(cfg.ui_clip_len).collect();
-                crate::emit_line(&format!("  {CYAN}「{name}」{RST} {MAGENTA}{author}{RST} {BLUE}#{id}{RST}"));
+                crate::emit_line(&format!(
+                    "  {CYAN}「{name}」{RST} {MAGENTA}{author}{RST} {BLUE}#{id}{RST}"
+                ));
             }
         }
     }
-    if n == 0 { crate::emit_line("  （无相关书籍）"); }
-    for m in &misc_lines { crate::emit_line(&format!("  {DIM}{m}{RST}")); }
+    if n == 0 {
+        crate::emit_line("  （无相关书籍）");
+    }
+    for m in &misc_lines {
+        crate::emit_line(&format!("  {DIM}{m}{RST}"));
+    }
 }
 
 /// relative 杂项（两行）：书目（字数/章数/分类/听书量/起书时间）+ 音频（真人版数/AI 音色数）。
 async fn relative_misc(book_id: &str) -> Vec<String> {
-    let Some(d) = detail_json(book_id).await else { return vec![] };
-    let s = |p: &str| d.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let Some(d) = detail_json(book_id).await else {
+        return vec![];
+    };
+    let s = |p: &str| {
+        d.pointer(p)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     let num = |p: &str| s(p).parse::<u64>().unwrap_or(0);
     let mut lines = vec![];
     let mut book = vec![];
     let w = num("/data/word_number");
-    if w > 0 { book.push(format!("字数 {}", fmt_wan(w))); }
+    if w > 0 {
+        book.push(format!("字数 {}", fmt_wan(w)));
+    }
     let sc = num("/data/serial_count");
-    if sc > 0 { book.push(format!("{sc}章")); }
+    if sc > 0 {
+        book.push(format!("{sc}章"));
+    }
     let cat = s("/data/category");
-    if !cat.is_empty() { book.push(cat); }
+    if !cat.is_empty() {
+        book.push(cat);
+    }
     let lc = num("/data/listen_count");
-    if lc > 0 { book.push(format!("听书 {}", fmt_wan(lc))); }
+    if lc > 0 {
+        book.push(format!("听书 {}", fmt_wan(lc)));
+    }
     let ct = s("/data/create_time");
-    if ct.len() >= 7 { book.push(format!("{} 起", &ct[..7])); }
-    if !book.is_empty() { lines.push(book.join(" · ")); }
-    let audio_n = s("/data/related_audio_bookids").trim_matches(|c| c == '[' || c == ']')
-        .split(',').filter(|x| !x.trim().is_empty()).count();
-    let tone_n = s("/data/tones").split(',').filter(|x| !x.trim().is_empty()).count();
+    if ct.len() >= 7 {
+        book.push(format!("{} 起", &ct[..7]));
+    }
+    if !book.is_empty() {
+        lines.push(book.join(" · "));
+    }
+    let audio_n = s("/data/related_audio_bookids")
+        .trim_matches(|c| c == '[' || c == ']')
+        .split(',')
+        .filter(|x| !x.trim().is_empty())
+        .count();
+    let tone_n = s("/data/tones")
+        .split(',')
+        .filter(|x| !x.trim().is_empty())
+        .count();
     let mut audio = vec![];
-    if audio_n > 0 { audio.push(format!("真人听书版 {audio_n}")); }
-    if tone_n > 0 { audio.push(format!("AI 音色 {tone_n}")); }
-    if !audio.is_empty() { lines.push(audio.join(" · ")); }
+    if audio_n > 0 {
+        audio.push(format!("真人听书版 {audio_n}"));
+    }
+    if tone_n > 0 {
+        audio.push(format!("AI 音色 {tone_n}"));
+    }
+    if !audio.is_empty() {
+        lines.push(audio.join(" · "));
+    }
     lines
 }
 
 /// 听书版本与音色（`fqdt info <id> audio`）：AI 音色编号+名称 + 各听书版主播阵容。
 async fn audio_section(book_id: &str, cfg: &Config) {
-    let Some(d) = detail_json(book_id).await else { return };
-    let s = |p: &str| d.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let Some(d) = detail_json(book_id).await else {
+        return;
+    };
+    let s = |p: &str| {
+        d.pointer(p)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     render_ai_tones(&s("/data/tones"), book_id, cfg).await;
     util::progress("获取听书版本");
     let res = crate::fqapi::get_json(&format!("/api/v1/books/{book_id}/tones"), "").await;
@@ -412,26 +573,42 @@ async fn audio_section(book_id: &str, cfg: &Config) {
         return;
     };
     for t in list {
-        let id = t.get("abook_id").and_then(|x| x.as_str().map(String::from))
-            .or_else(|| t.get("abook_id").and_then(|x| x.as_u64().map(|n| n.to_string())))
+        let id = t
+            .get("abook_id")
+            .and_then(|x| x.as_str().map(String::from))
+            .or_else(|| {
+                t.get("abook_id")
+                    .and_then(|x| x.as_u64().map(|n| n.to_string()))
+            })
             .unwrap_or_default();
         let title = t.get("title").and_then(|x| x.as_str()).unwrap_or("");
-        let title: String = title.chars().take(cfg.ui_clip_len.saturating_mul(3)).collect();
+        let title: String = title
+            .chars()
+            .take(cfg.ui_clip_len.saturating_mul(3))
+            .collect();
         crate::emit_line(&format!("  {GREEN}{title}{RST} {BLUE}#{id}{RST}"));
     }
 }
 
 /// AI 音色行：toneinfo 权威带名 `1 甜美少女音 · ...`，端点失败回退 core id 列表。
 async fn render_ai_tones(tones: &str, book_id: &str, cfg: &Config) {
-    if tones.is_empty() { return; }
+    if tones.is_empty() {
+        return;
+    }
     let ids: Vec<&str> = tones.split(',').filter(|x| !x.trim().is_empty()).collect();
     let named = tone_names(book_id).await;
     match named {
         Some(n) => crate::emit_line(&format!(
-            "  {CYAN}AI 音色{RST} {n} {DIM}· 默认 {} · {}{RST}", cfg.audio_tone, ids.join(","))),
+            "  {CYAN}AI 音色{RST} {n} {DIM}· 默认 {} · {}{RST}",
+            cfg.audio_tone,
+            ids.join(",")
+        )),
         None => crate::emit_line(&format!(
             "  {CYAN}AI 音色 {}{RST} ({})  {DIM}{}{RST}",
-            ids.len(), cfg.audio_tone, ids.join(","))),
+            ids.len(),
+            cfg.audio_tone,
+            ids.join(",")
+        )),
     }
 }
 
@@ -439,11 +616,15 @@ async fn render_ai_tones(tones: &str, book_id: &str, cfg: &Config) {
 /// `tts_tones[] {id,title}` 拼 `1 甜美少女音 · 2 清亮青叔音 ...`；失败或空回 None。
 async fn tone_names(book_id: &str) -> Option<String> {
     let url = format!(
-        "https://fanqienovel.com/reading/bookapi/audio/toneinfo/?book_id={book_id}&aid=1967");
+        "https://fanqienovel.com/reading/bookapi/audio/toneinfo/?book_id={book_id}&aid=1967"
+    );
     let v = crate::workflow::account::page_json(&url, "").await.ok()?;
     let list = v.pointer("/data/tts_tones")?.as_array()?;
-    let s = list.iter().filter_map(|t| Some(format!(
-        "{} {}", t.get("id")?, t.get("title")?.as_str()?))).collect::<Vec<_>>().join(" · ");
+    let s = list
+        .iter()
+        .filter_map(|t| Some(format!("{} {}", t.get("id")?, t.get("title")?.as_str()?)))
+        .collect::<Vec<_>>()
+        .join(" · ");
     (!s.is_empty()).then_some(s)
 }
 

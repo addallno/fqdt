@@ -83,12 +83,24 @@ pub fn preset_colors(preset: &str) -> ThemeColors {
 /// 预设 + 单项覆盖 → 最终主题（非法覆盖值忽略）。
 pub fn resolve(preset: &str, ov: &ThemeOverride) -> ThemeColors {
     let mut c = preset_colors(preset);
-    if let Some(x) = parse_hex(&ov.border) { c.border = x; }
-    if let Some(x) = parse_hex(&ov.title) { c.title = x; }
-    if let Some(x) = parse_hex(&ov.content) { c.content = x; }
-    if let Some(x) = parse_hex(&ov.toc) { c.toc = x; }
-    if let Some(x) = parse_hex(&ov.selected) { c.selected = x; }
-    if let Some(x) = parse_hex(&ov.status) { c.status = x; }
+    if let Some(x) = parse_hex(&ov.border) {
+        c.border = x;
+    }
+    if let Some(x) = parse_hex(&ov.title) {
+        c.title = x;
+    }
+    if let Some(x) = parse_hex(&ov.content) {
+        c.content = x;
+    }
+    if let Some(x) = parse_hex(&ov.toc) {
+        c.toc = x;
+    }
+    if let Some(x) = parse_hex(&ov.selected) {
+        c.selected = x;
+    }
+    if let Some(x) = parse_hex(&ov.status) {
+        c.status = x;
+    }
     c
 }
 
@@ -107,7 +119,10 @@ mod tests {
         assert_eq!(c.status, TColor::Yellow);
         // 未知预设回 default
         assert_eq!(resolve("nope", &ThemeOverride::default()), c);
-        assert_eq!(resolve("NORD", &ThemeOverride::default()), preset_colors("nord"));
+        assert_eq!(
+            resolve("NORD", &ThemeOverride::default()),
+            preset_colors("nord")
+        );
     }
 
     #[test]
@@ -118,12 +133,18 @@ mod tests {
         assert_eq!(parse_hex("zzzzzz"), None);
         assert_eq!(parse_hex(""), None);
         // 覆盖生效：仅 border 改，其余随预设
-        let ov = ThemeOverride { border: "#010203".into(), ..Default::default() };
+        let ov = ThemeOverride {
+            border: "#010203".into(),
+            ..Default::default()
+        };
         let c = resolve("nord", &ov);
         assert_eq!(c.border, TColor::Rgb(1, 2, 3));
         assert_eq!(c.title, preset_colors("nord").title);
         // 非法覆盖忽略
-        let bad = ThemeOverride { border: "nope".into(), ..Default::default() };
+        let bad = ThemeOverride {
+            border: "nope".into(),
+            ..Default::default()
+        };
         assert_eq!(resolve("default", &bad).border, TColor::Cyan);
     }
 }

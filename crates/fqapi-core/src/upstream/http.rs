@@ -148,10 +148,9 @@ impl HttpTransport {
     ) -> Result<Self, String> {
         ensure_crypto_provider();
         let tls = build_tls_config()?;
-        let mut builder =
-            policy
-                .configure(reqwest::Client::builder().tls_backend_preconfigured(tls))
-                .dns_resolver(crate::upstream::dns::DnsResolver);
+        let mut builder = policy
+            .configure(reqwest::Client::builder().tls_backend_preconfigured(tls))
+            .dns_resolver(crate::upstream::dns::DnsResolver);
         if no_redirects {
             builder = builder.redirect(reqwest::redirect::Policy::none());
         } else {

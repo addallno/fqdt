@@ -13,7 +13,9 @@ use crate::util::{CYAN, DIM, RST, YELLOW};
 
 /// 取路径标量；无匹配返回空串
 fn get(v: &Value, path: &str) -> String {
-    jq_extract(v, path).map(|x| jq_display(&x)).unwrap_or_default()
+    jq_extract(v, path)
+        .map(|x| jq_display(&x))
+        .unwrap_or_default()
 }
 
 /// 按字符截断并追加省略号
@@ -59,9 +61,7 @@ fn book_line(book: &Value, indent: &str) -> String {
     let author = get(book, "author");
     let cat = get(book, "category");
     let id = get(book, "book_id");
-    format!(
-        "{indent}{CYAN}「{name}」{RST} {YELLOW}{author}{RST} {DIM}{cat} #{id}{RST}"
-    )
+    format!("{indent}{CYAN}「{name}」{RST} {YELLOW}{author}{RST} {DIM}{cat} #{id}{RST}")
 }
 
 /// 首页推荐流：区块 → 卡片 → 书单
@@ -166,10 +166,16 @@ pub async fn comments(book_id: &str, count: usize, offset: usize, json: bool, cf
         return;
     };
     for item in items {
-        let Some(c) = item.get("comment") else { continue };
+        let Some(c) = item.get("comment") else {
+            continue;
+        };
         let user = {
             let u = get(c, "common.user_info.base_info.user_name");
-            if u.is_empty() { get(c, "common.user_info.user_name") } else { u }
+            if u.is_empty() {
+                get(c, "common.user_info.user_name")
+            } else {
+                u
+            }
         };
         let digg = get(c, "stat.digg_count");
         let text = clip(&get(c, "common.content.text"), cfg.ui_clip_len).replace('\n', " ");
@@ -182,12 +188,7 @@ pub async fn comments(book_id: &str, count: usize, offset: usize, json: bool, cf
 
 /// 作者资料 + 作者书单
 pub async fn author(author_id: &str, count: usize, json: bool, cfg: &Config) {
-    let Some(info) = fetch(
-        &format!("/api/v1/authors/{author_id}"),
-        "",
-        "作者资料",
-    )
-    .await
+    let Some(info) = fetch(&format!("/api/v1/authors/{author_id}"), "", "作者资料").await
     else {
         return;
     };

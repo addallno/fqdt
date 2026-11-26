@@ -42,15 +42,22 @@ pub struct SourceStats {
 impl SourceStats {
     fn score(&self) -> f64 {
         let total = self.ok_count + self.fail_count;
-        if total == 0 { return 1.0; }
+        if total == 0 {
+            return 1.0;
+        }
         let rate = self.ok_count as f64 / total as f64;
-        let avg_time = if self.ok_count > 0 { self.total_time_ms as f64 / self.ok_count as f64 } else { 9999.0 };
+        let avg_time = if self.ok_count > 0 {
+            self.total_time_ms as f64 / self.ok_count as f64
+        } else {
+            9999.0
+        };
         rate * 100.0 - avg_time * 0.1
     }
 }
 
 fn sort_urls(urls: &[String], stats: &HashMap<String, SourceStats>) -> Vec<String> {
-    let mut scored: Vec<(f64, &String)> = urls.iter()
+    let mut scored: Vec<(f64, &String)> = urls
+        .iter()
         .map(|u| {
             let s = stats.get(u).cloned().unwrap_or_default();
             (-s.score(), u)
@@ -72,7 +79,9 @@ fn maybe_reset_stats(stats: &Arc<Mutex<HashMap<String, SourceStats>>>, counter: 
 /// 源熔断：本会话从未成功且已失败 ≥2 次的模板直接跳过，
 /// 避免每个章节都把死源的超时全部等满（下载慢的主因之一）。
 fn source_dead(stats: &HashMap<String, SourceStats>, tmpl: &str) -> bool {
-    stats.get(tmpl).is_some_and(|e| e.ok_count == 0 && e.fail_count >= 2)
+    stats
+        .get(tmpl)
+        .is_some_and(|e| e.ok_count == 0 && e.fail_count >= 2)
 }
 
 // ---------- fqapi 响应解析辅助 ----------
@@ -81,14 +90,18 @@ fn source_dead(stats: &HashMap<String, SourceStats>, tmpl: &str) -> bool {
 fn check_biz(v: &Value) -> Result<(), String> {
     if let Value::Object(m) = v {
         if m.get("success").and_then(|x| x.as_bool()) == Some(false) {
-            let msg = m.get("error").and_then(|x| x.as_str())
+            let msg = m
+                .get("error")
+                .and_then(|x| x.as_str())
                 .or_else(|| m.get("message").and_then(|x| x.as_str()))
                 .unwrap_or("请求失败");
             return Err(msg.to_string());
         }
         if let Some(code) = m.get("code").and_then(|x| x.as_i64()) {
             if code != 0 && code != 200 {
-                let msg = m.get("message").and_then(|x| x.as_str())
+                let msg = m
+                    .get("message")
+                    .and_then(|x| x.as_str())
                     .or_else(|| m.get("msg").and_then(|x| x.as_str()))
                     .unwrap_or("业务错误");
                 return Err(format!("{} (code {})", msg, code));
@@ -124,7 +137,10 @@ fn find_items<'a>(v: &'a Value, keys: &[&str]) -> Option<&'a Vec<Value>> {
     match v {
         Value::Array(arr) => {
             if let Some(first) = arr.first() {
-                if first.as_object().is_some_and(|m| keys.iter().any(|k| m.contains_key(*k))) {
+                if first
+                    .as_object()
+                    .is_some_and(|m| keys.iter().any(|k| m.contains_key(*k)))
+                {
                     return Some(arr);
                 }
             }
@@ -189,22 +205,25 @@ fn parse_books(v: &Value) -> Vec<Book> {
     let Some(items) = find_items(v, &["book_id", "bookId"]) else {
         return Vec::new();
     };
-    items.iter().filter_map(|it| {
-        let m = it.as_object()?;
-        let book_id = field(m, &["book_id", "bookId", "id"]);
-        if book_id.is_empty() {
-            return None;
-        }
-        Some(Book {
-            book_id,
-            title: field(m, &["title", "book_name", "name"]),
-            author: field(m, &["author", "author_name"]),
-            score: norm_score(&field(m, &["score"])),
-            category: field(m, &["category", "category_name"]),
-            abstract_: field(m, &["abstract", "book_abstract", "summary", "description"]),
-            status: parse_status(&field(m, &["creation_status", "book_state", "status"])),
+    items
+        .iter()
+        .filter_map(|it| {
+            let m = it.as_object()?;
+            let book_id = field(m, &["book_id", "bookId", "id"]);
+            if book_id.is_empty() {
+                return None;
+            }
+            Some(Book {
+                book_id,
+                title: field(m, &["title", "book_name", "name"]),
+                author: field(m, &["author", "author_name"]),
+                score: norm_score(&field(m, &["score"])),
+                category: field(m, &["category", "category_name"]),
+                abstract_: field(m, &["abstract", "book_abstract", "summary", "description"]),
+                status: parse_status(&field(m, &["creation_status", "book_state", "status"])),
+            })
         })
-    }).collect()
+        .collect()
 }
 
 /// 解析一个 reading 搜索 cell 条目。
@@ -249,7 +268,9 @@ fn hl_text(m: &Map<String, Value>, key: &str) -> String {
     };
     match hl.get(key) {
         Some(Value::Object(o)) => {
-            let text = o.get("text").and_then(|x| x.as_str())
+            let text = o
+                .get("text")
+                .and_then(|x| x.as_str())
                 .unwrap_or_else(|| o.get("rich_text").and_then(|x| x.as_str()).unwrap_or(""));
             strip_html(text).trim().to_string()
         }
@@ -291,11 +312,24 @@ fn parse_chapters(v: &Value) -> Vec<Chapter> {
         if item_id.is_empty() {
             continue;
         }
-        let mut title = field(m, &["title", "episode_title", "chapter_title", "name", "item_title"]);
+        let mut title = field(
+            m,
+            &[
+                "title",
+                "episode_title",
+                "chapter_title",
+                "name",
+                "item_title",
+            ],
+        );
         if title.is_empty() {
             title = format!("第{}章", chapters.len() + 1);
         }
-        chapters.push(Chapter { index: chapters.len() + 1, item_id, title });
+        chapters.push(Chapter {
+            index: chapters.len() + 1,
+            item_id,
+            title,
+        });
     }
     chapters
 }
@@ -317,26 +351,33 @@ fn parse_batch(v: &Value) -> HashMap<String, String> {
     // full mget 形态：data.item_infos.{item_id}.content（content 已明文）
     if let Some(m) = v.pointer("/data/item_infos").and_then(|x| x.as_object()) {
         let out = content_map(m);
-        if !out.is_empty() { return out; }
+        if !out.is_empty() {
+            return out;
+        }
     }
     // batch_full 形态：data.{item_id}.content
     if let Some(Value::Object(m)) = v.pointer("/data") {
         let out = content_map(m);
-        if !out.is_empty() { return out; }
+        if !out.is_empty() {
+            return out;
+        }
     }
     // 兼容数组形态：data[].item_id + content
     let Some(items) = find_items(v, &["item_id", "itemId"]) else {
         return HashMap::new();
     };
-    items.iter().filter_map(|it| {
-        let m = it.as_object()?;
-        let id = field(m, &["item_id", "itemId"]);
-        let content = m.get("content").and_then(|x| x.as_str())?;
-        if id.is_empty() || content.is_empty() || content == "Invalid" {
-            return None;
-        }
-        Some((id, strip_html(content)))
-    }).collect()
+    items
+        .iter()
+        .filter_map(|it| {
+            let m = it.as_object()?;
+            let id = field(m, &["item_id", "itemId"]);
+            let content = m.get("content").and_then(|x| x.as_str())?;
+            if id.is_empty() || content.is_empty() || content == "Invalid" {
+                return None;
+            }
+            Some((id, strip_html(content)))
+        })
+        .collect()
 }
 
 /// 解析书籍详情为 `title|author|intro`。
@@ -347,7 +388,9 @@ fn parse_detail(v: &Value) -> Result<String, String> {
     }
     let author = find_str(v, &["author", "author_name"]).unwrap_or_default();
     let intro = find_str(v, &["abstract", "book_abstract", "summary"]).unwrap_or_default();
-    Ok(format!("{}|{}|{}", title, author, intro).trim_end_matches('|').to_string())
+    Ok(format!("{}|{}|{}", title, author, intro)
+        .trim_end_matches('|')
+        .to_string())
 }
 
 /// 提取流内容密钥：明文返回空串；加密流须有 32 位 hex `key_hex`，否则跳过。
@@ -358,11 +401,18 @@ fn stream_key(enc: Option<&Value>) -> Option<String> {
     if m.get("encrypt").and_then(|x| x.as_bool()) != Some(true) {
         return Some(String::new());
     }
-    let method = m.get("encryption_method").and_then(|x| x.as_str()).unwrap_or("");
+    let method = m
+        .get("encryption_method")
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
     if !method.is_empty() && method != "cenc-aes-ctr" {
         return None;
     }
-    let key = m.get("key_hex").and_then(|x| x.as_str())?.trim().to_lowercase();
+    let key = m
+        .get("key_hex")
+        .and_then(|x| x.as_str())?
+        .trim()
+        .to_lowercase();
     (key.len() == 32 && key.chars().all(|c| c.is_ascii_hexdigit())).then_some(key)
 }
 
@@ -431,8 +481,12 @@ fn model_stream(raw: &str) -> Option<(String, String)> {
     let streams = model.get("video_list").and_then(|x| x.as_array())?;
     for s in streams {
         let Some(sm) = s.as_object() else { continue };
-        let Some(key) = stream_key(sm.get("encrypt_info")) else { continue };
-        if let Some(url) = stream_url(sm.get("main_url")).or_else(|| stream_url(sm.get("backup_url"))) {
+        let Some(key) = stream_key(sm.get("encrypt_info")) else {
+            continue;
+        };
+        if let Some(url) =
+            stream_url(sm.get("main_url")).or_else(|| stream_url(sm.get("backup_url")))
+        {
             return Some((url, key));
         }
     }
@@ -458,36 +512,61 @@ impl Client {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn new(cache_dir: PathBuf, cache_enabled: bool, cache_ttl: u64,
-               search_urls: Vec<String>, catalog_urls: Vec<String>, content_urls: Vec<String>,
-               batch_urls: Vec<String>, detail_url: String,
-               audio_content_urls: Vec<String>, verbose: bool) -> Self {
+    pub fn new(
+        cache_dir: PathBuf,
+        cache_enabled: bool,
+        cache_ttl: u64,
+        search_urls: Vec<String>,
+        catalog_urls: Vec<String>,
+        content_urls: Vec<String>,
+        batch_urls: Vec<String>,
+        detail_url: String,
+        audio_content_urls: Vec<String>,
+        verbose: bool,
+    ) -> Self {
         fqapi::install_crypto();
         Client {
-            cache_dir, cache_enabled, cache_ttl, search_urls, catalog_urls,
-            content_urls, batch_urls, detail_url, audio_content_urls,
+            cache_dir,
+            cache_enabled,
+            cache_ttl,
+            search_urls,
+            catalog_urls,
+            content_urls,
+            batch_urls,
+            detail_url,
+            audio_content_urls,
             verbose,
             reqwest_client: Self::tls_builder()
                 .user_agent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
                 // 第三方源短超时：死源快速放弃，配合熔断避免拖垮整体下载
                 .timeout(std::time::Duration::from_secs(8))
-                .build().unwrap(),
+                .build()
+                .unwrap(),
             source_stats: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub fn from_config(cfg: &crate::types::Config, verbose: bool) -> Self {
         Client::new(
-            cfg.cache_dir.clone(), cfg.cache_enabled, cfg.cache_ttl,
-            cfg.search_urls.clone(), cfg.catalog_urls.clone(), cfg.content_urls.clone(),
-            cfg.batch_urls.clone(), cfg.detail_url.clone(),
-            cfg.audio_content_urls.clone(), verbose,
+            cfg.cache_dir.clone(),
+            cfg.cache_enabled,
+            cfg.cache_ttl,
+            cfg.search_urls.clone(),
+            cfg.catalog_urls.clone(),
+            cfg.content_urls.clone(),
+            cfg.batch_urls.clone(),
+            cfg.detail_url.clone(),
+            cfg.audio_content_urls.clone(),
+            verbose,
         )
     }
 
     fn log_fallback(&self, what: &str, e: &str) {
         if self.verbose {
-            crate::util::note(&format!("  [verbose] fqapi {} 失败，降级第三方: {}", what, e));
+            crate::util::note(&format!(
+                "  [verbose] fqapi {} 失败，降级第三方: {}",
+                what, e
+            ));
         }
     }
 
@@ -495,16 +574,28 @@ impl Client {
 
     async fn core_search(&self, keyword: &str, page: usize) -> Result<Vec<Book>, String> {
         let offset = (page.saturating_sub(1)) * 10;
-        let q = format!("query={}&offset={}&count=10&tab_type=3", urlencode(keyword), offset);
+        let q = format!(
+            "query={}&offset={}&count=10&tab_type=3",
+            urlencode(keyword),
+            offset
+        );
         let v = core_json("/api/v1/search", &q).await?;
         let books = parse_books(&v);
-        if books.is_empty() { Err("无结果".into()) } else { Ok(books) }
+        if books.is_empty() {
+            Err("无结果".into())
+        } else {
+            Ok(books)
+        }
     }
 
     async fn core_catalog(&self, book_id: &str) -> Result<Vec<Chapter>, String> {
         let v = core_json(&format!("/api/v1/books/{}/directory", book_id), "").await?;
         let chapters = parse_chapters(&v);
-        if chapters.is_empty() { Err("空目录".into()) } else { Ok(chapters) }
+        if chapters.is_empty() {
+            Err("空目录".into())
+        } else {
+            Ok(chapters)
+        }
     }
 
     async fn core_content(&self, item_id: &str) -> Result<String, String> {
@@ -518,17 +609,27 @@ impl Client {
         Ok(strip_html(&content))
     }
 
-    async fn core_content_batch(&self, book_id: &str, item_ids: &[&str]) -> Result<HashMap<String, String>, String> {
+    async fn core_content_batch(
+        &self,
+        book_id: &str,
+        item_ids: &[&str],
+    ) -> Result<HashMap<String, String>, String> {
         let q = format!("book_id={}&item_ids={}", book_id, item_ids.join(","));
         // 首选 full mget（novelfm playerapi，匿名可用，item_infos 已解密明文）
         if let Ok(v) = core_json_ms("/api/v1/chapters/full", &q, 20_000).await {
             let map = parse_batch(&v);
-            if !map.is_empty() { return Ok(map); }
+            if !map.is_empty() {
+                return Ok(map);
+            }
         }
         // 回退 batch_full（匿名常回 content="Invalid"）
         let v = core_json_ms("/api/v1/chapters/batch", &q, 20_000).await?;
         let map = parse_batch(&v);
-        if map.is_empty() { Err("批量API未返回数据".into()) } else { Ok(map) }
+        if map.is_empty() {
+            Err("批量API未返回数据".into())
+        } else {
+            Ok(map)
+        }
     }
 
     async fn core_detail(&self, book_id: &str) -> Result<String, String> {
@@ -536,7 +637,12 @@ impl Client {
         parse_detail(&v)
     }
 
-    async fn core_audio(&self, book_id: &str, item_id: &str, tone: usize) -> Result<(String, String), String> {
+    async fn core_audio(
+        &self,
+        book_id: &str,
+        item_id: &str,
+        tone: usize,
+    ) -> Result<(String, String), String> {
         let q = format!("tone_id={}", tone);
         let path = format!("/api/v1/audio/books/{}/chapters/{}", book_id, item_id);
         let v = core_json(&path, &q).await?;
@@ -548,12 +654,21 @@ impl Client {
     /// 响应行按请求顺序一一对应（上游行内 `item_id` 统一填末 id，不可用于
     /// 匹配），故用 `zip(item_ids, rows)` 组装。任一章缺失不影响其余章，
     /// 调用方对缺失章逐章 `fetch_audio` 兜底。
-    pub async fn fetch_audio_batch(&self, book_id: &str, item_ids: &[String], tone: usize)
-        -> Result<HashMap<String, (String, String)>, String>
-    {
-        if item_ids.is_empty() { return Ok(HashMap::new()); }
+    pub async fn fetch_audio_batch(
+        &self,
+        book_id: &str,
+        item_ids: &[String],
+        tone: usize,
+    ) -> Result<HashMap<String, (String, String)>, String> {
+        if item_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
         let q = format!("tone_id={}", tone);
-        let path = format!("/api/v1/audio/books/{}/chapters/{}", book_id, item_ids.join(","));
+        let path = format!(
+            "/api/v1/audio/books/{}/chapters/{}",
+            book_id,
+            item_ids.join(",")
+        );
         let v = core_json(&path, &q).await?;
         check_biz(&v)?;
         let rows = find_items(&v, &["video_model", "item_id"]).ok_or("未获取到音频地址")?;
@@ -565,7 +680,11 @@ impl Client {
                 }
             }
         }
-        if out.is_empty() { Err("未获取到音频地址".into()) } else { Ok(out) }
+        if out.is_empty() {
+            Err("未获取到音频地址".into())
+        } else {
+            Ok(out)
+        }
     }
 
     // ---------- 公开接口：主通道优先，失败降级 ----------
@@ -611,7 +730,11 @@ impl Client {
     ///
     /// 分块并发（每 100 章一块）：全量单请求体过大易超时；部分块失败只缺
     /// 对应章节，由逐章路径补齐，不再整批失败。
-    pub async fn fetch_content_batch(&self, book_id: &str, item_ids: &[&str]) -> Result<HashMap<String, String>, String> {
+    pub async fn fetch_content_batch(
+        &self,
+        book_id: &str,
+        item_ids: &[&str],
+    ) -> Result<HashMap<String, String>, String> {
         const CHUNK: usize = 100;
         if item_ids.len() > CHUNK {
             let mut set = tokio::task::JoinSet::new();
@@ -628,12 +751,16 @@ impl Client {
             let mut last_err = String::new();
             while let Some(r) = set.join_next().await {
                 match r {
-                    Ok(Ok(m)) => { merged.extend(m); }
+                    Ok(Ok(m)) => {
+                        merged.extend(m);
+                    }
                     Ok(Err(e)) => last_err = e,
                     Err(e) => last_err = e.to_string(),
                 }
             }
-            if !merged.is_empty() { return Ok(merged); }
+            if !merged.is_empty() {
+                return Ok(merged);
+            }
             self.log_fallback("batch", &last_err);
             return self.batch_legacy(book_id, item_ids).await;
         }
@@ -661,12 +788,19 @@ impl Client {
     ///
     /// `key_hex` 非空表示 CENC 加密流，下载后需按密钥解密才是可播文件；
     /// 第三方降级路径恒返回空串（明文）。
-    pub async fn fetch_audio(&self, book_id: &str, item_id: &str, tone: usize) -> Result<(String, String), String> {
+    pub async fn fetch_audio(
+        &self,
+        book_id: &str,
+        item_id: &str,
+        tone: usize,
+    ) -> Result<(String, String), String> {
         match self.core_audio(book_id, item_id, tone).await {
             Ok(pair) => Ok(pair),
             Err(e) => {
                 self.log_fallback("audio", &e);
-                self.audio_legacy(item_id, tone).await.map(|u| (u, String::new()))
+                self.audio_legacy(item_id, tone)
+                    .await
+                    .map(|u| (u, String::new()))
             }
         }
     }
@@ -682,7 +816,12 @@ impl Client {
     ///   中选 `book_type=1` 且播放量最大的真人讲书版。
     /// - `--ai`：听书版转 `related_novel_bookid` 文字版（AI 音色所在）；
     ///   文字版原样返回（配合 `--tone` 选音色）。
-    pub async fn resolve_audio_book(&self, book_id: &str, real: bool, ai: bool) -> Result<String, String> {
+    pub async fn resolve_audio_book(
+        &self,
+        book_id: &str,
+        real: bool,
+        ai: bool,
+    ) -> Result<String, String> {
         if !real && !ai {
             return Ok(book_id.to_string());
         }
@@ -695,7 +834,8 @@ impl Client {
         if is_audio {
             return Ok(book_id.to_string());
         }
-        self.pick_real_book(&detail_str(&d, "related_audio_bookids")).await
+        self.pick_real_book(&detail_str(&d, "related_audio_bookids"))
+            .await
     }
 
     /// 从 `related_audio_bookids`（形如 `"[7387...,7645...]"` 的裸数字数组
@@ -739,37 +879,65 @@ impl Client {
             sort_urls(&self.search_urls, &stats)
         };
         for tmpl in &sorted {
-            if source_dead(&self.source_stats.lock().unwrap(), tmpl) { continue; }
-            let url = tmpl.replacen("{}", &kw, 1).replacen("{}", &offset.to_string(), 1);
+            if source_dead(&self.source_stats.lock().unwrap(), tmpl) {
+                continue;
+            }
+            let url = tmpl
+                .replacen("{}", &kw, 1)
+                .replacen("{}", &offset.to_string(), 1);
             let start = Instant::now();
-            let result = util::with_verbose_async(|| async {
-                util::with_retry_async(|| self.http_get(&url), 2).await
-            }, &format!("search {}", &url[..url.len().min(60)]), self.verbose).await;
+            let result = util::with_verbose_async(
+                || async { util::with_retry_async(|| self.http_get(&url), 2).await },
+                &format!("search {}", &url[..url.len().min(60)]),
+                self.verbose,
+            )
+            .await;
             let elapsed = start.elapsed().as_millis() as u64;
             if let Ok(mut stats) = self.source_stats.lock() {
                 let entry = stats.entry(tmpl.clone()).or_default();
                 match &result {
-                    Ok(_) => { entry.ok_count += 1; entry.total_time_ms += elapsed; }
-                    Err(_) => { entry.fail_count += 1; }
+                    Ok(_) => {
+                        entry.ok_count += 1;
+                        entry.total_time_ms += elapsed;
+                    }
+                    Err(_) => {
+                        entry.fail_count += 1;
+                    }
                 }
             }
             match result {
-                Ok(text) => {
-                    match Self::parse_search_results(&text, self.verbose) {
-                        Ok(books) if !books.is_empty() => return Ok(books),
-                        Ok(_) => { last_err = "无结果".into(); continue; }
-                        Err(e) => { last_err = e; continue; }
+                Ok(text) => match Self::parse_search_results(&text, self.verbose) {
+                    Ok(books) if !books.is_empty() => return Ok(books),
+                    Ok(_) => {
+                        last_err = "无结果".into();
+                        continue;
                     }
+                    Err(e) => {
+                        last_err = e;
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    last_err = e;
+                    continue;
                 }
-                Err(e) => { last_err = e; continue; }
             }
         }
-        Err(if last_err.is_empty() { "所有第三方源均已熔断".into() } else { last_err })
+        Err(if last_err.is_empty() {
+            "所有第三方源均已熔断".into()
+        } else {
+            last_err
+        })
     }
 
     fn parse_search_results(text: &str, verbose: bool) -> Result<Vec<Book>, String> {
         let root: Value = serde_json::from_str(text).map_err(|e| {
-            if verbose { crate::util::note(&format!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, text)); }
+            if verbose {
+                crate::util::note(&format!(
+                    "  [verbose] JSON解析失败: {}\n  原始响应:\n{}",
+                    e, text
+                ));
+            }
             format!("JSON: {}", e)
         })?;
         let mut books = vec![];
@@ -786,30 +954,50 @@ impl Client {
                 let status = item["creation_status"].as_i64().unwrap_or(0);
                 if !id.is_empty() {
                     books.push(Book {
-                        book_id: id.into(), title: title.into(), author: author.into(),
-                        score: score.into(), category: category.into(), abstract_: abstract_.into(),
+                        book_id: id.into(),
+                        title: title.into(),
+                        author: author.into(),
+                        score: score.into(),
+                        category: category.into(),
+                        abstract_: abstract_.into(),
                         status,
                     });
                 }
             }
         }
-        if books.is_empty() { Err("无结果".into()) } else { Ok(books) }
+        if books.is_empty() {
+            Err("无结果".into())
+        } else {
+            Ok(books)
+        }
     }
 
     async fn catalog_legacy(&self, book_id: &str) -> Result<Vec<Chapter>, String> {
         let mut last_err = String::new();
         for tmpl in &self.catalog_urls {
             let url = tmpl.replacen("{}", book_id, 1);
-            let result = util::with_verbose_async(|| async {
-                util::with_retry_async(|| self.http_get(&url), 2).await
-            }, &format!("catalog {}", book_id), self.verbose).await;
+            let result = util::with_verbose_async(
+                || async { util::with_retry_async(|| self.http_get(&url), 2).await },
+                &format!("catalog {}", book_id),
+                self.verbose,
+            )
+            .await;
             match result {
                 Ok(text) => match self.parse_catalog(&text) {
                     Ok(chs) if !chs.is_empty() => return Ok(chs),
-                    Ok(_) => { last_err = "空目录".into(); continue; }
-                    Err(e) => { last_err = e; continue; }
+                    Ok(_) => {
+                        last_err = "空目录".into();
+                        continue;
+                    }
+                    Err(e) => {
+                        last_err = e;
+                        continue;
+                    }
                 },
-                Err(e) => { last_err = e; continue; }
+                Err(e) => {
+                    last_err = e;
+                    continue;
+                }
             }
         }
         Err(last_err)
@@ -817,7 +1005,12 @@ impl Client {
 
     fn parse_catalog(&self, text: &str) -> Result<Vec<Chapter>, String> {
         let root: Value = serde_json::from_str(text).map_err(|e| {
-            if self.verbose { crate::util::note(&format!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, text)); }
+            if self.verbose {
+                crate::util::note(&format!(
+                    "  [verbose] JSON解析失败: {}\n  原始响应:\n{}",
+                    e, text
+                ));
+            }
             format!("JSON: {}", e)
         })?;
         let mut chapters = vec![];
@@ -831,7 +1024,11 @@ impl Client {
                         let item_id = item["itemId"].as_str().unwrap_or("").to_string();
                         let title = item["title"].as_str().unwrap_or("未知章节").to_string();
                         if !item_id.is_empty() {
-                            chapters.push(Chapter { index: idx, item_id, title });
+                            chapters.push(Chapter {
+                                index: idx,
+                                item_id,
+                                title,
+                            });
                             idx += 1;
                         }
                     }
@@ -840,15 +1037,25 @@ impl Client {
         // 第三方服务器格式: /data/lists[{item_id, title}]
         } else if let Some(Value::Array(items)) = root.pointer("/data/lists") {
             for (idx, item) in items.iter().enumerate() {
-                let item_id = item["item_id"].as_str().or_else(|| item["itemId"].as_str()).unwrap_or("").to_string();
+                let item_id = item["item_id"]
+                    .as_str()
+                    .or_else(|| item["itemId"].as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let title = item["title"].as_str().unwrap_or("未知章节").to_string();
                 if !item_id.is_empty() {
-                    chapters.push(Chapter { index: idx + 1, item_id, title });
+                    chapters.push(Chapter {
+                        index: idx + 1,
+                        item_id,
+                        title,
+                    });
                 }
             }
         }
 
-        if chapters.is_empty() { return Err("未获取到章节".into()); }
+        if chapters.is_empty() {
+            return Err("未获取到章节".into());
+        }
         Ok(chapters)
     }
 
@@ -861,7 +1068,9 @@ impl Client {
         };
         let mut last_err = String::new();
         for tmpl in &sorted {
-            if source_dead(&self.source_stats.lock().unwrap(), tmpl) { continue; }
+            if source_dead(&self.source_stats.lock().unwrap(), tmpl) {
+                continue;
+            }
             let url = tmpl.replacen("{}", item_id, 1);
             let start = Instant::now();
             let result = self.fetch_content_from(&url, item_id).await;
@@ -869,25 +1078,47 @@ impl Client {
             if let Ok(mut stats) = self.source_stats.lock() {
                 let entry = stats.entry(tmpl.clone()).or_default();
                 match &result {
-                    Ok(_) => { entry.ok_count += 1; entry.total_time_ms += elapsed; }
-                    Err(_) => { entry.fail_count += 1; }
+                    Ok(_) => {
+                        entry.ok_count += 1;
+                        entry.total_time_ms += elapsed;
+                    }
+                    Err(_) => {
+                        entry.fail_count += 1;
+                    }
                 }
             }
-            if result.is_ok() { return result; }
+            if result.is_ok() {
+                return result;
+            }
             last_err = result.unwrap_err();
         }
-        Err(if last_err.is_empty() { "所有第三方源均已熔断".into() } else { last_err })
+        Err(if last_err.is_empty() {
+            "所有第三方源均已熔断".into()
+        } else {
+            last_err
+        })
     }
 
     async fn fetch_content_from(&self, url: &str, item_id: &str) -> Result<String, String> {
-        let raw = util::with_verbose_async(|| async {
-            util::with_retry_async(|| self.http_get(url), 2).await
-        }, &format!("content {}", &url[..url.len().min(60)]), self.verbose).await?;
+        let raw = util::with_verbose_async(
+            || async { util::with_retry_async(|| self.http_get(url), 2).await },
+            &format!("content {}", &url[..url.len().min(60)]),
+            self.verbose,
+        )
+        .await?;
         let root: Value = serde_json::from_str(&raw).map_err(|e| {
-            if self.verbose { crate::util::note(&format!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, raw)); }
+            if self.verbose {
+                crate::util::note(&format!(
+                    "  [verbose] JSON解析失败: {}\n  原始响应:\n{}",
+                    e, raw
+                ));
+            }
             format!("JSON: {}", item_id)
         })?;
-        let content = root.pointer("/data/content").and_then(|v| v.as_str()).unwrap_or("");
+        let content = root
+            .pointer("/data/content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if self.cache_enabled {
             let cp = self.cache_dir.join(format!("c_{}.json", item_id));
             fs::write(&cp, &raw).ok();
@@ -896,16 +1127,25 @@ impl Client {
     }
 
     pub async fn http_get(&self, url: &str) -> Result<String, String> {
-        if self.verbose { crate::util::note(&format!("  [verbose] GET {}", url)); }
-        let resp = self.reqwest_client
+        if self.verbose {
+            crate::util::note(&format!("  [verbose] GET {}", url));
+        }
+        let resp = self
+            .reqwest_client
             .get(url)
             .send()
             .await
             .map_err(|e| format!("请求失败: {}", e))?;
         let status = resp.status().as_u16();
         let text = resp.text().await.map_err(|e| format!("读取响应: {}", e))?;
-        if status == 200 { return Ok(text); }
-        Err(format!("HTTP {}: {}..", status, &text[..text.len().min(200)]))
+        if status == 200 {
+            return Ok(text);
+        }
+        Err(format!(
+            "HTTP {}: {}..",
+            status,
+            &text[..text.len().min(200)]
+        ))
     }
 
     async fn audio_legacy(&self, item_id: &str, tone_id: usize) -> Result<String, String> {
@@ -917,61 +1157,116 @@ impl Client {
         };
         let mut last_err = String::new();
         for tmpl in &sorted {
-            if source_dead(&self.source_stats.lock().unwrap(), tmpl) { continue; }
-            let url = tmpl.replacen("{}", item_id, 1).replacen("{}", &tone_id.to_string(), 1);
+            if source_dead(&self.source_stats.lock().unwrap(), tmpl) {
+                continue;
+            }
+            let url = tmpl
+                .replacen("{}", item_id, 1)
+                .replacen("{}", &tone_id.to_string(), 1);
             let start = Instant::now();
             let result = self.fetch_audio_from(&url, item_id).await;
             let elapsed = start.elapsed().as_millis() as u64;
             if let Ok(mut stats) = self.source_stats.lock() {
                 let entry = stats.entry(tmpl.clone()).or_default();
                 match &result {
-                    Ok(_) => { entry.ok_count += 1; entry.total_time_ms += elapsed; }
-                    Err(_) => { entry.fail_count += 1; }
+                    Ok(_) => {
+                        entry.ok_count += 1;
+                        entry.total_time_ms += elapsed;
+                    }
+                    Err(_) => {
+                        entry.fail_count += 1;
+                    }
                 }
             }
-            if result.is_ok() { return result; }
+            if result.is_ok() {
+                return result;
+            }
             last_err = result.unwrap_err();
         }
-        Err(if last_err.is_empty() { "所有第三方源均已熔断".into() } else { last_err })
+        Err(if last_err.is_empty() {
+            "所有第三方源均已熔断".into()
+        } else {
+            last_err
+        })
     }
 
     async fn fetch_audio_from(&self, url: &str, item_id: &str) -> Result<String, String> {
-        let raw = util::with_verbose_async(|| async {
-            util::with_retry_async(|| self.http_get(url), 2).await
-        }, &format!("audio_url {}", &item_id[..item_id.len().min(16)]), self.verbose).await?;
+        let raw = util::with_verbose_async(
+            || async { util::with_retry_async(|| self.http_get(url), 2).await },
+            &format!("audio_url {}", &item_id[..item_id.len().min(16)]),
+            self.verbose,
+        )
+        .await?;
         let root: Value = serde_json::from_str(&raw).map_err(|e| {
-            if self.verbose { crate::util::note(&format!("  [verbose] JSON解析失败: {}\n  原始响应:\n{}", e, raw)); }
+            if self.verbose {
+                crate::util::note(&format!(
+                    "  [verbose] JSON解析失败: {}\n  原始响应:\n{}",
+                    e, raw
+                ));
+            }
             format!("JSON: {}", item_id)
         })?;
-        let audio_url = root.pointer("/data/content").and_then(|v| v.as_str()).unwrap_or("");
+        let audio_url = root
+            .pointer("/data/content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if !audio_url.is_empty() {
-            if self.verbose { crate::util::note(&format!("  [verbose] audio URL: {}b", audio_url.len())); }
+            if self.verbose {
+                crate::util::note(&format!("  [verbose] audio URL: {}b", audio_url.len()));
+            }
             return Ok(audio_url.to_string());
         }
-        let msg = root.pointer("/message").and_then(|v| v.as_str()).unwrap_or("");
-        Err(if msg.is_empty() { "无可听音频".into() } else { msg.to_string() })
+        let msg = root
+            .pointer("/message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        Err(if msg.is_empty() {
+            "无可听音频".into()
+        } else {
+            msg.to_string()
+        })
     }
 
     async fn detail_legacy(&self, book_id: &str) -> Result<String, String> {
         let url = self.detail_url.replacen("{}", book_id, 1);
-        let raw = util::with_verbose_async(|| async {
-            util::with_retry_async(|| self.http_get(&url), 2).await
-        }, &format!("detail {}", book_id), self.verbose).await?;
+        let raw = util::with_verbose_async(
+            || async { util::with_retry_async(|| self.http_get(&url), 2).await },
+            &format!("detail {}", book_id),
+            self.verbose,
+        )
+        .await?;
         let root: Value = serde_json::from_str(&raw).map_err(|e| {
-            if self.verbose { crate::util::note(&format!("  [verbose] JSON: {}\n  {}", e, raw)); }
+            if self.verbose {
+                crate::util::note(&format!("  [verbose] JSON: {}\n  {}", e, raw));
+            }
             format!("JSON: {}", e)
         })?;
-        let title = root.pointer("/data/data/book_name")
+        let title = root
+            .pointer("/data/data/book_name")
             .or_else(|| root.pointer("/data/data/bookName"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if title.is_empty() { return Err("未找到书籍信息".into()); }
-        let author = root.pointer("/data/data/author").and_then(|v| v.as_str()).unwrap_or("");
-        let intro = root.pointer("/data/data/abstract").and_then(|v| v.as_str()).unwrap_or("");
-        Ok(format!("{}|{}|{}", title, author, intro).trim_end_matches('|').to_string())
+        if title.is_empty() {
+            return Err("未找到书籍信息".into());
+        }
+        let author = root
+            .pointer("/data/data/author")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let intro = root
+            .pointer("/data/data/abstract")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        Ok(format!("{}|{}|{}", title, author, intro)
+            .trim_end_matches('|')
+            .to_string())
     }
 
-    async fn batch_legacy(&self, book_id: &str, item_ids: &[&str]) -> Result<HashMap<String, String>, String> {
+    async fn batch_legacy(
+        &self,
+        book_id: &str,
+        item_ids: &[&str],
+    ) -> Result<HashMap<String, String>, String> {
         static REQ_COUNTER: AtomicU64 = AtomicU64::new(0);
         maybe_reset_stats(&self.source_stats, &REQ_COUNTER);
         let sorted = {
@@ -986,21 +1281,29 @@ impl Client {
             let batch = chunk.join(",");
             let mut chunk_ok = false;
             for tmpl in &sorted {
-                if source_dead(&self.source_stats.lock().unwrap(), tmpl) { continue; }
+                if source_dead(&self.source_stats.lock().unwrap(), tmpl) {
+                    continue;
+                }
                 let url = tmpl.replacen("{}", book_id, 1).replacen("{}", &batch, 1);
                 let start = Instant::now();
                 let result = async {
-                    let raw = util::with_verbose_async(|| async {
-                        util::with_retry_async(|| self.http_get(&url), 2).await
-                    }, &format!("batch {} chapters", chunk.len()), self.verbose).await?;
+                    let raw = util::with_verbose_async(
+                        || async { util::with_retry_async(|| self.http_get(&url), 2).await },
+                        &format!("batch {} chapters", chunk.len()),
+                        self.verbose,
+                    )
+                    .await?;
                     let root: Value = serde_json::from_str(&raw).map_err(|e| {
-                        if self.verbose { crate::util::note(&format!("  [verbose] JSON: {}\n  {}", e, raw)); }
+                        if self.verbose {
+                            crate::util::note(&format!("  [verbose] JSON: {}\n  {}", e, raw));
+                        }
                         format!("JSON: {}", e)
                     })?;
                     let mut map = HashMap::new();
                     if let Some(arr) = root.pointer("/data").and_then(|v| v.as_array()) {
                         for item in arr {
-                            let id = item["item_id"].as_str()
+                            let id = item["item_id"]
+                                .as_str()
                                 .or_else(|| item["itemId"].as_str())
                                 .unwrap_or("");
                             let content = item["content"].as_str().unwrap_or("");
@@ -1009,15 +1312,23 @@ impl Client {
                             }
                         }
                     }
-                    if !map.is_empty() { return Ok(map); }
+                    if !map.is_empty() {
+                        return Ok(map);
+                    }
                     Err("批量API未返回数据".into())
-                }.await;
+                }
+                .await;
                 let elapsed = start.elapsed().as_millis() as u64;
                 if let Ok(mut stats) = self.source_stats.lock() {
                     let entry = stats.entry(tmpl.clone()).or_default();
                     match &result {
-                        Ok(_) => { entry.ok_count += 1; entry.total_time_ms += elapsed; }
-                        Err(_) => { entry.fail_count += 1; }
+                        Ok(_) => {
+                            entry.ok_count += 1;
+                            entry.total_time_ms += elapsed;
+                        }
+                        Err(_) => {
+                            entry.fail_count += 1;
+                        }
                     }
                 }
                 if let Ok(map) = result {
@@ -1031,8 +1342,14 @@ impl Client {
                 last_err = "所有第三方源均已熔断".into();
             }
         }
-        if !merged.is_empty() { return Ok(merged); }
-        Err(if last_err.is_empty() { "所有第三方源均已熔断".into() } else { last_err })
+        if !merged.is_empty() {
+            return Ok(merged);
+        }
+        Err(if last_err.is_empty() {
+            "所有第三方源均已熔断".into()
+        } else {
+            last_err
+        })
     }
 }
 
@@ -1045,32 +1362,43 @@ fn web_client() -> &'static reqwest::Client {
         Client::tls_builder()
             .user_agent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(15))
-            .build().expect("web client 构建失败")
+            .build()
+            .expect("web client 构建失败")
     })
 }
 
 /// GET 网页端点（带 Cookie），返回响应文本。
 pub async fn http_get_cookie(url: &str, cookie: &str) -> Result<String, String> {
-    let resp = web_client().get(url)
+    let resp = web_client()
+        .get(url)
         .header(reqwest::header::COOKIE, cookie)
-        .send().await.map_err(|e| format!("请求失败: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.map_err(|e| format!("读取响应: {e}"))?;
-    if status == 200 { return Ok(text); }
+    if status == 200 {
+        return Ok(text);
+    }
     Err(format!("HTTP {status}: {}..", &text[..text.len().min(200)]))
 }
 
 /// POST 网页端点（带 Cookie，JSON body），返回响应文本。
 pub async fn http_post_cookie(url: &str, cookie: &str, body: &[u8]) -> Result<String, String> {
-    let resp = web_client().post(url)
+    let resp = web_client()
+        .post(url)
         .header(reqwest::header::COOKIE, cookie)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .header(reqwest::header::REFERER, "https://fanqienovel.com/")
         .body(body.to_vec())
-        .send().await.map_err(|e| format!("请求失败: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.map_err(|e| format!("读取响应: {e}"))?;
-    if status == 200 { return Ok(text); }
+    if status == 200 {
+        return Ok(text);
+    }
     Err(format!("HTTP {status}: {}..", &text[..text.len().min(200)]))
 }
 
@@ -1078,7 +1406,9 @@ fn urlencode(s: &str) -> String {
     let mut r = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => r.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                r.push(b as char)
+            }
             b' ' => r.push_str("%20"),
             _ => r.push_str(&format!("%{:02X}", b)),
         }
@@ -1097,7 +1427,13 @@ pub fn strip_html(s: &str) -> String {
         if tag {
             if c == '>' {
                 tag = false;
-                if is_close && (tag_name == "p" || tag_name == "div" || tag_name == "h1" || tag_name == "h2" || tag_name == "h3") {
+                if is_close
+                    && (tag_name == "p"
+                        || tag_name == "div"
+                        || tag_name == "h1"
+                        || tag_name == "h2"
+                        || tag_name == "h3")
+                {
                     out.push_str("\n\n");
                 }
                 if tag_name == "br" {
@@ -1107,23 +1443,43 @@ pub fn strip_html(s: &str) -> String {
                 is_close = false;
                 continue;
             }
-            if c == '/' && tag_name.is_empty() { is_close = true; continue; }
-            if !c.is_ascii_whitespace() { tag_name.push(c.to_ascii_lowercase()); }
+            if c == '/' && tag_name.is_empty() {
+                is_close = true;
+                continue;
+            }
+            if !c.is_ascii_whitespace() {
+                tag_name.push(c.to_ascii_lowercase());
+            }
             continue;
         }
         if ent {
             if c == ';' {
                 match buf.as_str() {
-                    "lt" => out.push('<'), "gt" => out.push('>'),
-                    "amp" => out.push('&'), "nbsp" => out.push(' '),
-                    "quot" => out.push('"'), _ => {}
+                    "lt" => out.push('<'),
+                    "gt" => out.push('>'),
+                    "amp" => out.push('&'),
+                    "nbsp" => out.push(' '),
+                    "quot" => out.push('"'),
+                    _ => {}
                 }
-                ent = false; buf.clear();
-            } else { buf.push(c); }
+                ent = false;
+                buf.clear();
+            } else {
+                buf.push(c);
+            }
             continue;
         }
-        if c == '<' { tag = true; tag_name.clear(); is_close = false; continue; }
-        if c == '&' { ent = true; buf.clear(); continue; }
+        if c == '<' {
+            tag = true;
+            tag_name.clear();
+            is_close = false;
+            continue;
+        }
+        if c == '&' {
+            ent = true;
+            buf.clear();
+            continue;
+        }
         out.push(c);
     }
     out
@@ -1145,7 +1501,13 @@ pub fn strip_html_imgs(s: &str) -> String {
             raw_tag.push(c);
             if c == '>' {
                 tag = false;
-                if is_close && (tag_name == "p" || tag_name == "div" || tag_name == "h1" || tag_name == "h2" || tag_name == "h3") {
+                if is_close
+                    && (tag_name == "p"
+                        || tag_name == "div"
+                        || tag_name == "h1"
+                        || tag_name == "h2"
+                        || tag_name == "h3")
+                {
                     out.push_str("\n\n");
                 }
                 if tag_name == "br" {
@@ -1164,9 +1526,14 @@ pub fn strip_html_imgs(s: &str) -> String {
                 name_done = false;
                 continue;
             }
-            if c == '/' && tag_name.is_empty() { is_close = true; continue; }
+            if c == '/' && tag_name.is_empty() {
+                is_close = true;
+                continue;
+            }
             if c.is_ascii_whitespace() {
-                if !tag_name.is_empty() { name_done = true; }
+                if !tag_name.is_empty() {
+                    name_done = true;
+                }
             } else if !name_done {
                 tag_name.push(c.to_ascii_lowercase());
             }
@@ -1175,16 +1542,33 @@ pub fn strip_html_imgs(s: &str) -> String {
         if ent {
             if c == ';' {
                 match buf.as_str() {
-                    "lt" => out.push('<'), "gt" => out.push('>'),
-                    "amp" => out.push('&'), "nbsp" => out.push(' '),
-                    "quot" => out.push('"'), _ => {}
+                    "lt" => out.push('<'),
+                    "gt" => out.push('>'),
+                    "amp" => out.push('&'),
+                    "nbsp" => out.push(' '),
+                    "quot" => out.push('"'),
+                    _ => {}
                 }
-                ent = false; buf.clear();
-            } else { buf.push(c); }
+                ent = false;
+                buf.clear();
+            } else {
+                buf.push(c);
+            }
             continue;
         }
-        if c == '<' { tag = true; tag_name.clear(); raw_tag.clear(); is_close = false; name_done = false; continue; }
-        if c == '&' { ent = true; buf.clear(); continue; }
+        if c == '<' {
+            tag = true;
+            tag_name.clear();
+            raw_tag.clear();
+            is_close = false;
+            name_done = false;
+            continue;
+        }
+        if c == '&' {
+            ent = true;
+            buf.clear();
+            continue;
+        }
         out.push(c);
     }
     out
@@ -1196,12 +1580,19 @@ fn img_src(raw_tag: &str) -> Option<String> {
     let i = lower.find("src=")?;
     let rest = &raw_tag[i + 4..];
     let rest = rest.trim_start();
-    let (q, body) = if let Some(r) = rest.strip_prefix('"') { ('"', r) }
-        else {
-            let r = rest.strip_prefix('\'')?; ('\'', r) };
+    let (q, body) = if let Some(r) = rest.strip_prefix('"') {
+        ('"', r)
+    } else {
+        let r = rest.strip_prefix('\'')?;
+        ('\'', r)
+    };
     let end = body.find(q)?;
     let src = body[..end].trim();
-    if src.is_empty() { None } else { Some(src.to_string()) }
+    if src.is_empty() {
+        None
+    } else {
+        Some(src.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -1249,13 +1640,16 @@ mod tests {
 
     #[test]
     fn test_parse_books_nested() {
-        let v: Value = serde_json::from_str(r#"{
+        let v: Value = serde_json::from_str(
+            r#"{
             "code":0,
             "data":{"ret_data":[
                 {"book_id":"123","title":{"text":"测试书"},"author":"某作者","score":"9.5",
                  "category":"玄幻","abstract":"简介","creation_status":1}
             ]}
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let books = parse_books(&v);
         assert_eq!(books.len(), 1);
         assert_eq!(books[0].book_id, "123");
@@ -1265,12 +1659,15 @@ mod tests {
 
     #[test]
     fn test_parse_chapters_item_data_list() {
-        let v: Value = serde_json::from_str(r#"{
+        let v: Value = serde_json::from_str(
+            r#"{
             "code":0,"data":{"item_data_list":[
                 {"item_id":"a1","title":"第一章"},
                 {"item_id":"a2","title":{"text":"第二章"}}
             ]}
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let chs = parse_chapters(&v);
         assert_eq!(chs.len(), 2);
         assert_eq!(chs[0].index, 1);
@@ -1280,10 +1677,12 @@ mod tests {
     #[test]
     fn test_stream_url_base64() {
         use base64::Engine as _;
-        let enc = base64::engine::general_purpose::STANDARD
-            .encode("https://cdn.example.com/a.mp3");
+        let enc = base64::engine::general_purpose::STANDARD.encode("https://cdn.example.com/a.mp3");
         let v = Value::String(enc);
-        assert_eq!(stream_url(Some(&v)).unwrap(), "https://cdn.example.com/a.mp3");
+        assert_eq!(
+            stream_url(Some(&v)).unwrap(),
+            "https://cdn.example.com/a.mp3"
+        );
         assert!(stream_url(Some(&Value::String("not-url".into()))).is_none());
     }
 
@@ -1295,10 +1694,14 @@ mod tests {
         let enc: Value = serde_json::from_str(
             r#"{"encrypt":true,"encryption_method":"cenc-aes-ctr","key_hex":"00112233445566778899aabbccddeeff"}"#,
         ).unwrap();
-        assert_eq!(stream_key(Some(&enc)).unwrap(), "00112233445566778899aabbccddeeff");
+        assert_eq!(
+            stream_key(Some(&enc)).unwrap(),
+            "00112233445566778899aabbccddeeff"
+        );
         let bad: Value = serde_json::from_str(
             r#"{"encrypt":true,"encryption_method":"cenc-aes-ctr","key_hex":"zz"}"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(stream_key(Some(&bad)).is_none());
     }
 

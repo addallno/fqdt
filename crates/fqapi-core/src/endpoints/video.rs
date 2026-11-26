@@ -3594,7 +3594,9 @@ fn clear_cenc_aux_boxes(data: &mut [u8]) {
     let tracks = mp4_track_boxes(data);
     for boxes in &tracks {
         for typ in [*b"senc", *b"saio", *b"saiz"] {
-            let Some(list) = boxes.get(&typ) else { continue };
+            let Some(list) = boxes.get(&typ) else {
+                continue;
+            };
             for b in list {
                 if b.off + 8 > data.len() {
                     continue;

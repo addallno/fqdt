@@ -151,12 +151,12 @@ fn build_query(host: &str) -> Result<(Vec<u8>, u16), String> {
 /// 向单个 nameserver 发起一次 UDP 查询（带超时与重试）。
 fn query_server(server: IpAddr, query: &(Vec<u8>, u16)) -> Result<Vec<IpAddr>, String> {
     let (packet, id) = query;
-    let sock = UdpSocket::bind("0.0.0.0:0")
-        .map_err(|e| format!("{server}: bind {e}"))?;
+    let sock = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("{server}: bind {e}"))?;
     sock.set_read_timeout(Some(QUERY_TIMEOUT))
         .map_err(|e| format!("{server}: timeout {e}"))?;
     let dst = SocketAddr::new(server, 53);
-    sock.connect(dst).map_err(|e| format!("{server}: connect {e}"))?;
+    sock.connect(dst)
+        .map_err(|e| format!("{server}: connect {e}"))?;
     let mut last = String::new();
     for _ in 0..QUERY_RETRIES {
         if let Err(e) = sock.send(packet) {

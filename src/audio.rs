@@ -57,20 +57,31 @@ impl AudioDownloader {
     }
 
     pub async fn run(&self, chapters: &[&Chapter], book_title: Option<&str>) {
-        if chapters.is_empty() { println!("  无章节"); return; }
+        if chapters.is_empty() {
+            println!("  无章节");
+            return;
+        }
         fs::create_dir_all(&self.out_dir).expect("创建目录失败");
 
         let total = chapters.len();
         let need_lrc = self.p.lrc_mode != "off";
-        let pending: Vec<Chapter> = chapters.iter()
+        let pending: Vec<Chapter> = chapters
+            .iter()
             .filter(|c| {
-                if self.p.force { return true; }
+                if self.p.force {
+                    return true;
+                }
                 let stem = util::format_filename(&self.p.ft, c);
-                let Some(audio) = existing_audio(&self.out_dir, &stem) else { return true; };
-                if need_lrc && !audio.with_extension("lrc").exists() { return true; }
+                let Some(audio) = existing_audio(&self.out_dir, &stem) else {
+                    return true;
+                };
+                if need_lrc && !audio.with_extension("lrc").exists() {
+                    return true;
+                }
                 false
             })
-            .map(|c| (*c).clone()).collect();
+            .map(|c| (*c).clone())
+            .collect();
         let skip = total - pending.len();
 
         if pending.is_empty() {
@@ -86,10 +97,17 @@ impl AudioDownloader {
         // 批量预取 playinfo（单请求逗号多 id）；失败退化为空表，逐章兜底
         util::progress(&format!("批量获取音频信息（{} 章）", pending.len()));
         let ids: Vec<String> = pending.iter().map(|c| c.item_id.clone()).collect();
-        let pre_map = api.fetch_audio_batch(&p.book_id, &ids, p.tone).await.unwrap_or_default();
+        let pre_map = api
+            .fetch_audio_batch(&p.book_id, &ids, p.tone)
+            .await
+            .unwrap_or_default();
         util::clear_progress();
         if p.verbose {
-            eprintln!("  [verbose] audio: 批量 playinfo 命中 {}/{} 章", pre_map.len(), ids.len());
+            eprintln!(
+                "  [verbose] audio: 批量 playinfo 命中 {}/{} 章",
+                pre_map.len(),
+                ids.len()
+            );
         }
         let pre = std::sync::Arc::new(pre_map);
 
@@ -112,26 +130,32 @@ impl AudioDownloader {
         let max_jobs = default_concurrent();
         let pending_n = pending.len();
         if self.p.verbose {
-            eprintln!("  [verbose] audio: {}章, {}线程, force={}, lrc={}, abr={}",
-                pending_n, max_jobs, self.p.force, self.p.lrc_mode, self.p.abr);
+            eprintln!(
+                "  [verbose] audio: {}章, {}线程, force={}, lrc={}, abr={}",
+                pending_n, max_jobs, self.p.force, self.p.lrc_mode, self.p.abr
+            );
         }
-        let (ok, fail, errs) = util::with_progress_async(pending, total, max_jobs, "green/cyan", move |ch, pb| {
-            let api = api.clone();
-            let od = od.clone();
-            let p = p.clone();
-            let pre = pre.clone();
-            async move {
-                let r = dl_one(&api, &od, &ch, &p, &pre).await;
-                match &r {
-                    Ok(_) => pb.set_message(format!("✓{:04}", ch.index)),
-                    Err(e) => pb.set_message(format!("✗{:04}:{}", ch.index, e)),
+        let (ok, fail, errs) =
+            util::with_progress_async(pending, total, max_jobs, "green/cyan", move |ch, pb| {
+                let api = api.clone();
+                let od = od.clone();
+                let p = p.clone();
+                let pre = pre.clone();
+                async move {
+                    let r = dl_one(&api, &od, &ch, &p, &pre).await;
+                    match &r {
+                        Ok(_) => pb.set_message(format!("✓{:04}", ch.index)),
+                        Err(e) => pb.set_message(format!("✗{:04}:{}", ch.index, e)),
+                    }
+                    r
                 }
-                r
-            }
-        }).await;
+            })
+            .await;
 
         println!("{GREEN}ok{RST} {ok} 章 · 跳过 {skip} 章");
-        if fail > 0 { util::print_failures(&errs, " · 重跑同一命令可续传"); }
+        if fail > 0 {
+            util::print_failures(&errs, " · 重跑同一命令可续传");
+        }
 
         self.write_info_list(chapters, book_title);
     }
@@ -148,7 +172,11 @@ impl AudioDownloader {
             let comma = if i + 1 < chapters.len() { "," } else { "" };
             json.push_str(&format!(
                 "    {{\"idx\":{}, \"title\":\"{}\", \"file\":\"{}\"}}{}\n",
-                ch.index, ch.title.replace('\\', "\\\\").replace('"', "\\\""), file, comma));
+                ch.index,
+                ch.title.replace('\\', "\\\\").replace('"', "\\\""),
+                file,
+                comma
+            ));
         }
         json.push_str("  ]\n}\n");
         fs::write(&path, json).ok();
@@ -163,7 +191,8 @@ impl AudioDownloader {
     fn file_name(&self, ch: &Chapter) -> String {
         let stem = util::format_filename(&self.p.ft, ch);
         match existing_audio(&self.out_dir, &stem) {
-            Some(p) => p.file_name()
+            Some(p) => p
+                .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| self.fname(ch)),
             None => self.fname(ch),
@@ -223,7 +252,15 @@ fn transcode_to_mp3(src: &Path, dst: &Path) -> Result<(), String> {
         .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
         .arg(src)
         // 清除输入（mp4 容器）残留元数据，避免 major_brand/compatible_brands 等垃圾标签写入 ID3
-        .args(["-map_metadata", "-1", "-vn", "-c:a", "libmp3lame", "-b:a", "64k"])
+        .args([
+            "-map_metadata",
+            "-1",
+            "-vn",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "64k",
+        ])
         .arg(dst)
         .output()
         .map_err(|e| format!("ffmpeg 执行失败: {}", e))?;
@@ -267,7 +304,8 @@ fn remux_ogg(src: &Path, dst: &Path) -> Result<(), String> {
 
 /// 查找已存在的音频文件（兼容旧 `.mp3` 与新 `.m4a`）。
 fn existing_audio(out_dir: &Path, stem: &str) -> Option<PathBuf> {
-    ["m4a", "mp3", "ogg"].iter()
+    ["m4a", "mp3", "ogg"]
+        .iter()
         .map(|ext| out_dir.join(format!("{}.{}", stem, ext)))
         .find(|p| p.exists())
 }
@@ -337,8 +375,13 @@ fn embed_cover(mp3: &Path, img: &[u8]) -> Result<(), String> {
 
 // ── Download single chapter ─────────────────────────────────
 
-async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
-                pre: &std::collections::HashMap<String, (String, String)>) -> Result<(), String> {
+async fn dl_one(
+    api: &Client,
+    out_dir: &Path,
+    ch: &Chapter,
+    p: &AudioParams,
+    pre: &std::collections::HashMap<String, (String, String)>,
+) -> Result<(), String> {
     let name = util::format_filename(&p.ft, ch);
     let work = out_dir.join(format!("{}.download", name));
 
@@ -349,7 +392,14 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
             if p.lrc_mode != "off" && !lrc_path.exists() {
                 let content = api.fetch_content(&ch.item_id).await.ok();
                 let timeline = fetch_timeline(&ch.item_id).await;
-                handle_lrc(&existing, ch, &p.lrc_mode, p.verbose, content.as_deref(), timeline.as_deref());
+                handle_lrc(
+                    &existing,
+                    ch,
+                    &p.lrc_mode,
+                    p.verbose,
+                    content.as_deref(),
+                    timeline.as_deref(),
+                );
             }
             return Ok(());
         }
@@ -366,10 +416,26 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                     if let Ok(resp) = api.reqwest_client.get(&audio_url).send().await {
                         let new_size = resp.content_length().unwrap_or(0);
                         if new_size == old_size && new_size > 1000 {
-                            if p.verbose { crate::util::note(&format!("  {:04} {} 不变 ✓", ch.index, ch.title)); }
+                            if p.verbose {
+                                crate::util::note(&format!(
+                                    "  {:04} {} 不变 ✓",
+                                    ch.index, ch.title
+                                ));
+                            }
                             let content = api.fetch_content(&ch.item_id).await.ok();
-                            let timeline = if p.lrc_mode != "off" { fetch_timeline(&ch.item_id).await } else { None };
-                            handle_lrc(&existing, ch, &p.lrc_mode, p.verbose, content.as_deref(), timeline.as_deref());
+                            let timeline = if p.lrc_mode != "off" {
+                                fetch_timeline(&ch.item_id).await
+                            } else {
+                                None
+                            };
+                            handle_lrc(
+                                &existing,
+                                ch,
+                                &p.lrc_mode,
+                                p.verbose,
+                                content.as_deref(),
+                                timeline.as_deref(),
+                            );
                             return Ok(());
                         }
                     }
@@ -395,7 +461,10 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
         };
         let (audio_url, key_hex) = match res {
             Ok(v) => v,
-            Err(e) => { last_err = e; continue; }
+            Err(e) => {
+                last_err = e;
+                continue;
+            }
         };
         match download_file(&audio_url, &work, p.verbose) {
             Ok(_) => {
@@ -434,7 +503,9 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                                         e
                                     ));
                                 } else {
-                                    warn_fallback("  warn 音频转换失败，保留 .m4a（普通播放器可能无法播放）");
+                                    warn_fallback(
+                                        "  warn 音频转换失败，保留 .m4a（普通播放器可能无法播放）",
+                                    );
                                 }
                             }
                         }
@@ -455,7 +526,14 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                     last_err = format!("重命名音频失败: {}", e);
                     continue;
                 }
-                post_process(&final_path, p.abr, p.speed, p.normalize, &p.post_cmd, p.verbose);
+                post_process(
+                    &final_path,
+                    p.abr,
+                    p.speed,
+                    p.normalize,
+                    &p.post_cmd,
+                    p.verbose,
+                );
                 // 封面必须在 post_process 之后写：abr 压缩重写文件会丢掉先前的 ID3
                 if let Some(img) = &p.cover_img {
                     if final_path.extension().and_then(|e| e.to_str()) == Some("mp3") {
@@ -468,8 +546,19 @@ async fn dl_one(api: &Client, out_dir: &Path, ch: &Chapter, p: &AudioParams,
                 }
                 let content = api.fetch_content(&ch.item_id).await.ok();
                 // 听书时间轴（真实毫秒时间戳 LRC）；文字章/失败返回 None 退化估算
-                let timeline = if p.lrc_mode != "off" { fetch_timeline(&ch.item_id).await } else { None };
-                handle_lrc(&final_path, ch, &p.lrc_mode, p.verbose, content.as_deref(), timeline.as_deref());
+                let timeline = if p.lrc_mode != "off" {
+                    fetch_timeline(&ch.item_id).await
+                } else {
+                    None
+                };
+                handle_lrc(
+                    &final_path,
+                    ch,
+                    &p.lrc_mode,
+                    p.verbose,
+                    content.as_deref(),
+                    timeline.as_deref(),
+                );
                 return Ok(());
             }
             Err(e) => {
@@ -498,42 +587,77 @@ fn decrypt_audio_file(path: &Path, key_hex: &str) -> Result<(), String> {
 }
 
 fn download_file(url: &str, path: &PathBuf, verbose: bool) -> Result<(), String> {
-    if verbose { crate::util::note(&format!("  [verbose] DL {}", &url[..url.len().min(80)])); }
+    if verbose {
+        crate::util::note(&format!("  [verbose] DL {}", &url[..url.len().min(80)]));
+    }
 
     let r = std::process::Command::new("curl")
-        .args(["-sfL", "--connect-timeout", "15", "--max-time", "120",
-            "-o", &path.to_string_lossy(), url])
+        .args([
+            "-sfL",
+            "--connect-timeout",
+            "15",
+            "--max-time",
+            "120",
+            "-o",
+            &path.to_string_lossy(),
+            url,
+        ])
         .output();
     if let Ok(out) = r {
         if out.status.success() {
             let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            if size > 1000 { return Ok(()); }
+            if size > 1000 {
+                return Ok(());
+            }
         }
         if verbose {
             let stderr = String::from_utf8_lossy(&out.stderr);
-            crate::util::note(&format!("  [verbose] curl fail: {}, err={}", out.status, stderr.trim()));
+            crate::util::note(&format!(
+                "  [verbose] curl fail: {}, err={}",
+                out.status,
+                stderr.trim()
+            ));
         }
     }
 
-    let q = format!("curl -sfL --connect-timeout 15 --max-time 120 -o '{}' '{}'",
-        path.to_string_lossy().replace('\'', "'\\''"), url);
+    let q = format!(
+        "curl -sfL --connect-timeout 15 --max-time 120 -o '{}' '{}'",
+        path.to_string_lossy().replace('\'', "'\\''"),
+        url
+    );
     let r = std::process::Command::new("grun").args(["-s", &q]).output();
     if let Ok(out) = r {
         if out.status.success() {
             let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            if size > 1000 { return Ok(()); }
+            if size > 1000 {
+                return Ok(());
+            }
         }
     }
 
-    Err(format!("下载失败: curl 和 grun 均失败 ({})", &url[..url.len().min(80)]))
+    Err(format!(
+        "下载失败: curl 和 grun 均失败 ({})",
+        &url[..url.len().min(80)]
+    ))
 }
 
 // ── Post-processing ─────────────────────────────────────────
 
-pub fn post_process(path: &Path, abr: u32, speed: Option<f32>, normalize: bool,
-                    cmd_template: &str, verbose: bool) {
-    if abr == 0 && speed.is_none() && !normalize && cmd_template.is_empty() { return; }
-    if !path.exists() { eprintln!("  err {} 不存在", path.display()); return; }
+pub fn post_process(
+    path: &Path,
+    abr: u32,
+    speed: Option<f32>,
+    normalize: bool,
+    cmd_template: &str,
+    verbose: bool,
+) {
+    if abr == 0 && speed.is_none() && !normalize && cmd_template.is_empty() {
+        return;
+    }
+    if !path.exists() {
+        eprintln!("  err {} 不存在", path.display());
+        return;
+    }
 
     let orig_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     let tmp = path.with_extension("tmp.mp3");
@@ -542,20 +666,41 @@ pub fn post_process(path: &Path, abr: u32, speed: Option<f32>, normalize: bool,
     let ok = if !cmd_template.is_empty() {
         let input_s = path.to_string_lossy().to_string();
         let output_s = tmp.to_string_lossy().to_string();
-        let cmd = cmd_template.replace("{input}", &input_s).replace("{output}", &output_s);
-        if verbose { crate::util::note(&format!("  [verbose] post-process: {}", cmd)); }
-        match std::process::Command::new("sh").arg("-c").arg(&cmd).output() {
+        let cmd = cmd_template
+            .replace("{input}", &input_s)
+            .replace("{output}", &output_s);
+        if verbose {
+            crate::util::note(&format!("  [verbose] post-process: {}", cmd));
+        }
+        match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&cmd)
+            .output()
+        {
             Ok(out) if out.status.success() => true,
-            Ok(out) => { crate::util::note(&format!("  err 后处理失败 (exit={}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim())); false }
-            Err(e) => { crate::util::note(&format!("  err 后处理命令执行失败: {}", e)); false }
+            Ok(out) => {
+                crate::util::note(&format!(
+                    "  err 后处理失败 (exit={}): {}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+                false
+            }
+            Err(e) => {
+                crate::util::note(&format!("  err 后处理命令执行失败: {}", e));
+                false
+            }
         }
     } else if abr > 0 {
         // lame 只接受 MP3；Opus/m4a 等容器直接跳过，保留原文件
-        let is_mp3 = path.extension()
+        let is_mp3 = path
+            .extension()
             .map(|e| e.eq_ignore_ascii_case("mp3"))
             .unwrap_or(false);
         if !is_mp3 {
-            if verbose { crate::util::note("  [verbose] 非 MP3 容器，跳过 lame 压缩"); }
+            if verbose {
+                crate::util::note("  [verbose] 非 MP3 容器，跳过 lame 压缩");
+            }
             true
         } else {
             let p_s = path.to_string_lossy().to_string();
@@ -564,8 +709,18 @@ pub fn post_process(path: &Path, abr: u32, speed: Option<f32>, normalize: bool,
             let args = vec!["--abr", &abr_s, "--silent", &p_s, &t_s];
             match std::process::Command::new("lame").args(&args).output() {
                 Ok(out) if out.status.success() => true,
-                Ok(out) => { crate::util::note(&format!("  err lame 压缩失败 (exit={}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim())); false }
-                Err(e) => { crate::util::note(&format!("  err lame 未安装或执行失败: {}", e)); false }
+                Ok(out) => {
+                    crate::util::note(&format!(
+                        "  err lame 压缩失败 (exit={}): {}",
+                        out.status,
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    ));
+                    false
+                }
+                Err(e) => {
+                    crate::util::note(&format!("  err lame 未安装或执行失败: {}", e));
+                    false
+                }
             }
         }
     } else {
@@ -575,8 +730,16 @@ pub fn post_process(path: &Path, abr: u32, speed: Option<f32>, normalize: bool,
     if ok && tmp.exists() {
         let new_size = fs::metadata(&tmp).map(|m| m.len()).unwrap_or(0);
         if new_size > 1000 {
-            fs::rename(&tmp, path).unwrap_or_else(|e| crate::util::note(&format!("  err 重命名失败: {}", e)));
-            if verbose { crate::util::note(&format!("  [verbose] 压缩完成: {}→{} ({}% of original)", path.display(), new_size, (new_size as f64 / orig_size.max(1) as f64 * 100.0) as u32)); }
+            fs::rename(&tmp, path)
+                .unwrap_or_else(|e| crate::util::note(&format!("  err 重命名失败: {}", e)));
+            if verbose {
+                crate::util::note(&format!(
+                    "  [verbose] 压缩完成: {}→{} ({}% of original)",
+                    path.display(),
+                    new_size,
+                    (new_size as f64 / orig_size.max(1) as f64 * 100.0) as u32
+                ));
+            }
         } else {
             crate::util::note(&format!("  err 压缩后文件过小 ({}b), 保留原文件", new_size));
             let _ = fs::remove_file(&tmp);
@@ -587,7 +750,11 @@ pub fn post_process(path: &Path, abr: u32, speed: Option<f32>, normalize: bool,
 // ── LRC ─────────────────────────────────────────────────────
 
 pub fn gen_lrc_text(ch: &Chapter) -> String {
-    format!("[ti:{}]\n[ar:fqdt]\n[00:00.00]{}\n", util::chapter_heading(ch), util::chapter_heading(ch))
+    format!(
+        "[ti:{}]\n[ar:fqdt]\n[00:00.00]{}\n",
+        util::chapter_heading(ch),
+        util::chapter_heading(ch)
+    )
 }
 
 pub fn gen_lrc_text_full(ch: &Chapter, content: &str) -> String {
@@ -596,7 +763,9 @@ pub fn gen_lrc_text_full(ch: &Chapter, content: &str) -> String {
     let mut sec: u32 = 3;
     for line in content.lines() {
         let t = line.trim();
-        if t.is_empty() || t.len() < 5 { continue; }
+        if t.is_empty() || t.len() < 5 {
+            continue;
+        }
         let m = sec / 60;
         let s = sec % 60;
         out.push_str(&format!("[{:02}:{:05.2}]", m, s as f64));
@@ -610,9 +779,15 @@ pub fn gen_lrc_text_full(ch: &Chapter, content: &str) -> String {
 /// 听书章节时间轴：GET /api/v1/chapters/{item_id}/timeline 的 speech_text。
 /// 普通文字章节（code 1301008 no available speech text）/ 空/失败 → None。
 pub async fn fetch_timeline(item_id: &str) -> Option<String> {
-    if item_id.is_empty() { return None; }
-    let v = crate::fqapi::get_json(&format!("/api/v1/chapters/{}/timeline", item_id), "").await.ok()?;
-    if v.get("code").and_then(|c| c.as_i64()) != Some(0) { return None; }
+    if item_id.is_empty() {
+        return None;
+    }
+    let v = crate::fqapi::get_json(&format!("/api/v1/chapters/{}/timeline", item_id), "")
+        .await
+        .ok()?;
+    if v.get("code").and_then(|c| c.as_i64()) != Some(0) {
+        return None;
+    }
     let s = v.get("data")?.get("speech_text")?.as_str()?;
     (!s.trim().is_empty()).then(|| s.to_string())
 }
@@ -623,20 +798,39 @@ pub fn speech_to_lrc(ch: &Chapter, speech: &str) -> String {
     let mut out = format!("[ti:{}]\n[ar:fqdt]\n", heading);
     for line in speech.lines() {
         let t = line.trim();
-        let Some(head) = t.strip_prefix('[') else { continue };
-        let Some((ts, body)) = head.split_once(']') else { continue };
-        let Some(ms) = ts.split(',').next().and_then(|x| x.parse::<u64>().ok()) else { continue };
-        let Some(text) = body.find('>').map(|i| &body[i + 1..]) else { continue };
+        let Some(head) = t.strip_prefix('[') else {
+            continue;
+        };
+        let Some((ts, body)) = head.split_once(']') else {
+            continue;
+        };
+        let Some(ms) = ts.split(',').next().and_then(|x| x.parse::<u64>().ok()) else {
+            continue;
+        };
+        let Some(text) = body.find('>').map(|i| &body[i + 1..]) else {
+            continue;
+        };
         let text = text.trim();
-        if text.is_empty() { continue; }
-        out.push_str(&format!("[{:02}:{:02}.{:02}]{}\n",
-            ms / 60_000, (ms / 1000) % 60, (ms % 1000) / 10, text));
+        if text.is_empty() {
+            continue;
+        }
+        out.push_str(&format!(
+            "[{:02}:{:02}.{:02}]{}\n",
+            ms / 60_000,
+            (ms / 1000) % 60,
+            (ms % 1000) / 10,
+            text
+        ));
     }
     out
 }
 
-pub fn write_lrc_file(path: &Path, ch: &Chapter, content: Option<&str>,
-                      timeline: Option<&str>) -> Result<(), String> {
+pub fn write_lrc_file(
+    path: &Path,
+    ch: &Chapter,
+    content: Option<&str>,
+    timeline: Option<&str>,
+) -> Result<(), String> {
     let lrc_path = path.with_extension("lrc");
     // 听书时间轴优先（真实时间戳），退化到正文估算/标题占位
     let text = match timeline {
@@ -653,8 +847,13 @@ pub fn write_lrc_file(path: &Path, ch: &Chapter, content: Option<&str>,
     Ok(())
 }
 
-pub fn embed_lrc(mp3_path: &Path, ch: &Chapter, verbose: bool, content: Option<&str>,
-                 timeline: Option<&str>) {
+pub fn embed_lrc(
+    mp3_path: &Path,
+    ch: &Chapter,
+    verbose: bool,
+    content: Option<&str>,
+    timeline: Option<&str>,
+) {
     use id3::frame::Lyrics;
     use id3::{Content, Frame, Tag, TagLike};
 
@@ -670,21 +869,33 @@ pub fn embed_lrc(mp3_path: &Path, ch: &Chapter, verbose: bool, content: Option<&
         Err(_) => Tag::new(),
     };
 
-    tag.add_frame(Frame::with_content("USLT", Content::Lyrics(Lyrics {
-        lang: "chi".into(),
-        description: "lrc".into(),
-        text: lrc_text,
-    })));
+    tag.add_frame(Frame::with_content(
+        "USLT",
+        Content::Lyrics(Lyrics {
+            lang: "chi".into(),
+            description: "lrc".into(),
+            text: lrc_text,
+        }),
+    ));
 
     if let Err(e) = tag.write_to_path(mp3_path, id3::Version::Id3v24) {
-        if verbose { crate::util::note(&format!("  [verbose] embed lrc fail: {}", e)); }
+        if verbose {
+            crate::util::note(&format!("  [verbose] embed lrc fail: {}", e));
+        }
     }
 }
 
-fn handle_lrc(path: &Path, ch: &Chapter, mode: &str, verbose: bool, content: Option<&str>,
-              timeline: Option<&str>) {
+fn handle_lrc(
+    path: &Path,
+    ch: &Chapter,
+    mode: &str,
+    verbose: bool,
+    content: Option<&str>,
+    timeline: Option<&str>,
+) {
     // MP4/m4a 不能用 ID3 嵌入歌词，embed/both 退化为外置 .lrc，避免写坏容器
-    let is_mp3 = path.extension()
+    let is_mp3 = path
+        .extension()
         .map(|e| e.eq_ignore_ascii_case("mp3"))
         .unwrap_or(false);
     let effective = if is_mp3 {
@@ -696,10 +907,16 @@ fn handle_lrc(path: &Path, ch: &Chapter, mode: &str, verbose: bool, content: Opt
         }
     };
     match effective {
-        "external" => { if let Err(e) = write_lrc_file(path, ch, content, timeline) { crate::util::note(&format!("  err LRC: {}", e)); } }
+        "external" => {
+            if let Err(e) = write_lrc_file(path, ch, content, timeline) {
+                crate::util::note(&format!("  err LRC: {}", e));
+            }
+        }
         "embed" => embed_lrc(path, ch, verbose, content, timeline),
         "both" => {
-            if let Err(e) = write_lrc_file(path, ch, content, timeline) { crate::util::note(&format!("  err LRC: {}", e)); }
+            if let Err(e) = write_lrc_file(path, ch, content, timeline) {
+                crate::util::note(&format!("  err LRC: {}", e));
+            }
             embed_lrc(path, ch, verbose, content, timeline);
         }
         _ => {}
@@ -709,7 +926,10 @@ fn handle_lrc(path: &Path, ch: &Chapter, mode: &str, verbose: bool, content: Opt
 // ── TTS conversion ──────────────────────────────────────────
 
 pub fn convert_tts_file(input: &Path, output_dir: Option<PathBuf>, p: &TtsParams) {
-    let name = input.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
+    let name = input
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
     let out = output_dir.unwrap_or_else(|| input.parent().unwrap_or(Path::new(".")).to_path_buf());
     fs::create_dir_all(&out).expect("创建目录失败");
     let out_path = out.join(format!("{}.mp3", name));
@@ -719,15 +939,31 @@ pub fn convert_tts_file(input: &Path, output_dir: Option<PathBuf>, p: &TtsParams
     }
     let text = match fs::read_to_string(input) {
         Ok(t) => t,
-        Err(e) => { eprintln!("  err 读文件: {}", e); return; }
+        Err(e) => {
+            eprintln!("  err 读文件: {}", e);
+            return;
+        }
     };
     println!("  {} → {}", name, out_path.display());
-    if let Err(e) = run_edge_tts(&text, &p.voice, &p.rate, &p.volume, &p.pitch, &out_path, p.verbose) {
+    if let Err(e) = run_edge_tts(
+        &text, &p.voice, &p.rate, &p.volume, &p.pitch, &out_path, p.verbose,
+    ) {
         eprintln!("  err {}", e);
         return;
     }
     post_process(&out_path, p.abr, p.speed, p.normalize, &p.cmd, p.verbose);
-    handle_lrc(&out_path, &Chapter { index: 0, title: name.into(), item_id: String::new() }, &p.lrc_mode, p.verbose, Some(&text), None);
+    handle_lrc(
+        &out_path,
+        &Chapter {
+            index: 0,
+            title: name.into(),
+            item_id: String::new(),
+        },
+        &p.lrc_mode,
+        p.verbose,
+        Some(&text),
+        None,
+    );
 }
 
 pub fn convert_tts_dir(input: &Path, output_dir: Option<PathBuf>, params: &TtsParams) {
@@ -739,12 +975,24 @@ pub fn convert_tts_dir(input: &Path, output_dir: Option<PathBuf>, params: &TtsPa
     fs::create_dir_all(&out).expect("创建目录失败");
 
     let entries: Vec<_> = match fs::read_dir(input) {
-        Ok(d) => d.filter_map(|e| e.ok()).filter(|e| {
-            e.path().extension().map(|ext| ext == "txt").unwrap_or(false)
-        }).collect(),
-        Err(e) => { eprintln!("  err 读目录: {}", e); return; }
+        Ok(d) => d
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "txt")
+                    .unwrap_or(false)
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("  err 读目录: {}", e);
+            return;
+        }
     };
-    if entries.is_empty() { println!("  无 .txt 文件"); return; }
+    if entries.is_empty() {
+        println!("  无 .txt 文件");
+        return;
+    }
 
     let pb = ProgressBar::new(entries.len() as u64);
     pb.set_style(util::bar_style("magenta/cyan", 1));
@@ -753,20 +1001,58 @@ pub fn convert_tts_dir(input: &Path, output_dir: Option<PathBuf>, params: &TtsPa
     let mut failed = 0usize;
     for entry in &entries {
         let inp = entry.path();
-        let name = inp.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
+        let name = inp
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
         let out_path = out.join(format!("{}.mp3", name));
-        if out_path.exists() { pb.inc(1); continue; }
+        if out_path.exists() {
+            pb.inc(1);
+            continue;
+        }
         let text = match fs::read_to_string(&inp) {
             Ok(t) => t,
-            Err(e) => { pb.set_message(format!("✗{}: {}", name, e)); failed += 1; pb.inc(1); continue; }
+            Err(e) => {
+                pb.set_message(format!("✗{}: {}", name, e));
+                failed += 1;
+                pb.inc(1);
+                continue;
+            }
         };
         pb.set_message(name.clone());
-        if let Err(e) = run_edge_tts(&text, &params.voice, &params.rate, &params.volume, &params.pitch, &out_path, params.verbose) {
+        if let Err(e) = run_edge_tts(
+            &text,
+            &params.voice,
+            &params.rate,
+            &params.volume,
+            &params.pitch,
+            &out_path,
+            params.verbose,
+        ) {
             pb.set_message(format!("✗{}: {}", name, e));
             failed += 1;
         } else {
-            post_process(&out_path, params.abr, params.speed, params.normalize, &params.cmd, params.verbose);
-            handle_lrc(&out_path, &Chapter { index: 0, title: name.clone(), item_id: String::new() }, &params.lrc_mode, params.verbose, Some(&text), None);
+            post_process(
+                &out_path,
+                params.abr,
+                params.speed,
+                params.normalize,
+                &params.cmd,
+                params.verbose,
+            );
+            handle_lrc(
+                &out_path,
+                &Chapter {
+                    index: 0,
+                    title: name.clone(),
+                    item_id: String::new(),
+                },
+                &params.lrc_mode,
+                params.verbose,
+                Some(&text),
+                None,
+            );
         }
         pb.inc(1);
         thread::sleep(std::time::Duration::from_millis(100));
@@ -774,26 +1060,47 @@ pub fn convert_tts_dir(input: &Path, output_dir: Option<PathBuf>, params: &TtsPa
     pb.finish_and_clear();
     let total = entries.len();
     println!("  完成 {}/{}", total - failed, total);
-    if failed > 0 { println!("  失败 {} 文件", failed); }
+    if failed > 0 {
+        println!("  失败 {} 文件", failed);
+    }
 }
 
-fn run_edge_tts(text: &str, voice: &str, rate: &str, volume: &str, pitch: &str,
-                out_path: &Path, verbose: bool) -> Result<(), String> {
+fn run_edge_tts(
+    text: &str,
+    voice: &str,
+    rate: &str,
+    volume: &str,
+    pitch: &str,
+    out_path: &Path,
+    verbose: bool,
+) -> Result<(), String> {
     let r = std::process::Command::new("edge-tts")
-        .arg("-t").arg(text)
-        .arg("-v").arg(voice)
-        .arg("--rate").arg(rate)
-        .arg("--volume").arg(volume)
-        .arg("--pitch").arg(pitch)
-        .arg("--write-media").arg(out_path.to_string_lossy().to_string())
+        .arg("-t")
+        .arg(text)
+        .arg("-v")
+        .arg(voice)
+        .arg("--rate")
+        .arg(rate)
+        .arg("--volume")
+        .arg(volume)
+        .arg("--pitch")
+        .arg(pitch)
+        .arg("--write-media")
+        .arg(out_path.to_string_lossy().to_string())
         .output();
     if let Ok(out) = r {
         if out.status.success() {
             let size = fs::metadata(out_path).map(|m| m.len()).unwrap_or(0);
-            if size > 1000 { return Ok(()); }
+            if size > 1000 {
+                return Ok(());
+            }
         }
         if verbose {
-            crate::util::note(&format!("  [verbose] edge-tts: status={}, err={}", out.status, String::from_utf8_lossy(&out.stderr).trim()));
+            crate::util::note(&format!(
+                "  [verbose] edge-tts: status={}, err={}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
         }
         return Err(format!("edge-tts 退出码 {}", out.status));
     }

@@ -17,9 +17,19 @@ fn print_list(books: &[Book]) {
 
 /// 只搜索并组织化展示书籍信息；`-D N` 时改为下载第 N 本。
 #[allow(clippy::too_many_arguments)]
-pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: Option<usize>,
-           range: Option<&str>, format: Option<&str>, verbose: bool, auto: Option<usize>,
-           _no_download: bool, _interval: u64, cfg: &Config) {
+pub async fn run(
+    keyword: &str,
+    page: usize,
+    output: Option<&str>,
+    concurrent: Option<usize>,
+    range: Option<&str>,
+    format: Option<&str>,
+    verbose: bool,
+    auto: Option<usize>,
+    _no_download: bool,
+    _interval: u64,
+    cfg: &Config,
+) {
     let start = Instant::now();
     let vb = verbose || cfg.verbose;
     let api = Client::from_config(cfg, vb);
@@ -45,7 +55,10 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
     print_list(&books);
 
     let Some(n) = auto else {
-        eprintln!("\n  {DIM}download <书名|ID> 下载 · info <id> 看目录 · search -p {} 下一页{RST}", page + 1);
+        eprintln!(
+            "\n  {DIM}download <书名|ID> 下载 · info <id> 看目录 · search -p {} 下一页{RST}",
+            page + 1
+        );
         return;
     };
     if n < 1 || n > books.len() {
@@ -60,16 +73,24 @@ pub async fn run(keyword: &str, page: usize, output: Option<&str>, concurrent: O
     );
     config::add_bookmark(&book.book_id, &book.title).ok();
     super::download::run(
-        &book.book_id, &DownloadParams {
+        &book.book_id,
+        &DownloadParams {
             output: output.map(|s| s.to_string()),
             range: range.map(|s| s.to_string()),
             format: format.map(|s| s.to_string()),
             concurrent,
-            audio: false, tone: 1, abr: 0,
-            lrc: "external".into(), force: false,
-            verbose: vb, only: None, book_title: Some(book.title.clone()),
-        }, cfg,
-    ).await;
+            audio: false,
+            tone: 1,
+            abr: 0,
+            lrc: "external".into(),
+            force: false,
+            verbose: vb,
+            only: None,
+            book_title: Some(book.title.clone()),
+        },
+        cfg,
+    )
+    .await;
 }
 
 /// 搜索并交互选择一本书，返回 `(book_id, title)`。

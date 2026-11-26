@@ -13,7 +13,10 @@ pub struct Book {
 
 impl Book {
     pub fn status_text(&self) -> &str {
-        match self.status { 1 => "完结", _ => "连载" }
+        match self.status {
+            1 => "完结",
+            _ => "连载",
+        }
     }
 }
 
@@ -33,13 +36,18 @@ pub struct ChapterRange {
 impl ChapterRange {
     pub fn parse(s: &str) -> Option<ChapterRange> {
         let s = s.trim();
-        if s.is_empty() { return None; }
+        if s.is_empty() {
+            return None;
+        }
         if let Some(rest) = s.strip_prefix('-') {
             let end: usize = rest.parse().ok()?;
             Some(ChapterRange { start: 1, end })
         } else if let Some(prefix) = s.strip_suffix('-') {
             let start: usize = prefix.parse().ok()?;
-            Some(ChapterRange { start, end: usize::MAX })
+            Some(ChapterRange {
+                start,
+                end: usize::MAX,
+            })
         } else if let Some((a, b)) = s.split_once('-') {
             let start: usize = a.parse().ok()?;
             let end: usize = b.parse().ok()?;
@@ -241,10 +249,12 @@ pub fn get_home() -> PathBuf {
 }
 
 pub fn sanitize_filename(s: &str) -> String {
-    s.chars().map(|c| match c {
-        '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-        _ => c,
-    }).collect()
+    s.chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect()
 }
 
 /// 根据主机 CPU 核心数自动选择并发上限（不超过 16）

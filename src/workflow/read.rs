@@ -27,7 +27,8 @@ use ratatui::{Frame, Terminal};
 use std::io::{IsTerminal, Stdout};
 
 #[allow(dead_code)] // 批C③ ?/h 帮助框将使用
-const HELP: &str = "j/k 段光标 · ,. 翻页 · <> 章节 · space 看图 · Tab 目录 · z zen · ? 帮助 · q 退出";
+const HELP: &str =
+    "j/k 段光标 · ,. 翻页 · <> 章节 · space 看图 · Tab 目录 · z zen · ? 帮助 · q 退出";
 #[allow(dead_code)] // 批C③ 将使用
 const HELP_NAV: &str = "j/k 选择 · Enter 跳转 · Tab/Esc 回正文 · q 退出";
 /// 左目录面板宽度（bookokrat nav_width 同思路，定宽）
@@ -190,7 +191,10 @@ pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config) {
     };
     util::clear_progress();
     let r = range.and_then(ChapterRange::parse);
-    let chs: Vec<Chapter> = util::filter_by_range(&all, r.as_ref()).into_iter().cloned().collect();
+    let chs: Vec<Chapter> = util::filter_by_range(&all, r.as_ref())
+        .into_iter()
+        .cloned()
+        .collect();
     if chs.is_empty() {
         eprintln!("  err 空范围");
         return;
@@ -215,7 +219,11 @@ pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config) {
         return;
     }
     let pos = ReadPos {
-        item_id: rd.chs.get(rd.cur).map(|c| c.item_id.clone()).unwrap_or_default(),
+        item_id: rd
+            .chs
+            .get(rd.cur)
+            .map(|c| c.item_id.clone())
+            .unwrap_or_default(),
         scroll: rd.scroll as usize,
     };
     let _ = store::read_save(book_id, pos);
@@ -309,7 +317,11 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
             rd.scroll = next as u16;
             // 新视窗中包含 rel 行的段 → cursor
             let target = (next + rel).max(0) as usize;
-            if let Some(i) = rd.paras.iter().position(|p| p.start <= target && target < p.end) {
+            if let Some(i) = rd
+                .paras
+                .iter()
+                .position(|p| p.start <= target && target < p.end)
+            {
                 rd.cursor = i;
             } else if !rd.paras.is_empty() {
                 // 落在空行/图外 → 最近段
@@ -453,13 +465,18 @@ fn wrap_with_imgs(text: &str, width: u16) -> (Vec<Line<'static>>, Vec<(usize, us
         }
     };
     for line in text.split('\n') {
-        if let Some(url) = line.strip_prefix("{{IMG:").and_then(|s| s.strip_suffix("}}")) {
+        if let Some(url) = line
+            .strip_prefix("{{IMG:")
+            .and_then(|s| s.strip_suffix("}}"))
+        {
             flush(&mut buf, &mut out);
             let start = out.len();
             push_img_block(&mut out, url, width);
             imgs.push((start, out.len(), url.to_string()));
         } else {
-            if !buf.is_empty() { buf.push('\n'); }
+            if !buf.is_empty() {
+                buf.push('\n');
+            }
             buf.push_str(line);
         }
     }
@@ -473,7 +490,9 @@ fn push_img_block(out: &mut Vec<Line<'static>>, url: &str, width: u16) {
     match crate::imgtool::render(url, width, h) {
         Some(rows) => {
             out.push(Line::default());
-            for row in rows { out.push(Line::from(row)); }
+            for row in rows {
+                out.push(Line::from(row));
+            }
             out.push(Line::default());
         }
         None => {
@@ -504,13 +523,21 @@ fn build_paras(lines: &[Line<'static>], imgs: &[(usize, usize, String)]) -> Vec<
             while i < n && img_at[i] {
                 i += 1;
             }
-            paras.push(Para { start, end: i, kind: ParaKind::Image(url) });
+            paras.push(Para {
+                start,
+                end: i,
+                kind: ParaKind::Image(url),
+            });
         } else if !blank(&lines[i]) {
             let start = i;
             while i < n && !img_at[i] && !blank(&lines[i]) {
                 i += 1;
             }
-            paras.push(Para { start, end: i, kind: ParaKind::Text });
+            paras.push(Para {
+                start,
+                end: i,
+                kind: ParaKind::Text,
+            });
         } else {
             i += 1;
         }
@@ -539,7 +566,9 @@ fn rebuild_paras(rd: &mut Reader) {
 /// 光标段保持可见（91）：左右模式出视窗→整页跳（段顶对齐=自动翻页）；
 /// 上下模式→1/4 屏平移（段保持在屏内 1/4~3/4 区间，不许超出）。
 fn ensure_cursor_visible(rd: &mut Reader, height: u16) {
-    let Some(p) = rd.paras.get(rd.cursor) else { return };
+    let Some(p) = rd.paras.get(rd.cursor) else {
+        return;
+    };
     let view = height.saturating_sub(2).max(1) as usize;
     let (top, bot) = (p.start, p.end.max(p.start + 1));
     let scroll = rd.scroll as usize;
@@ -610,13 +639,17 @@ fn on_key(code: KeyCode, rd: &Reader, height: u16) -> Action {
     match code {
         KeyCode::Char('?') | KeyCode::Char('h') => return Action::Help,
         KeyCode::Char('q') => {
-            if rd.img_focus.is_some() { return Action::CloseImg; }
+            if rd.img_focus.is_some() {
+                return Action::CloseImg;
+            }
             return Action::Quit;
         }
         KeyCode::Char('z') => return Action::ToggleZen,
         KeyCode::Tab => return Action::ToggleFocus,
         KeyCode::Char('i') => {
-            if rd.img_focus.is_some() { return Action::CloseImg; }
+            if rd.img_focus.is_some() {
+                return Action::CloseImg;
+            }
             // 视窗内第一张图放大（77：查看位置太少 → 聚焦态）
             let view = height.saturating_sub(3) as usize;
             let lo = rd.scroll as usize;
@@ -777,7 +810,8 @@ fn zen_status_fit(rd: &Reader, width: u16) -> String {
         format!("{ch_n}/{ch_t} 章"),
         format!("{ch_n}/{ch_t}"),
     ];
-    cands.into_iter()
+    cands
+        .into_iter()
         .find(|c| w(c) <= width)
         .unwrap_or_default()
 }
@@ -858,7 +892,11 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         .border_style(border)
         .title(Span::styled(" 正文 ", title_style));
     // 非焦点面板整体降权（正文行全 DIM），切换时色阶反转即时可见
-    let body_style = if focused { util::fg_t(rd.theme.content) } else { util::fg(DIM) };
+    let body_style = if focused {
+        util::fg_t(rd.theme.content)
+    } else {
+        util::fg(DIM)
+    };
     let inner = {
         let mut r = area;
         r.x += 1;
@@ -872,12 +910,17 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner);
-    f.render_widget(Paragraph::new(top_line_fit(rd, body[0].width)).style(body_style), body[0]);
+    f.render_widget(
+        Paragraph::new(top_line_fit(rd, body[0].width)).style(body_style),
+        body[0],
+    );
     // 下留 1 行（m3000：最后一行距下框 1 行；上 1 行由顶行状态占）
     let mut para_area = body[1];
     para_area.height = para_area.height.saturating_sub(1).max(1);
     f.render_widget(
-        Paragraph::new(highlight_lines(rd)).style(body_style).scroll((rd.scroll, 0)),
+        Paragraph::new(highlight_lines(rd))
+            .style(body_style)
+            .scroll((rd.scroll, 0)),
         para_area,
     );
     f.render_widget(block, area);
@@ -906,16 +949,26 @@ fn draw_help_box(f: &mut Frame, theme: &crate::theme::ThemeColors) {
     let lines = vec![
         Line::from(vec![t("阅读视图（view）")]),
         Line::from(vec![t("  连贯阅读一章内容：左侧目录面板，右侧正文面板。")]),
-        Line::from(vec![t("  正文按段落排布——段首缩进两格，段与段之间恰好空一行。")]),
-        Line::from(vec![t("  上下移动会选中一个段落并整段高亮；图片段不高亮。")]),
+        Line::from(vec![t(
+            "  正文按段落排布——段首缩进两格，段与段之间恰好空一行。",
+        )]),
+        Line::from(vec![t(
+            "  上下移动会选中一个段落并整段高亮；图片段不高亮。",
+        )]),
         Line::default(),
         Line::from(vec![head("翻页")]),
         Line::from(vec![t("  翻页方式由配置 ui.page_mode 决定：")]),
-        Line::from(vec![t("  right-left（默认）为左右渲染——左右键平行翻页，上下滚到屏底自动翻页；")]),
-        Line::from(vec![t("  up-down 为上下渲染——选中段保持在屏幕范围内平移，左右键整屏切换。")]),
+        Line::from(vec![t(
+            "  right-left（默认）为左右渲染——左右键平行翻页，上下滚到屏底自动翻页；",
+        )]),
+        Line::from(vec![t(
+            "  up-down 为上下渲染——选中段保持在屏幕范围内平移，左右键整屏切换。",
+        )]),
         Line::default(),
         Line::from(vec![head("zen 模式")]),
-        Line::from(vec![t("  z 切换全屏四边框：标题为章节名，底框显示章节与行进度，")]),
+        Line::from(vec![t(
+            "  z 切换全屏四边框：标题为章节名，底框显示章节与行进度，",
+        )]),
         Line::from(vec![t("  正文与四边框保持一行/一格距离。")]),
         Line::default(),
         Line::from(vec![head("进度与图片")]),
@@ -934,7 +987,11 @@ fn highlight_lines(rd: &Reader) -> Vec<Line<'static>> {
     let mut lines = rd.lines.clone();
     if let Some(p) = rd.paras.get(rd.cursor) {
         if p.kind == ParaKind::Text {
-            for l in lines.iter_mut().skip(p.start).take(p.end.saturating_sub(p.start)) {
+            for l in lines
+                .iter_mut()
+                .skip(p.start)
+                .take(p.end.saturating_sub(p.start))
+            {
                 *l = l.clone().style(util::bg(DIM));
             }
         }
@@ -948,21 +1005,41 @@ fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
     let ch = &rd.chs[rd.cur];
     let total = rd.lines.len();
     let pos = (rd.scroll as usize + 1).min(total.max(1));
-    let progress = format!("  {}/{} 章 · 行 {}/{}", rd.cur + 1, rd.chs.len(), pos, total);
+    let progress = format!(
+        "  {}/{} 章 · 行 {}/{}",
+        rd.cur + 1,
+        rd.chs.len(),
+        pos,
+        total
+    );
     let ch_only = format!("  {}/{} 章", rd.cur + 1, rd.chs.len());
     // 候选层级（由全到简）：(spans 构造闭包, 总显示宽)
-    let mk_full = |rd: &Reader, ch: &Chapter| Line::from(vec![
-        Span::styled(rd.title.clone(), util::fg_t(rd.theme.selected)),
-        Span::styled(" · ", util::fg(DIM)),
-        Span::styled(ch.title.clone(), util::fg_t(rd.theme.title)),
-        Span::styled(progress.clone(), util::fg_t(rd.theme.status)),
-    ]);
-    let mk_no_title = |_rd: &Reader, ch: &Chapter| Line::from(vec![
-        Span::styled(ch.title.clone(), util::fg_t(rd.theme.title)),
-        Span::styled(progress.clone(), util::fg_t(rd.theme.status)),
-    ]);
-    let mk_progress = || Line::from(Span::styled(progress.trim_start().to_string(), util::fg_t(rd.theme.status)));
-    let mk_ch = || Line::from(Span::styled(ch_only.trim_start().to_string(), util::fg_t(rd.theme.status)));
+    let mk_full = |rd: &Reader, ch: &Chapter| {
+        Line::from(vec![
+            Span::styled(rd.title.clone(), util::fg_t(rd.theme.selected)),
+            Span::styled(" · ", util::fg(DIM)),
+            Span::styled(ch.title.clone(), util::fg_t(rd.theme.title)),
+            Span::styled(progress.clone(), util::fg_t(rd.theme.status)),
+        ])
+    };
+    let mk_no_title = |_rd: &Reader, ch: &Chapter| {
+        Line::from(vec![
+            Span::styled(ch.title.clone(), util::fg_t(rd.theme.title)),
+            Span::styled(progress.clone(), util::fg_t(rd.theme.status)),
+        ])
+    };
+    let mk_progress = || {
+        Line::from(Span::styled(
+            progress.trim_start().to_string(),
+            util::fg_t(rd.theme.status),
+        ))
+    };
+    let mk_ch = || {
+        Line::from(Span::styled(
+            ch_only.trim_start().to_string(),
+            util::fg_t(rd.theme.status),
+        ))
+    };
     let w = width as usize;
     let fits = |l: &Line| l.spans.iter().map(|s| s.width()).sum::<usize>() <= w;
     let cands = [
@@ -987,9 +1064,16 @@ mod tests {
         // 无工具环境（CI）：图片行→占位；普通行照常折行
         let raw = "前文\n{{IMG:/rel/x.png}}\n后文";
         let (lines, imgs) = wrap_with_imgs(raw, 40);
-        let joined: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+        let joined: String = lines
+            .iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(joined.contains("[图片: /rel/x.png]"), "got: {joined:?}");
-        assert!(joined.contains("前文") && joined.contains("后文"), "got: {joined:?}");
+        assert!(
+            joined.contains("前文") && joined.contains("后文"),
+            "got: {joined:?}"
+        );
         // 图块区间记录（77：供 i 键聚焦）
         assert_eq!(imgs.len(), 1, "got: {imgs:?}");
         let (s, e, url) = &imgs[0];
@@ -1014,12 +1098,20 @@ mod tests {
         rd.focus = Focus::Content;
         // i → 聚焦第一张图
         let act = on_key(KeyCode::Char('i'), &rd, 24);
-        let Action::FocusImg(url) = act else { panic!("expected FocusImg") };
+        let Action::FocusImg(url) = act else {
+            panic!("expected FocusImg")
+        };
         assert_eq!(url, "/rel/x.png");
         // 聚焦态 q → 返回正文而非退出
         rd.img_focus = Some(url);
-        assert!(matches!(on_key(KeyCode::Char('q'), &rd, 24), Action::CloseImg));
-        assert!(matches!(on_key(KeyCode::Char('i'), &rd, 24), Action::CloseImg));
+        assert!(matches!(
+            on_key(KeyCode::Char('q'), &rd, 24),
+            Action::CloseImg
+        ));
+        assert!(matches!(
+            on_key(KeyCode::Char('i'), &rd, 24),
+            Action::CloseImg
+        ));
         // 应用后 img_focus 生效
         let quit = apply_action(Action::FocusImg("/rel/x.png".into()), &mut rd, 24);
         assert!(!quit);
@@ -1042,8 +1134,14 @@ mod tests {
             .map(|c| c.symbol().to_string())
             .collect::<String>();
         let content = content.replace(' ', "");
-        assert!(content.contains("放大"), "聚焦面板标题缺失: got {content:?}");
-        assert!(content.contains("图片") || content.contains("返回"), "got {content:?}");
+        assert!(
+            content.contains("放大"),
+            "聚焦面板标题缺失: got {content:?}"
+        );
+        assert!(
+            content.contains("图片") || content.contains("返回"),
+            "got {content:?}"
+        );
         // 关闭
         apply_action(Action::CloseImg, &mut rd, 24);
         assert!(rd.img_focus.is_none());
@@ -1064,7 +1162,6 @@ mod tests {
         assert_eq!(lines[3].to_string(), "");
     }
 
-
     /// 83：目录选中行恒显选择箭头 + 章题头部完整（m0085-1）。
     #[test]
     fn startup_modes_from_config() {
@@ -1082,15 +1179,32 @@ mod tests {
 
     #[test]
     fn toc_selected_row_shows_arrow_and_full_title() {
-        use ratatui::{Terminal, backend::TestBackend};
+        use ratatui::{backend::TestBackend, Terminal};
         let chs = vec![
-            Chapter { index: 1, item_id: "a".into(), title: "第171章 前章标题".into() },
-            Chapter { index: 2, item_id: "b".into(), title: "第172章 编外也是编".into() },
-            Chapter { index: 3, item_id: "c".into(), title: "第173章 很长很长的章题后面还有更多".into() },
+            Chapter {
+                index: 1,
+                item_id: "a".into(),
+                title: "第171章 前章标题".into(),
+            },
+            Chapter {
+                index: 2,
+                item_id: "b".into(),
+                title: "第172章 编外也是编".into(),
+            },
+            Chapter {
+                index: 3,
+                item_id: "c".into(),
+                title: "第173章 很长很长的章题后面还有更多".into(),
+            },
         ];
         let mut rd = Reader::new("书".into(), chs);
         rd.focus = Focus::Nav;
-        let area = ratatui::layout::Rect { x: 0, y: 0, width: 28, height: 10 };
+        let area = ratatui::layout::Rect {
+            x: 0,
+            y: 0,
+            width: 28,
+            height: 10,
+        };
         // sel≠cur：选中行带 ▸ 箭头 + 章题头完整
         rd.sel = 1;
         rd.cur = 0;
@@ -1098,17 +1212,24 @@ mod tests {
         term.draw(|f| draw_toc(f, &rd, area)).unwrap();
         let buf = term.backend().buffer().clone();
         // 取 inner（去左右边框），全角归一化去空格
-        let row: String = (1..27u16).map(|x| buf[(x, 2u16)].symbol().to_string()).collect();
+        let row: String = (1..27u16)
+            .map(|x| buf[(x, 2u16)].symbol().to_string())
+            .collect();
         let row: String = row.chars().filter(|c| *c != ' ').collect();
         assert!(row.starts_with('▸'), "选中行缺选择箭头: {row:?}");
-        assert!(row.contains("第172章编外也是编"), "选中行章题不完整: {row:?}");
+        assert!(
+            row.contains("第172章编外也是编"),
+            "选中行章题不完整: {row:?}"
+        );
         // sel==cur：▶ 箭头保留
         rd.sel = 2;
         rd.cur = 2;
         let mut term2 = Terminal::new(TestBackend::new(80, 12)).unwrap();
         term2.draw(|f| draw_toc(f, &rd, area)).unwrap();
         let buf2 = term2.backend().buffer().clone();
-        let row2: String = (1..27u16).map(|x| buf2[(x, 3u16)].symbol().to_string()).collect();
+        let row2: String = (1..27u16)
+            .map(|x| buf2[(x, 3u16)].symbol().to_string())
+            .collect();
         let row2: String = row2.chars().filter(|c| *c != ' ').collect();
         assert!(row2.starts_with('▶'), "sel==cur 应显 ▶: {row2:?}");
         assert!(row2.contains("第173章"), "章题头缺失: {row2:?}");
@@ -1117,10 +1238,18 @@ mod tests {
     /// 分栏面板标题与焦点切换渲染（m2816 视觉打磨回归）。
     #[test]
     fn draw_normal_renders_panel_titles() {
-        use ratatui::{Terminal, backend::TestBackend};
+        use ratatui::{backend::TestBackend, Terminal};
         let chs = vec![
-            Chapter { index: 1, item_id: "a".into(), title: "一".into() },
-            Chapter { index: 2, item_id: "b".into(), title: "二".into() },
+            Chapter {
+                index: 1,
+                item_id: "a".into(),
+                title: "一".into(),
+            },
+            Chapter {
+                index: 2,
+                item_id: "b".into(),
+                title: "二".into(),
+            },
         ];
         let mut rd = Reader::new("书名".into(), chs);
         rd.lines = wrap_text("正文测试内容", 40);
@@ -1128,9 +1257,15 @@ mod tests {
         fn grab(term: &mut Terminal<TestBackend>, rd: &Reader) -> String {
             term.draw(|f| draw(f, rd)).unwrap();
             // TestBackend 全角字占双 cell（字+空格），归一化去空格再断言
-            term.backend().buffer().content().iter()
-                .map(|c| c.symbol()).collect::<String>()
-                .chars().filter(|c| *c != ' ').collect()
+            term.backend()
+                .buffer()
+                .content()
+                .iter()
+                .map(|c| c.symbol())
+                .collect::<String>()
+                .chars()
+                .filter(|c| *c != ' ')
+                .collect()
         }
         // 焦点在正文：两面板标题都在
         let t1 = grab(&mut term, &rd);
@@ -1149,14 +1284,27 @@ mod tests {
     /// 批C①：状态行宽度自适应——每级总宽 ≤ 给定宽，绝不卡半截。
     #[test]
     fn top_line_fit_never_truncates() {
-        let chs = vec![Chapter { index: 1, item_id: "a".into(), title: "一个非常长的章节标题用来测试压缩".into() }];
+        let chs = vec![Chapter {
+            index: 1,
+            item_id: "a".into(),
+            title: "一个非常长的章节标题用来测试压缩".into(),
+        }];
         let mut rd = Reader::new("超长书名测试用例：某某某小说的完整标题".into(), chs);
-        rd.lines = (0..50).map(|i| Line::from(format!("第{i}行内容"))).collect();
+        rd.lines = (0..50)
+            .map(|i| Line::from(format!("第{i}行内容")))
+            .collect();
         // 各宽度档：输出显示宽 ≤ 宽度
         for w in [0u16, 5, 10, 16, 24, 40, 80, 200] {
             let l = top_line_fit(&rd, w);
             let got: usize = l.spans.iter().map(|s| s.width()).sum();
-            assert!(got <= w as usize, "width={w} 时输出宽 {got} 超限: {:?}", l.spans.iter().map(|s| s.content.to_string()).collect::<Vec<_>>());
+            assert!(
+                got <= w as usize,
+                "width={w} 时输出宽 {got} 超限: {:?}",
+                l.spans
+                    .iter()
+                    .map(|s| s.content.to_string())
+                    .collect::<Vec<_>>()
+            );
         }
         // 极宽 → 全量（含书名与进度）
         let full = top_line_fit(&rd, 200);
@@ -1181,10 +1329,22 @@ mod tests {
         let h = 24;
         assert!(matches!(on_key(KeyCode::Char('q'), &rd, h), Action::Quit));
         // 91 新键位：j/k/↑↓ = 段落光标
-        assert!(matches!(on_key(KeyCode::Char('j'), &rd, h), Action::CursorMove(1)));
-        assert!(matches!(on_key(KeyCode::Char('k'), &rd, h), Action::CursorMove(-1)));
-        assert!(matches!(on_key(KeyCode::Down, &rd, h), Action::CursorMove(1)));
-        assert!(matches!(on_key(KeyCode::Up, &rd, h), Action::CursorMove(-1)));
+        assert!(matches!(
+            on_key(KeyCode::Char('j'), &rd, h),
+            Action::CursorMove(1)
+        ));
+        assert!(matches!(
+            on_key(KeyCode::Char('k'), &rd, h),
+            Action::CursorMove(-1)
+        ));
+        assert!(matches!(
+            on_key(KeyCode::Down, &rd, h),
+            Action::CursorMove(1)
+        ));
+        assert!(matches!(
+            on_key(KeyCode::Up, &rd, h),
+            Action::CursorMove(-1)
+        ));
         // <> 切章（n/p 兼容保留）
         assert!(matches!(on_key(KeyCode::Char('>'), &rd, h), Action::NextCh));
         assert!(matches!(on_key(KeyCode::Char('<'), &rd, h), Action::PrevCh));
@@ -1193,11 +1353,23 @@ mod tests {
         // ,. 翻 2/3、1/2 页；左右整页
         assert!(matches!(on_key(KeyCode::Char(','), &rd, h), Action::Scroll(d) if d < 0));
         assert!(matches!(on_key(KeyCode::Char('.'), &rd, h), Action::Scroll(d) if d > 0));
-        assert!(matches!(on_key(KeyCode::Left, &rd, h), Action::PageFlip(-1)));
-        assert!(matches!(on_key(KeyCode::Right, &rd, h), Action::PageFlip(1)));
+        assert!(matches!(
+            on_key(KeyCode::Left, &rd, h),
+            Action::PageFlip(-1)
+        ));
+        assert!(matches!(
+            on_key(KeyCode::Right, &rd, h),
+            Action::PageFlip(1)
+        ));
         // space = 查看光标处图片（非切章）
-        assert!(matches!(on_key(KeyCode::Char(' '), &rd, h), Action::SpaceImg));
-        assert!(matches!(on_key(KeyCode::Char('z'), &rd, h), Action::ToggleZen));
+        assert!(matches!(
+            on_key(KeyCode::Char(' '), &rd, h),
+            Action::SpaceImg
+        ));
+        assert!(matches!(
+            on_key(KeyCode::Char('z'), &rd, h),
+            Action::ToggleZen
+        ));
         assert!(matches!(on_key(KeyCode::Tab, &rd, h), Action::ToggleFocus));
         assert!(matches!(on_key(KeyCode::Esc, &rd, h), Action::FocusToc));
     }
@@ -1208,17 +1380,24 @@ mod tests {
         let lines = vec![
             Line::from("段一行"),
             Line::from("段一行续"),
-            Line::default(),          // 空行分隔
+            Line::default(), // 空行分隔
             Line::from("段二行"),
             Line::default(),
-            Line::from("[图占位]"),   // 图块行
+            Line::from("[图占位]"), // 图块行
             Line::default(),
             Line::from("段三行"),
         ];
         let imgs = vec![(5, 6, "http://x/y.png".to_string())];
         let paras = build_paras(&lines, &imgs);
         assert_eq!(paras.len(), 4, "文本三段+图一段: {:?}", paras);
-        assert_eq!(paras[0], (Para { start: 0, end: 2, kind: ParaKind::Text }));
+        assert_eq!(
+            paras[0],
+            (Para {
+                start: 0,
+                end: 2,
+                kind: ParaKind::Text
+            })
+        );
         assert_eq!(paras[1].start, 3);
         assert!(matches!(paras[2].kind, ParaKind::Image(ref u) if u == "http://x/y.png"));
         assert_eq!(paras[2].start, 5);
@@ -1262,7 +1441,7 @@ mod tests {
         rebuild_paras(&mut rd);
         assert_eq!(rd.paras.len(), 4);
         let h = 24; // view = 22
-        // 光标第 1 段（start=11），scroll=0 → rel=11
+                    // 光标第 1 段（start=11），scroll=0 → rel=11
         rd.cursor = 1;
         apply_action(Action::PageFlip(1), &mut rd, h);
         assert_eq!(rd.scroll, 22, "整页=22 行");
@@ -1289,7 +1468,7 @@ mod tests {
         rd.lines = lines;
         rebuild_paras(&mut rd);
         let h = 24; // view=22, q=5
-        // --- RightLeft：光标跳到屏外段 → 段顶对齐 ---
+                    // --- RightLeft：光标跳到屏外段 → 段顶对齐 ---
         rd.page_mode = PageMode::RightLeft;
         rd.scroll = 0;
         rd.cursor = 3; // start=33 > 22
@@ -1340,26 +1519,54 @@ mod tests {
 
     #[test]
     fn key_bindings_nav() {
-        let mut rd = Reader::new("t".into(), vec![
-            Chapter { index: 1, item_id: "a".into(), title: "一".into() },
-            Chapter { index: 2, item_id: "b".into(), title: "二".into() },
-        ]);
+        let mut rd = Reader::new(
+            "t".into(),
+            vec![
+                Chapter {
+                    index: 1,
+                    item_id: "a".into(),
+                    title: "一".into(),
+                },
+                Chapter {
+                    index: 2,
+                    item_id: "b".into(),
+                    title: "二".into(),
+                },
+            ],
+        );
         rd.focus = Focus::Nav;
         let h = 24;
-        assert!(matches!(on_key(KeyCode::Char('j'), &rd, h), Action::SelMove(1)));
+        assert!(matches!(
+            on_key(KeyCode::Char('j'), &rd, h),
+            Action::SelMove(1)
+        ));
         assert!(matches!(on_key(KeyCode::Enter, &rd, h), Action::GotoSel));
         assert!(matches!(on_key(KeyCode::Esc, &rd, h), Action::BackContent));
         // 全局键在 Nav 下同样生效
         assert!(matches!(on_key(KeyCode::Char('q'), &rd, h), Action::Quit));
-        assert!(matches!(on_key(KeyCode::Char('z'), &rd, h), Action::ToggleZen));
+        assert!(matches!(
+            on_key(KeyCode::Char('z'), &rd, h),
+            Action::ToggleZen
+        ));
     }
 
     #[test]
     fn scroll_clamps_and_auto_next_chapter() {
-        let mut rd = Reader::new("t".into(), vec![
-            Chapter { index: 1, item_id: "a".into(), title: "一".into() },
-            Chapter { index: 2, item_id: "b".into(), title: "二".into() },
-        ]);
+        let mut rd = Reader::new(
+            "t".into(),
+            vec![
+                Chapter {
+                    index: 1,
+                    item_id: "a".into(),
+                    title: "一".into(),
+                },
+                Chapter {
+                    index: 2,
+                    item_id: "b".into(),
+                    title: "二".into(),
+                },
+            ],
+        );
         rd.lines = (0..100).map(|i| Line::from(format!("L{i}"))).collect();
         scroll_by(&mut rd, -5, 10);
         assert_eq!(rd.scroll, 0, "上界钳制");
@@ -1376,10 +1583,21 @@ mod tests {
 
     #[test]
     fn focus_toggle_and_zen() {
-        let mut rd = Reader::new("t".into(), vec![
-            Chapter { index: 1, item_id: "a".into(), title: "一".into() },
-            Chapter { index: 2, item_id: "b".into(), title: "二".into() },
-        ]);
+        let mut rd = Reader::new(
+            "t".into(),
+            vec![
+                Chapter {
+                    index: 1,
+                    item_id: "a".into(),
+                    title: "一".into(),
+                },
+                Chapter {
+                    index: 2,
+                    item_id: "b".into(),
+                    title: "二".into(),
+                },
+            ],
+        );
         rd.cur = 1;
         assert!(!apply_action(Action::ToggleFocus, &mut rd, 24));
         assert!(rd.focus == Focus::Nav);
@@ -1401,9 +1619,12 @@ mod tests {
 
     #[test]
     fn restore_position_by_item_id() {
-        let chs = [Chapter { index: 1, item_id: "x".into(), title: "一".into() }];
+        let chs = [Chapter {
+            index: 1,
+            item_id: "x".into(),
+            title: "一".into(),
+        }];
         assert!(chs.iter().position(|c| c.item_id == "missing").is_none());
         assert_eq!(chs.iter().position(|c| c.item_id == "x"), Some(0));
     }
 }
-

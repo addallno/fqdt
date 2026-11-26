@@ -13,11 +13,18 @@ use crate::ShelfCmd;
 /// `fqdt shelf <sub>` 分发；裸 shelf 报错要求子命令（不打迁移提示，46）。
 pub async fn run(cmd: Option<ShelfCmd>, cfg: &Config) {
     let Some(cmd) = cmd else {
-        return eprintln!("  {RED}err{RST} 用法: fqdt shelf <list|add|remove|move|check|delete|download|update>");
+        return eprintln!(
+            "  {RED}err{RST} 用法: fqdt shelf <list|add|remove|move|check|delete|download|update>"
+        );
     };
     match cmd {
-        ShelfCmd::List { group, local, search, author, json } =>
-            list(group, local, search, author, json, cfg).await,
+        ShelfCmd::List {
+            group,
+            local,
+            search,
+            author,
+            json,
+        } => list(group, local, search, author, json, cfg).await,
         ShelfCmd::Add { book } => add(&book).await,
         ShelfCmd::Remove { book_id } => cloud_op("remove", &book_id, None).await,
         ShelfCmd::Move { book_id, group } => cloud_op("move", &book_id, Some(&group)).await,
@@ -29,19 +36,28 @@ pub async fn run(cmd: Option<ShelfCmd>, cfg: &Config) {
 }
 
 /// 书架入口：`--local` 或未登录 → 本地；已登录 → 云端（组名/搜索/作者/JSON 透传）。
-async fn list(group: Option<String>, local: bool, search: Option<String>,
-    author: bool, json: bool, cfg: &Config) {
+async fn list(
+    group: Option<String>,
+    local: bool,
+    search: Option<String>,
+    author: bool,
+    json: bool,
+    cfg: &Config,
+) {
     let cookie = if local { None } else { config::load_cookie() };
     match cookie {
         Some(c) => {
-            account::shelf_section(&c, json, search.as_deref(), author, group.as_deref(), cfg).await;
+            account::shelf_section(&c, json, search.as_deref(), author, group.as_deref(), cfg)
+                .await;
         }
         None => {
             if group.is_some() {
                 return eprintln!("  {RED}err{RST} 本地书架无分组（组名需登录后使用）");
             }
             if !local {
-                crate::emit_line(&format!("  {DIM}未登录，显示本地书架（fqdt login 设置后查看云端）{RST}"));
+                crate::emit_line(&format!(
+                    "  {DIM}未登录，显示本地书架（fqdt login 设置后查看云端）{RST}"
+                ));
             }
             local_list();
         }
@@ -61,7 +77,9 @@ async fn add(book: &str) {
 
 /// 云端写操作统一入口：读 Cookie 后交 account::shelf_op。
 async fn cloud_op(op: &str, book_id: &str, group: Option<&str>) {
-    let Some(cookie) = account::need_cookie() else { return };
+    let Some(cookie) = account::need_cookie() else {
+        return;
+    };
     account::shelf_op(&cookie, op, book_id, group).await;
 }
 
@@ -94,12 +112,25 @@ async fn local_download(index: usize, cfg: &Config) {
         return;
     }
     let (id, title) = &books[index - 1];
-    super::download::run(id, &types::DownloadParams {
-        output: None, range: None, format: None, concurrent: None,
-        audio: false, tone: 1, abr: 0,
-        lrc: "external".into(), force: false,
-        verbose: false, only: None, book_title: Some(title.clone()),
-    }, cfg).await;
+    super::download::run(
+        id,
+        &types::DownloadParams {
+            output: None,
+            range: None,
+            format: None,
+            concurrent: None,
+            audio: false,
+            tone: 1,
+            abr: 0,
+            lrc: "external".into(),
+            force: false,
+            verbose: false,
+            only: None,
+            book_title: Some(title.clone()),
+        },
+        cfg,
+    )
+    .await;
 }
 
 /// 逐本更新本地书架。
@@ -112,11 +143,24 @@ async fn local_update(cfg: &Config) {
     println!("  {CYAN}[更新书架]{RST} · {} 本", books.len());
     for (i, (id, title)) in books.iter().enumerate() {
         println!("\n  [{}/{}] {CYAN}「{}」{RST}", i + 1, books.len(), title);
-        super::download::run(id, &types::DownloadParams {
-            output: None, range: None, format: None, concurrent: None,
-            audio: false, tone: 1, abr: 0,
-            lrc: "external".into(), force: false,
-            verbose: false, only: None, book_title: Some(title.clone()),
-        }, cfg).await;
+        super::download::run(
+            id,
+            &types::DownloadParams {
+                output: None,
+                range: None,
+                format: None,
+                concurrent: None,
+                audio: false,
+                tone: 1,
+                abr: 0,
+                lrc: "external".into(),
+                force: false,
+                verbose: false,
+                only: None,
+                book_title: Some(title.clone()),
+            },
+            cfg,
+        )
+        .await;
     }
 }

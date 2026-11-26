@@ -12,10 +12,10 @@ mod types;
 mod util;
 mod workflow;
 
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
-use types::Config;
 use crate::util::{CYAN, DIM, GREEN, RST, TITLE, YELLOW};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::path::Path;
+use types::Config;
 
 /// `fqdt config` 子命令（省并式，m0162：list 并入 get --all）
 #[derive(Subcommand)]
@@ -47,7 +47,12 @@ enum ConfigCmd {
 }
 
 #[derive(Parser)]
-#[command(name = "fqdt", version, about = "番茄小说下载器", subcommand_help_heading = "Subcommands")]
+#[command(
+    name = "fqdt",
+    version,
+    about = "番茄小说下载器",
+    subcommand_help_heading = "Subcommands"
+)]
 struct Cli {
     // 仅顶层出现（不进子命令 help）；须置于子命令前：fqdt --catalog-url X search …
     #[arg(long, help = "搜索 API 源")]
@@ -71,21 +76,26 @@ enum Cmd {
     Search {
         #[arg(value_name = "key", help = "搜索 key")]
         keyword: String,
-        #[arg(short='p', long, default_value="1", help = "页码")]
+        #[arg(short = 'p', long, default_value = "1", help = "页码")]
         page: usize,
-        #[arg(short='D', long, help = "自动下载第 N 本结果")]
+        #[arg(short = 'D', long, help = "自动下载第 N 本结果")]
         auto: Option<usize>,
         #[arg(long, help = "仅展示搜索结果")]
         dry_run: bool,
-        #[arg(short='o', long, help = "输出目录（仅 -D）")]
+        #[arg(short = 'o', long, help = "输出目录（仅 -D）")]
         output: Option<String>,
-        #[arg(short='j', long, help = "并发数（仅 -D）")]
+        #[arg(short = 'j', long, help = "并发数（仅 -D）")]
         jobs: Option<usize>,
-        #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-（仅 -D）")]
+        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-（仅 -D）")]
         range: Option<String>,
-        #[arg(short='t', long, value_name = "type", help = "输出格式: txt / epub（仅 -D）")]
+        #[arg(
+            short = 't',
+            long,
+            value_name = "type",
+            help = "输出格式: txt / epub（仅 -D）"
+        )]
         format: Option<String>,
-        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒（仅 -D）")]
+        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒（仅 -D）")]
         interval: u64,
     },
     /// 查看书籍信息
@@ -104,15 +114,15 @@ enum Cmd {
         book_id: String,
         #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
-        #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-")]
+        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
         range: Option<String>,
-        #[arg(short='t', long, value_name = "type", help = "输出格式: txt / epub")]
+        #[arg(short = 't', long, value_name = "type", help = "输出格式: txt / epub")]
         format: Option<String>,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short = 'j', long, help = "并发数")]
         jobs: Option<usize>,
-        #[arg(short='f', long, help = "强制覆盖已存在文件")]
+        #[arg(short = 'f', long, help = "强制覆盖已存在文件")]
         force: bool,
-        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
+        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
     },
     /// 下载语音
@@ -121,25 +131,45 @@ enum Cmd {
     Audio {
         #[arg(value_name = "id|key", help = "id 或 key")]
         book_id: String,
-        #[arg(short='o', long, help = "输出目录")]
+        #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
-        #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-")]
+        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
         range: Option<String>,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short = 'j', long, help = "并发数")]
         jobs: Option<usize>,
-        #[arg(short='f', long, help = "强制覆盖已存在文件")]
+        #[arg(short = 'f', long, help = "强制覆盖已存在文件")]
         force: bool,
-        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
+        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
         #[arg(long, help = "歌词模式 external/embed/both/off")]
         lrc: Option<String>,
-        #[arg(short='T', long = "type", value_name = "类型", help = "来源 real|ai|tts（真人讲书/智能朗读/本地合成，互斥）")]
+        #[arg(
+            short = 'T',
+            long = "type",
+            value_name = "类型",
+            help = "来源 real|ai|tts（真人讲书/智能朗读/本地合成，互斥）"
+        )]
         only: Option<String>,
-        #[arg(short='c', long = "container", value_name = "容器", help = "输出容器 m4a/mp3/ogg（默认 ogg）")]
+        #[arg(
+            short = 'c',
+            long = "container",
+            value_name = "容器",
+            help = "输出容器 m4a/mp3/ogg（默认 ogg）"
+        )]
         container: Option<String>,
-        #[arg(long, hide = true, default_value = "1", help = "AI 音色编号，fqdt info audio <id> 查可用")]
+        #[arg(
+            long,
+            hide = true,
+            default_value = "1",
+            help = "AI 音色编号，fqdt info audio <id> 查可用"
+        )]
         tone: usize,
-        #[arg(long, hide = true, default_value = "zh-CN-XiaoxiaoNeural", help = "语音名")]
+        #[arg(
+            long,
+            hide = true,
+            default_value = "zh-CN-XiaoxiaoNeural",
+            help = "语音名"
+        )]
         voice: String,
         #[arg(long, help = "新下载 MP3 嵌入书籍封面")]
         cover: bool,
@@ -150,17 +180,22 @@ enum Cmd {
     Update {
         #[arg(value_name = "id|path", help = "id、key 或已下载目录")]
         target: String,
-        #[arg(short='o', long, help = "输出目录")]
+        #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
-        #[arg(short='r', long, help = "章节范围 1-50 / -5 / 10-")]
+        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
         range: Option<String>,
-        #[arg(short='T', long = "type", value_name = "类型", help = "增量类别 content/audio，逗号分隔，默认全部")]
+        #[arg(
+            short = 'T',
+            long = "type",
+            value_name = "类型",
+            help = "增量类别 content/audio，逗号分隔，默认全部"
+        )]
         only: Option<String>,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short = 'j', long, help = "并发数")]
         jobs: Option<usize>,
-        #[arg(short='f', long, help = "强制覆盖已存在文件")]
+        #[arg(short = 'f', long, help = "强制覆盖已存在文件")]
         force: bool,
-        #[arg(short='i', long, default_value = "0", help = "请求间隔毫秒")]
+        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
     },
     /// 文本转语音
@@ -170,7 +205,7 @@ enum Cmd {
         path: String,
         #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音名")]
         voice: String,
-        #[arg(short='j', long, help = "并发数")]
+        #[arg(short = 'j', long, help = "并发数")]
         jobs: Option<usize>,
     },
     /// 书架管理
@@ -275,24 +310,55 @@ enum InfoCmd {
     },
     /// 目录（含 item_id）
     Chapters {
-        #[arg(value_name = "id|key", help = "id 或 key")] book_id: String,
+        #[arg(value_name = "id|key", help = "id 或 key")]
+        book_id: String,
         #[arg(short = 'r', long, help = "章节范围")]
         range: Option<String>,
         #[arg(long, help = "加入云端书架")]
         add: bool,
     },
     /// 完整简介
-    Intro { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Intro {
+        #[arg(value_name = "id|key", help = "id 或 key")]
+        book_id: String,
+        #[arg(long, help = "加入云端书架")]
+        add: bool,
+    },
     /// 作者资料与书单
-    Author { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Author {
+        #[arg(value_name = "id|key", help = "id 或 key")]
+        book_id: String,
+        #[arg(long, help = "加入云端书架")]
+        add: bool,
+    },
     /// 书评
-    Comments { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Comments {
+        #[arg(value_name = "id|key", help = "id 或 key")]
+        book_id: String,
+        #[arg(long, help = "加入云端书架")]
+        add: bool,
+    },
     /// 封面图 URL
-    Cover { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Cover {
+        #[arg(value_name = "id|key", help = "id 或 key")]
+        book_id: String,
+        #[arg(long, help = "加入云端书架")]
+        add: bool,
+    },
     /// 相关推荐
-    Relative { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Relative {
+        #[arg(value_name = "id|key", help = "id 或 key")]
+        book_id: String,
+        #[arg(long, help = "加入云端书架")]
+        add: bool,
+    },
     /// 本书可用 AI 音色
-    Audio { #[arg(value_name = "id|key", help = "id 或 key")] book_id: String, #[arg(long, help = "加入云端书架")] add: bool },
+    Audio {
+        #[arg(value_name = "id|key", help = "id 或 key")]
+        book_id: String,
+        #[arg(long, help = "加入云端书架")]
+        add: bool,
+    },
     /// 首页推荐
     Recommend {
         #[arg(long, default_value = "2", help = "区块类型")]
@@ -312,15 +378,36 @@ enum InfoCmd {
         json: bool,
     },
     /// 云端文件夹
-    Folders { #[arg(long, value_name = "key", help = "key 过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
+    Folders {
+        #[arg(long, value_name = "key", help = "key 过滤")]
+        search: Option<String>,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
     /// 阅读历史
-    History { #[arg(long, value_name = "key", help = "key 过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
+    History {
+        #[arg(long, value_name = "key", help = "key 过滤")]
+        search: Option<String>,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
     /// 阅读进度
-    Progress { #[arg(long, value_name = "key", help = "key 过滤")] search: Option<String>, #[arg(long, help = "输出原始 JSON")] json: bool },
+    Progress {
+        #[arg(long, value_name = "key", help = "key 过滤")]
+        search: Option<String>,
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
     /// 账号信息
-    User { #[arg(long, help = "输出原始 JSON")] json: bool },
+    User {
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
     /// 划线笔记
-    Highlights { #[arg(long, help = "输出原始 JSON")] json: bool },
+    Highlights {
+        #[arg(long, help = "输出原始 JSON")]
+        json: bool,
+    },
 }
 
 /// `fqdt shelf` 子命令（42②：裸 shelf 报错要求子命令，list 为书架入口）。
@@ -382,12 +469,22 @@ enum ShelfCmd {
 type Field = (&'static str, &'static str);
 
 /// 逐 flag 详情：(子命令主名, 规范长 flag, 详情)。短名经 SHORTS 归一匹配。
-struct FlagDoc { brief: &'static str, takes_value: bool, fields: &'static [Field] }
+struct FlagDoc {
+    brief: &'static str,
+    takes_value: bool,
+    fields: &'static [Field],
+}
 
 /// 长 flag → 短名（匹配 `-r` 与 `--range` 等价）。
 const SHORTS: &[(&str, &str)] = &[
-    ("--range", "-r"), ("--format", "-t"), ("--jobs", "-j"), ("--force", "-f"),
-    ("--interval", "-i"), ("--auto", "-D"), ("--page", "-p"), ("--show", "-s"),
+    ("--range", "-r"),
+    ("--format", "-t"),
+    ("--jobs", "-j"),
+    ("--force", "-f"),
+    ("--interval", "-i"),
+    ("--auto", "-D"),
+    ("--page", "-p"),
+    ("--show", "-s"),
 ];
 
 const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
@@ -511,8 +608,13 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
 /// 子命令别名 → 主名。
 fn canonical_sub(s: &str) -> &str {
     match s {
-        "a" => "audio", "d" => "download", "i" => "info", "s" => "shelf",
-        "u" => "update", "t" => "tts", other => other,
+        "a" => "audio",
+        "d" => "download",
+        "i" => "info",
+        "s" => "shelf",
+        "u" => "update",
+        "t" => "tts",
+        other => other,
     }
 }
 
@@ -520,15 +622,21 @@ fn canonical_sub(s: &str) -> &str {
 /// 场景 a: `<cmd> <flag> --help`；场景 b: `help <cmd> <flag>`（flag 非 --help 本身）。
 fn scan_flag(args: &[String]) -> Option<(String, String)> {
     if args.first().map(|s| s == "help").unwrap_or(false)
-        && args.len() >= 3 && args[2].starts_with('-')
-        && args[2] != "--help" && args[2] != "-h"
+        && args.len() >= 3
+        && args[2].starts_with('-')
+        && args[2] != "--help"
+        && args[2] != "-h"
     {
         return Some((args[1].clone(), args[2].clone()));
     }
     let i = args.iter().position(|a| a == "--help" || a == "-h")?;
-    if i == 0 { return None; }
+    if i == 0 {
+        return None;
+    }
     let flag = &args[i - 1];
-    if !flag.starts_with('-') || flag == "--help" || flag == "-h" { return None; }
+    if !flag.starts_with('-') || flag == "--help" || flag == "-h" {
+        return None;
+    }
     let sub = if i >= 2 && !args[i - 2].starts_with('-') && args[i - 2] != "help" {
         args[i - 2].clone()
     } else {
@@ -540,17 +648,31 @@ fn scan_flag(args: &[String]) -> Option<(String, String)> {
 /// 查 flag 详情表（主名 + 长短名归一）。
 fn find_flag_doc(sub: &str, flag: &str) -> Option<&'static FlagDoc> {
     let sub = canonical_sub(sub);
-    FLAG_HELP.iter().find(|e| e.0 == sub && {
-        e.1 == flag || SHORTS.iter().any(|(long, short)| *long == e.1 && *short == flag)
-    }).map(|e| &e.2)
+    FLAG_HELP
+        .iter()
+        .find(|e| {
+            e.0 == sub && {
+                e.1 == flag
+                    || SHORTS
+                        .iter()
+                        .any(|(long, short)| *long == e.1 && *short == flag)
+            }
+        })
+        .map(|e| &e.2)
 }
 
 /// 格式化渲染单条 flag 详情（标签 2 字对齐）。
 fn render_flag(sub: &str, flag: &str, d: &FlagDoc) {
     let name = flag.trim_start_matches('-').to_uppercase();
-    let usage = if d.takes_value { format!("{flag} <{name}>") } else { flag.to_string() };
+    let usage = if d.takes_value {
+        format!("{flag} <{name}>")
+    } else {
+        flag.to_string()
+    };
     crate::emit_line(&format!("  {CYAN}{usage}{RST}  {YELLOW}{}{RST}", d.brief));
-    crate::emit_line(&format!("  {DIM}Subcommand fqdt {sub} · 优先级 flag > config{RST}"));
+    crate::emit_line(&format!(
+        "  {DIM}Subcommand fqdt {sub} · 优先级 flag > config{RST}"
+    ));
     crate::emit_line("");
     for (k, v) in d.fields {
         crate::emit_line(&format!("    {k:<4}  {v}"));
@@ -567,17 +689,22 @@ fn try_flag_help() {
         }
     }
     if let Some(key) = scan_config_key(&args) {
-        if crate::config::key_help(&key) { std::process::exit(0); }
+        if crate::config::key_help(&key) {
+            std::process::exit(0);
+        }
     }
 }
 
 /// config 键详情：`fqdt config <key> --help`（尾段模糊匹配；多命中列候选）。
 fn scan_config_key(args: &[String]) -> Option<String> {
-    if args.first().map(|s| s != "config").unwrap_or(true) { return None; }
-    if !args.iter().any(|a| a == "--help" || a == "-h") { return None; }
+    if args.first().map(|s| s != "config").unwrap_or(true) {
+        return None;
+    }
+    if !args.iter().any(|a| a == "--help" || a == "-h") {
+        return None;
+    }
     args.iter().skip(1).find(|a| !a.starts_with('-')).cloned()
 }
-
 
 // ===== 子命令 help 自定义渲染（子项缩进，v0.26.1） =====
 
@@ -600,7 +727,9 @@ fn sub_help_requested(args: &[String]) -> Option<Vec<String>> {
             _ => return None,
         }
     };
-    if path.is_empty() { return None; }
+    if path.is_empty() {
+        return None;
+    }
     let mut cur = Cli::command();
     for t in path {
         let next = cur.find_subcommand(t)?.clone();
@@ -616,7 +745,11 @@ fn flag_help_text(a: &clap::Arg) -> String {
         Some("version") => return "显示版本".to_string(),
         _ => {}
     }
-    let help = a.get_help().or_else(|| a.get_long_help()).map(|h| h.to_string()).unwrap_or_default();
+    let help = a
+        .get_help()
+        .or_else(|| a.get_long_help())
+        .map(|h| h.to_string())
+        .unwrap_or_default();
     let first = help.lines().next().unwrap_or("").trim().to_string();
     match a.get_default_values().first() {
         Some(d) if !first.is_empty() => format!("{} [default: {}]", first, d.to_string_lossy()),
@@ -629,18 +762,29 @@ fn flag_help_text(a: &clap::Arg) -> String {
 fn option_rows(cmd: &clap::Command) -> Vec<(String, String)> {
     let mut rows = Vec::new();
     for a in cmd.get_arguments() {
-        if a.is_positional() { continue; }
+        if a.is_positional() {
+            continue;
+        }
         let long = a.get_long().unwrap_or("");
         let is_sub = SUBITEMS.iter().any(|(_, ch)| ch.contains(&long));
-        if is_sub { continue; }
-        if a.is_hide_set() { continue; }
+        if is_sub {
+            continue;
+        }
+        if a.is_hide_set() {
+            continue;
+        }
         rows.push((crate::helpfile::arg_left(a), flag_help_text(a)));
         for (parent, children) in SUBITEMS {
-            if *parent != long { continue; }
+            if *parent != long {
+                continue;
+            }
             for c in cmd.get_arguments() {
                 if let Some(cl) = c.get_long() {
                     if children.contains(&cl) {
-                        rows.push((format!("  {}", crate::helpfile::arg_left(c)), flag_help_text(c)));
+                        rows.push((
+                            format!("  {}", crate::helpfile::arg_left(c)),
+                            flag_help_text(c),
+                        ));
                     }
                 }
             }
@@ -651,8 +795,15 @@ fn option_rows(cmd: &clap::Command) -> Vec<(String, String)> {
 
 /// 两列对齐输出行集：左列最大宽 + 2 为说明列。
 fn emit_rows(rows: &[(String, String)]) {
-    if rows.is_empty() { return; }
-    let width = rows.iter().map(|(l, _)| l.chars().count()).max().unwrap_or(0) + 2;
+    if rows.is_empty() {
+        return;
+    }
+    let width = rows
+        .iter()
+        .map(|(l, _)| l.chars().count())
+        .max()
+        .unwrap_or(0)
+        + 2;
     for (left, help) in rows {
         crate::emit_line(&format!("{left:<width$}{help}"));
     }
@@ -663,8 +814,12 @@ fn render_options(cmd: &clap::Command) {
     let mut rows = option_rows(cmd);
     for a in Cli::command().get_arguments() {
         let Some(long) = a.get_long() else { continue };
-        if !a.is_global_set() { continue; }
-        if rows.iter().any(|(l, _)| l.contains(&format!("--{long}"))) { continue; }
+        if !a.is_global_set() {
+            continue;
+        }
+        if rows.iter().any(|(l, _)| l.contains(&format!("--{long}"))) {
+            continue;
+        }
         rows.push((crate::helpfile::arg_left(a), flag_help_text(a)));
     }
     if rows.iter().all(|(l, _)| !l.contains("--help")) {
@@ -676,23 +831,41 @@ fn render_options(cmd: &clap::Command) {
 
 /// Arguments 段：位置参数两列对齐。
 fn render_pos_args(cmd: &clap::Command) {
-    let rows: Vec<(String, String)> = cmd.get_positionals().filter(|a| !a.is_hide_set()).map(|a| {
-        let name = a.get_value_names().and_then(|v| v.first())
-            .map(|s| s.to_string()).unwrap_or_else(|| a.get_id().to_string());
-        (format!("  <{name}> "), flag_help_text(a))
-    }).collect();
-    if rows.is_empty() { return; }
+    let rows: Vec<(String, String)> = cmd
+        .get_positionals()
+        .filter(|a| !a.is_hide_set())
+        .map(|a| {
+            let name = a
+                .get_value_names()
+                .and_then(|v| v.first())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| a.get_id().to_string());
+            (format!("  <{name}> "), flag_help_text(a))
+        })
+        .collect();
+    if rows.is_empty() {
+        return;
+    }
     crate::emit_line(&format!("{TITLE}Arguments:{RST}"));
     emit_rows(&rows);
 }
 
 /// Commands 段：子命令名 + 一句话目的（跳过 clap 自动 help 子命令）。
 fn render_commands(cmd: &clap::Command) {
-    let subs: Vec<&clap::Command> = cmd.get_subcommands()
-        .filter(|s| s.get_name() != "help" && !s.is_hide_set()).collect();
-    if subs.is_empty() { return; }
+    let subs: Vec<&clap::Command> = cmd
+        .get_subcommands()
+        .filter(|s| s.get_name() != "help" && !s.is_hide_set())
+        .collect();
+    if subs.is_empty() {
+        return;
+    }
     crate::emit_line(&format!("{TITLE}Subcommands:{RST}"));
-    let width = subs.iter().map(|s| s.get_name().chars().count()).max().unwrap_or(0) + 2;
+    let width = subs
+        .iter()
+        .map(|s| s.get_name().chars().count())
+        .max()
+        .unwrap_or(0)
+        + 2;
     for s in subs {
         let about = s.get_about().map(|a| a.to_string()).unwrap_or_default();
         let first = about.lines().next().unwrap_or("").trim();
@@ -718,12 +891,16 @@ fn render_sub_help(path: &[String], examples: bool) {
         let tail = help_tail_text("help", examples);
         if !tail.is_empty() {
             crate::emit_line("");
-            for l in tail.lines() { crate::emit_line(l); }
+            for l in tail.lines() {
+                crate::emit_line(l);
+            }
         }
         return;
     }
     let mut cmd = Cli::command();
-    for t in path { cmd = cmd.find_subcommand(t).expect("path validated").clone(); }
+    for t in path {
+        cmd = cmd.find_subcommand(t).expect("path validated").clone();
+    }
     let about = cmd.get_about().map(|a| a.to_string()).unwrap_or_default();
     crate::emit_line(about.lines().next().unwrap_or("").trim());
     crate::emit_line("");
@@ -731,13 +908,21 @@ fn render_sub_help(path: &[String], examples: bool) {
     crate::emit_line(&format!("{TITLE}Usage:{RST} {usage}"));
     crate::emit_line("");
     let pos: Vec<&clap::Arg> = cmd.get_positionals().filter(|a| !a.is_hide_set()).collect();
-    if !pos.is_empty() { render_pos_args(&cmd); crate::emit_line(""); }
-    if cmd.has_subcommands() { render_commands(&cmd); crate::emit_line(""); }
+    if !pos.is_empty() {
+        render_pos_args(&cmd);
+        crate::emit_line("");
+    }
+    if cmd.has_subcommands() {
+        render_commands(&cmd);
+        crate::emit_line("");
+    }
     render_options(&cmd);
     let tail = help_tail_text(path.last().map(|s| s.as_str()).unwrap_or(""), examples);
     if !tail.is_empty() {
         crate::emit_line("");
-        for l in tail.lines() { crate::emit_line(l); }
+        for l in tail.lines() {
+            crate::emit_line(l);
+        }
     }
 }
 
@@ -766,18 +951,28 @@ const TOP_OPTIONS: &[(&str, &str)] = &[
 /// 顶层 help 请求判定：裸调用 / --help / -h / help，且尚未出现子命令。
 /// `fqdt search --help`、`fqdt help search` 等仍交 clap。
 fn top_help_requested(args: &[String]) -> bool {
-    if args.is_empty() { return true; }
-    if args.len() == 1 && args[0] == "help" { return true; }
+    if args.is_empty() {
+        return true;
+    }
+    if args.len() == 1 && args[0] == "help" {
+        return true;
+    }
     let mut saw_sub = false;
     for a in args {
-        if a == "--help" || a == "-h" { return !saw_sub; }
-        if !a.starts_with('-') { saw_sub = true; }
+        if a == "--help" || a == "-h" {
+            return !saw_sub;
+        }
+        if !a.starts_with('-') {
+            saw_sub = true;
+        }
     }
     false
 }
 
 /// 无样式的根命令，供 help.txt 生成（纯文本）。
-pub(crate) fn cli_command() -> clap::Command { Cli::command() }
+pub(crate) fn cli_command() -> clap::Command {
+    Cli::command()
+}
 
 /// clap help 段落标题（Usage/Arguments/Options/Commands）统一加粗 + 下划线。
 fn with_help_styles(cmd: clap::Command) -> clap::Command {
@@ -810,10 +1005,17 @@ fn render_top_help() {
 
 /// 子命令 about 内省（取首行）；clap 自动 help 子命令 build 前取不到，兜底中文。
 fn sub_about(cmd: &clap::Command, name: &str) -> String {
-    let about = cmd.find_subcommand(name).and_then(|c| c.get_about())
-        .map(|a| a.to_string()).unwrap_or_default();
+    let about = cmd
+        .find_subcommand(name)
+        .and_then(|c| c.get_about())
+        .map(|a| a.to_string())
+        .unwrap_or_default();
     let first = about.lines().next().unwrap_or("").to_string();
-    if first.is_empty() && name == "help" { "查看帮助".into() } else { first }
+    if first.is_empty() && name == "help" {
+        "查看帮助".into()
+    } else {
+        first
+    }
 }
 
 /// help 底部附加段：(子命令名, 附加说明, 示例)。示例受 config `ui.help_examples` 控制。
@@ -840,11 +1042,17 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
 
 /// help 尾部文本（conf 恒开 + examples 开关；Examples 标题套 TITLE 样式）。clap 与自定义渲染共用。
 fn help_tail_text(name: &str, examples: bool) -> String {
-    let Some((_, conf, ex)) = HELP_TAILS.iter().find(|e| e.0 == name) else { return String::new(); };
+    let Some((_, conf, ex)) = HELP_TAILS.iter().find(|e| e.0 == name) else {
+        return String::new();
+    };
     let mut tail = String::new();
-    if !conf.is_empty() { tail.push_str(conf); }
+    if !conf.is_empty() {
+        tail.push_str(conf);
+    }
     if examples && !ex.is_empty() {
-        if !tail.is_empty() { tail.push_str("\n\n"); }
+        if !tail.is_empty() {
+            tail.push_str("\n\n");
+        }
         tail.push_str(ex);
     }
     tail.replace("Examples:", &format!("{TITLE}Examples:{RST}"))
@@ -872,7 +1080,9 @@ async fn main() {
     try_flag_help();
     let mut cmd = with_help_styles(Cli::command());
     let mut cfg = Config::load();
-    if !cfg.ui_color { std::env::set_var("NO_COLOR", "1"); }
+    if !cfg.ui_color {
+        std::env::set_var("NO_COLOR", "1");
+    }
     apply_help_tails(&mut cmd, cfg.ui_help_examples);
     crate::util::init_color();
     // 顶层分组 help 拦截：裸调用/--help/help（子命令级 help 仍走 clap）
@@ -891,7 +1101,9 @@ async fn main() {
         cli.catalog_url.as_deref(),
         cli.content_url.as_deref(),
     );
-    if let Some(to) = cli.timeout { cfg.timeout = to; }
+    if let Some(to) = cli.timeout {
+        cfg.timeout = to;
+    }
     cfg.ensure_dirs();
     cfg.validate();
     Config::save_default(false).ok(); // 启动自动 init：永不覆盖
@@ -904,36 +1116,129 @@ async fn main() {
     fqapi_core::core_log::set_console_hook(crate::util::note);
 
     match cli.cmd {
-        Cmd::Search { keyword, page, auto, dry_run, output, jobs, range, format, interval } =>
-            workflow::search::run(&keyword, page, output.as_deref(), jobs, range.as_deref(),
-                format.as_deref(), verbose, auto, dry_run, interval, &cfg).await,
-        Cmd::Info { cmd } =>
-            dispatch_info(cmd, verbose, &cfg).await,
-        Cmd::Download { book_id, output, range, format, jobs, force, interval } =>
-            dispatch_download(book_id, output, range, format, jobs, force, verbose, interval, &cfg).await,
-        Cmd::Audio { book_id, output, range, tone, lrc, jobs, force, interval, only, container, voice, cover } =>
-            dispatch_audio(book_id, output, range, tone, lrc, jobs, force, verbose, interval,
-                only.as_deref(), container.as_deref(), &voice, cover, &cfg).await,
-        Cmd::Update { target, output, range, only, jobs, force, interval } =>
-            dispatch_update(target, output, range, only, jobs, force, verbose, interval, &cfg).await,
-        Cmd::Tts { path, voice, jobs } =>
-            dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
+        Cmd::Search {
+            keyword,
+            page,
+            auto,
+            dry_run,
+            output,
+            jobs,
+            range,
+            format,
+            interval,
+        } => {
+            workflow::search::run(
+                &keyword,
+                page,
+                output.as_deref(),
+                jobs,
+                range.as_deref(),
+                format.as_deref(),
+                verbose,
+                auto,
+                dry_run,
+                interval,
+                &cfg,
+            )
+            .await
+        }
+        Cmd::Info { cmd } => dispatch_info(cmd, verbose, &cfg).await,
+        Cmd::Download {
+            book_id,
+            output,
+            range,
+            format,
+            jobs,
+            force,
+            interval,
+        } => {
+            dispatch_download(
+                book_id, output, range, format, jobs, force, verbose, interval, &cfg,
+            )
+            .await
+        }
+        Cmd::Audio {
+            book_id,
+            output,
+            range,
+            tone,
+            lrc,
+            jobs,
+            force,
+            interval,
+            only,
+            container,
+            voice,
+            cover,
+        } => {
+            dispatch_audio(
+                book_id,
+                output,
+                range,
+                tone,
+                lrc,
+                jobs,
+                force,
+                verbose,
+                interval,
+                only.as_deref(),
+                container.as_deref(),
+                &voice,
+                cover,
+                &cfg,
+            )
+            .await
+        }
+        Cmd::Update {
+            target,
+            output,
+            range,
+            only,
+            jobs,
+            force,
+            interval,
+        } => {
+            dispatch_update(
+                target, output, range, only, jobs, force, verbose, interval, &cfg,
+            )
+            .await
+        }
+        Cmd::Tts { path, voice, jobs } => dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
         Cmd::Shelf { cmd } => workflow::shelf::run(cmd, &cfg).await,
         Cmd::View { book_id, range } => {
-            let Some(id) = resolve_book_id(book_id, &cfg, verbose).await else { return; };
+            let Some(id) = resolve_book_id(book_id, &cfg, verbose).await else {
+                return;
+            };
             workflow::read::run(&id, range.as_deref(), &cfg).await;
         }
-        Cmd::Login { cookie, check, clear } =>
-            workflow::account::login(cookie, check, clear).await,
-        Cmd::Config { cmd, key, value, list, unset, force } => match cmd {
+        Cmd::Login {
+            cookie,
+            check,
+            clear,
+        } => workflow::account::login(cookie, check, clear).await,
+        Cmd::Config {
+            cmd,
+            key,
+            value,
+            list,
+            unset,
+            force,
+        } => match cmd {
             Some(ConfigCmd::Get { key, all }) => crate::config::run_get(key, all),
             Some(ConfigCmd::Set { key, value }) => crate::config::run_set(key, value),
             Some(ConfigCmd::Unset { key }) => crate::config::run_unset(key),
             Some(ConfigCmd::Init { force }) => crate::config::run_init(force),
             None => crate::config::run_cmd(key, value, list, unset, force), // 旧式 git 用法兼容
         },
-        Cmd::Api { path, method, query, data, jq, status, list } =>
-            run_api(path, method, query, data, jq, status, list).await,
+        Cmd::Api {
+            path,
+            method,
+            query,
+            data,
+            jq,
+            status,
+            list,
+        } => run_api(path, method, query, data, jq, status, list).await,
         Cmd::Serve { port, lan } => run_serve(port, lan).await,
         Cmd::Version => println!("fqdt {}", env!("CARGO_PKG_VERSION")),
         Cmd::Custom(args) => dispatch_custom(args, &cfg),
@@ -953,8 +1258,14 @@ fn dispatch_custom(args: Vec<String>, cfg: &Config) {
             }
             s
         };
-        if cfg.verbose { eprintln!("  [verbose] exec: {}", cmd_str); }
-        match std::process::Command::new("sh").arg("-c").arg(&cmd_str).output() {
+        if cfg.verbose {
+            eprintln!("  [verbose] exec: {}", cmd_str);
+        }
+        match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&cmd_str)
+            .output()
+        {
             Ok(out) => {
                 print!("{}", String::from_utf8_lossy(&out.stdout));
                 if !out.status.success() {
@@ -966,7 +1277,10 @@ fn dispatch_custom(args: Vec<String>, cfg: &Config) {
         return;
     }
     eprintln!("  err 未知命令: {}", cmd);
-    let all: Vec<&str> = TOP_GROUPS.iter().flat_map(|(_, subs)| subs.iter().copied()).collect();
+    let all: Vec<&str> = TOP_GROUPS
+        .iter()
+        .flat_map(|(_, subs)| subs.iter().copied())
+        .collect();
     eprintln!("  可用命令: {}", all.join(", "));
 }
 
@@ -974,14 +1288,26 @@ fn dispatch_custom(args: Vec<String>, cfg: &Config) {
 async fn dispatch_info(cmd: InfoCmd, verbose: bool, cfg: &Config) {
     let vb = verbose || cfg.verbose;
     match cmd {
-        InfoCmd::Recommend { tab_type, tab_index, offset, json } =>
-            workflow::discover::recommend(tab_type, tab_index, offset, json, cfg).await,
+        InfoCmd::Recommend {
+            tab_type,
+            tab_index,
+            offset,
+            json,
+        } => workflow::discover::recommend(tab_type, tab_index, offset, json, cfg).await,
         InfoCmd::Category { tab, json } => workflow::discover::category(tab, json, cfg).await,
-        InfoCmd::Folders { search, json } => workflow::account::read_section("folders", json, search.as_deref()).await,
-        InfoCmd::History { search, json } => workflow::account::read_section("history", json, search.as_deref()).await,
-        InfoCmd::Progress { search, json } => workflow::account::read_section("progress", json, search.as_deref()).await,
+        InfoCmd::Folders { search, json } => {
+            workflow::account::read_section("folders", json, search.as_deref()).await
+        }
+        InfoCmd::History { search, json } => {
+            workflow::account::read_section("history", json, search.as_deref()).await
+        }
+        InfoCmd::Progress { search, json } => {
+            workflow::account::read_section("progress", json, search.as_deref()).await
+        }
         InfoCmd::User { json } => workflow::account::read_section("user", json, None).await,
-        InfoCmd::Highlights { json } => workflow::account::read_section("highlights", json, None).await,
+        InfoCmd::Highlights { json } => {
+            workflow::account::read_section("highlights", json, None).await
+        }
         book => dispatch_info_book(book, vb, cfg).await,
     }
 }
@@ -989,8 +1315,17 @@ async fn dispatch_info(cmd: InfoCmd, verbose: bool, cfg: &Config) {
 /// 书籍类 info 子命令：统一映射到 workflow::info::run 的 section。
 async fn dispatch_info_book(cmd: InfoCmd, vb: bool, cfg: &Config) {
     let (id, section, range, show, add) = match cmd {
-        InfoCmd::Overview { book_id, range, show, add } => (book_id, None, range, show, add),
-        InfoCmd::Chapters { book_id, range, add } => (book_id, Some("chapters"), range, false, add),
+        InfoCmd::Overview {
+            book_id,
+            range,
+            show,
+            add,
+        } => (book_id, None, range, show, add),
+        InfoCmd::Chapters {
+            book_id,
+            range,
+            add,
+        } => (book_id, Some("chapters"), range, false, add),
         InfoCmd::Intro { book_id, add } => (book_id, Some("intro"), None, false, add),
         InfoCmd::Author { book_id, add } => (book_id, Some("author"), None, false, add),
         InfoCmd::Comments { book_id, add } => (book_id, Some("comments"), None, false, add),
@@ -1000,9 +1335,13 @@ async fn dispatch_info_book(cmd: InfoCmd, vb: bool, cfg: &Config) {
         _ => return,
     };
     // id 位支持书名关键词交互选书（纯数字/作者 id 原样，同 download/audio）
-    let Some(id) = resolve_book_id(id, cfg, vb).await else { return };
+    let Some(id) = resolve_book_id(id, cfg, vb).await else {
+        return;
+    };
     workflow::info::run(&id, section, range.as_deref(), show, vb, cfg).await;
-    if add { workflow::account::add_book(&id).await; }
+    if add {
+        workflow::account::add_book(&id).await;
+    }
 }
 
 /// 选书：纯数字（≥10 位，book_id/item_id/uid）或作者 id（N_数字）视为 id 原样，
@@ -1026,24 +1365,55 @@ async fn resolve_book_id(target: String, cfg: &Config, vb: bool) -> Option<Strin
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn dispatch_download(target: String, output: Option<String>, range: Option<String>,
-    format: Option<String>, jobs: Option<usize>, force: bool, verbose: bool,
-    _interval: u64, cfg: &Config) {
+async fn dispatch_download(
+    target: String,
+    output: Option<String>,
+    range: Option<String>,
+    format: Option<String>,
+    jobs: Option<usize>,
+    force: bool,
+    verbose: bool,
+    _interval: u64,
+    cfg: &Config,
+) {
     let vb = verbose || cfg.verbose;
-    let Some(book_id) = resolve_book_id(target, cfg, vb).await else { return };
+    let Some(book_id) = resolve_book_id(target, cfg, vb).await else {
+        return;
+    };
     let p = types::DownloadParams {
-        output, range, format, concurrent: jobs,
-        audio: false, tone: 1, abr: cfg.abr,
-        lrc: "external".into(), force, verbose: vb, only: None, book_title: None,
+        output,
+        range,
+        format,
+        concurrent: jobs,
+        audio: false,
+        tone: 1,
+        abr: cfg.abr,
+        lrc: "external".into(),
+        force,
+        verbose: vb,
+        only: None,
+        book_title: None,
     };
     workflow::download::run(&book_id, &p, cfg).await;
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<String>,
-    tone: usize, lrc: Option<String>, _jobs: Option<usize>, force: bool, verbose: bool,
-    _interval: u64, only: Option<&str>, container: Option<&str>, voice: &str,
-    cover: bool, base_cfg: &Config) {
+async fn dispatch_audio(
+    book_id: String,
+    output: Option<String>,
+    range: Option<String>,
+    tone: usize,
+    lrc: Option<String>,
+    _jobs: Option<usize>,
+    force: bool,
+    verbose: bool,
+    _interval: u64,
+    only: Option<&str>,
+    container: Option<&str>,
+    voice: &str,
+    cover: bool,
+    base_cfg: &Config,
+) {
     // -T/--type 来源归一（real|ai|tts 互斥，m0064 分组 flag）
     let mut real = false;
     let mut ai = false;
@@ -1051,12 +1421,17 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
     if let Some(s) = only {
         for p in s.split(',') {
             let p = p.trim().to_ascii_lowercase();
-            if p.is_empty() { continue; }
+            if p.is_empty() {
+                continue;
+            }
             match p.as_str() {
                 "real" => real = true,
                 "ai" => ai = true,
                 "tts" => tts = true,
-                other => { eprintln!("  err 未知来源 {}（可用 real/ai/tts）", other); return; }
+                other => {
+                    eprintln!("  err 未知来源 {}（可用 real/ai/tts）", other);
+                    return;
+                }
             }
         }
         if [real, ai, tts].iter().filter(|x| **x).count() > 1 {
@@ -1071,10 +1446,15 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
             "m4a" => cfg2.audio_keep_m4a = true,
             "mp3" => cfg2.audio_mp3 = true,
             "ogg" => {}
-            other => { eprintln!("  err 未知容器 {}（可用 m4a/mp3/ogg）", other); return; }
+            other => {
+                eprintln!("  err 未知容器 {}（可用 m4a/mp3/ogg）", other);
+                return;
+            }
         }
     }
-    if cover { cfg2.audio_cover = true; }
+    if cover {
+        cfg2.audio_cover = true;
+    }
     let cfg = &cfg2;
     let vb = verbose || cfg.verbose;
     let lrc_mode = lrc.as_deref().unwrap_or("external");
@@ -1092,23 +1472,56 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
     // Edge-TTS：先下载正文（txt），再整目录合成 mp3（-o 显式指定 → 直接落该目录；默认 → 存储书籍目录下 Audio/）
     if tts {
         let p = types::DownloadParams {
-            output: output.clone(), range, format: None, concurrent: None,
-            audio: false, tone, abr: cfg.abr, lrc: "external".into(), force,
-            verbose: vb, only: None, book_title: None,
+            output: output.clone(),
+            range,
+            format: None,
+            concurrent: None,
+            audio: false,
+            tone,
+            abr: cfg.abr,
+            lrc: "external".into(),
+            force,
+            verbose: vb,
+            only: None,
+            book_title: None,
         };
         workflow::download::run(&book_id, &p, cfg).await;
-        let dir = output.as_deref().map(std::path::PathBuf::from).unwrap_or_else(|| cfg.output_dir.clone());
-        workflow::audio::run_tts(&dir.to_string_lossy(), output.as_deref(), voice,
-            &cfg.tts_rate, &cfg.tts_volume, &cfg.tts_pitch, cfg.abr, None, false, "",
-            "external", vb).await;
+        let dir = output
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| cfg.output_dir.clone());
+        workflow::audio::run_tts(
+            &dir.to_string_lossy(),
+            output.as_deref(),
+            voice,
+            &cfg.tts_rate,
+            &cfg.tts_volume,
+            &cfg.tts_pitch,
+            cfg.abr,
+            None,
+            false,
+            "",
+            "external",
+            vb,
+        )
+        .await;
         return;
     }
 
     if path.is_dir() {
         let p = types::DownloadParams {
-            output: None, range, format: None, concurrent: None,
-            audio: true, tone, abr: cfg.abr,
-            lrc: lrc_mode.into(), force, verbose: vb, only: None, book_title: None,
+            output: None,
+            range,
+            format: None,
+            concurrent: None,
+            audio: true,
+            tone,
+            abr: cfg.abr,
+            lrc: lrc_mode.into(),
+            force,
+            verbose: vb,
+            only: None,
+            book_title: None,
         };
         workflow::download::run_dir(path, &p, vb, cfg).await;
         return;
@@ -1117,7 +1530,9 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
     // --real/--ai：真人讲书版 ↔ 文字版（AI 音色）自动互转
     let book_id = if real || ai {
         util::progress("解析音频版本");
-        let r = api::Client::from_config(cfg, vb).resolve_audio_book(&book_id, real, ai).await;
+        let r = api::Client::from_config(cfg, vb)
+            .resolve_audio_book(&book_id, real, ai)
+            .await;
         util::clear_progress();
         match r {
             Ok(id) => {
@@ -1137,30 +1552,70 @@ async fn dispatch_audio(book_id: String, output: Option<String>, range: Option<S
 
     let fallbacks = if cfg.audio_tone_fallbacks.is_empty() {
         vec![2, 4, 5, 6, 74, 91]
-    } else { cfg.audio_tone_fallbacks.clone() };
+    } else {
+        cfg.audio_tone_fallbacks.clone()
+    };
     // 直接书籍 ID 下载：不建 Audio 子文件夹，mp3 直接落目标目录（-o 或 output_dir 根）
     let out = output
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| cfg.output_dir.clone());
-    workflow::download::fetch_and_dl_audio(&book_id, &out, &range, tone, cfg.abr, lrc_mode, force, &fallbacks, vb, cfg).await;
+    workflow::download::fetch_and_dl_audio(
+        &book_id, &out, &range, tone, cfg.abr, lrc_mode, force, &fallbacks, vb, cfg,
+    )
+    .await;
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn dispatch_update(target: String, output: Option<String>, range: Option<String>,
-    only: Option<String>, jobs: Option<usize>, force: bool, verbose: bool, _interval: u64,
-    cfg: &Config) {
+async fn dispatch_update(
+    target: String,
+    output: Option<String>,
+    range: Option<String>,
+    only: Option<String>,
+    jobs: Option<usize>,
+    force: bool,
+    verbose: bool,
+    _interval: u64,
+    cfg: &Config,
+) {
     let vb = verbose || cfg.verbose;
-    workflow::update::run(&target, output.as_deref(), range.as_deref(), only.as_deref(),
-        jobs, force, vb, cfg).await;
+    workflow::update::run(
+        &target,
+        output.as_deref(),
+        range.as_deref(),
+        only.as_deref(),
+        jobs,
+        force,
+        vb,
+        cfg,
+    )
+    .await;
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn dispatch_tts(path: String, voice: &str, _jobs: Option<usize>, verbose: bool, cfg: &Config) {
+async fn dispatch_tts(
+    path: String,
+    voice: &str,
+    _jobs: Option<usize>,
+    verbose: bool,
+    cfg: &Config,
+) {
     let vb = verbose || cfg.verbose;
-    workflow::audio::run_tts(&path, None, voice, &cfg.tts_rate, &cfg.tts_volume, &cfg.tts_pitch,
-        cfg.abr, None, false, "", "external", vb).await;
+    workflow::audio::run_tts(
+        &path,
+        None,
+        voice,
+        &cfg.tts_rate,
+        &cfg.tts_volume,
+        &cfg.tts_pitch,
+        cfg.abr,
+        None,
+        false,
+        "",
+        "external",
+        vb,
+    )
+    .await;
 }
-
 
 /// 写一行到 stdout；下游管道已关闭（EPIPE）时静默退出，避免 panic
 pub(crate) fn emit_line(s: &str) {
@@ -1175,7 +1630,10 @@ pub(crate) fn emit_line(s: &str) {
 async fn run_serve(port: u16, lan: bool) {
     match fqapi::serve_at(port, lan).await {
         Ok(url) => {
-            println!("  {GREEN}ok{RST} 监听 {url}{}", if lan { "（局域网）" } else { "" });
+            println!(
+                "  {GREEN}ok{RST} 监听 {url}{}",
+                if lan { "（局域网）" } else { "" }
+            );
             println!("  {DIM}Ctrl-C 退出{RST}");
             tokio::signal::ctrl_c().await.ok();
             fqapi::shutdown().await;
@@ -1215,8 +1673,15 @@ async fn run_api(
 ) {
     if list {
         for ep in fqapi::ENDPOINTS {
-            let req = if ep.required.is_empty() { "-" } else { ep.required };
-            emit_line(&format!("{:<4} {:<52} {:<22} {}", ep.method, ep.path, req, ep.note));
+            let req = if ep.required.is_empty() {
+                "-"
+            } else {
+                ep.required
+            };
+            emit_line(&format!(
+                "{:<4} {:<52} {:<22} {}",
+                ep.method, ep.path, req, ep.note
+            ));
         }
         return;
     }
@@ -1241,7 +1706,12 @@ async fn run_api(
         eprintln!("  {GREEN}ok{RST} HTTP {}", reply.status);
     }
     match jq {
-        Some(filter) => match reply.json().ok().as_ref().and_then(|v| util::jq_extract(v, &filter)) {
+        Some(filter) => match reply
+            .json()
+            .ok()
+            .as_ref()
+            .and_then(|v| util::jq_extract(v, &filter))
+        {
             Some(v) => emit_line(&util::jq_display(&v)),
             None => {
                 eprintln!("  err jq 无匹配: {filter}");

@@ -36,42 +36,211 @@ pub struct Endpoint {
 /// 常用端点索引。完整端点表见 crates/fqapi-core 的路由定义（dispatch 一律直通，
 /// 未列入此表的端点同样可用）。
 pub const ENDPOINTS: &[Endpoint] = &[
-    Endpoint { method: "GET", path: "/api/v1/search", required: "query", note: "综合搜索 (tab_type: 综合1 小说3 听书2)" },
-    Endpoint { method: "GET", path: "/api/v1/search/hot", required: "", note: "热搜榜" },
-    Endpoint { method: "GET", path: "/api/v1/search/suggest", required: "", note: "搜索建议 (未实现, 404)" },
-    Endpoint { method: "GET", path: "/api/v1/category", required: "", note: "分类首页 (category_tab: 1男频 2女频)" },
-    Endpoint { method: "GET", path: "/api/v1/recommend/homepage", required: "", note: "首页推荐流 (tab_type/tab_index)" },
-    Endpoint { method: "GET", path: "/api/v1/recommend/channels", required: "", note: "推荐频道表" },
-    Endpoint { method: "GET", path: "/api/v1/rank/{rank_id}", required: "", note: "榜单数据" },
-    Endpoint { method: "GET", path: "/api/v1/books/{book_id}", required: "", note: "书籍详情 (legacy)" },
-    Endpoint { method: "GET", path: "/api/v1/books/{book_id}/detail", required: "", note: "书籍详情" },
-    Endpoint { method: "GET", path: "/api/v1/books/{book_id}/directory", required: "", note: "目录 (data.item_data_list)" },
-    Endpoint { method: "GET", path: "/api/v1/books/{book_id}/reviews", required: "", note: "书评" },
-    Endpoint { method: "GET", path: "/api/v1/books/{book_id}/comments", required: "", note: "段评聚合 (legacy)" },
-    Endpoint { method: "GET", path: "/api/v1/books/{book_id}/related", required: "", note: "相关推荐" },
-    Endpoint { method: "GET", path: "/api/v1/books/{book_id}/tones", required: "", note: "音色列表" },
-    Endpoint { method: "GET", path: "/api/v1/books/{book_id}/share", required: "", note: "分享信息" },
-    Endpoint { method: "GET", path: "/api/v1/chapters/{item_id}", required: "", note: "单章正文 (含解密)" },
-    Endpoint { method: "GET", path: "/api/v1/chapters/batch", required: "item_ids", note: "批量正文 (逗号分隔)" },
-    Endpoint { method: "GET", path: "/api/v1/chapters/{item_id}/reviews", required: "", note: "章评" },
-    Endpoint { method: "GET", path: "/api/v1/chapters/{item_id}/paragraphs/{n}/reviews", required: "", note: "第 n 段段评" },
-    Endpoint { method: "GET", path: "/api/v1/chapters/{item_id}/timeline", required: "", note: "听书字幕时间轴" },
-    Endpoint { method: "GET", path: "/api/v1/items/{item_ids}", required: "", note: "章节信息 (不含正文)" },
-    Endpoint { method: "GET", path: "/api/v1/authors/{author_id}", required: "", note: "作者信息" },
-    Endpoint { method: "GET", path: "/api/v1/authors/{author_id}/bookshelf", required: "", note: "作者作品" },
-    Endpoint { method: "GET", path: "/api/v1/audio/books/{book_id}", required: "", note: "有声书详情" },
-    Endpoint { method: "GET", path: "/api/v1/audio/books/{book_id}/chapters/{chapter_id}", required: "", note: "章节播放信息 (尊重 tone_id)" },
-    Endpoint { method: "GET", path: "/api/v1/audio/play", required: "item_ids,book_id", note: "播放源" },
-    Endpoint { method: "GET", path: "/api/v1/audio/wkcontent/{item_ids}", required: "", note: "文稿" },
-    Endpoint { method: "GET", path: "/api/v1/videos/{video_id}", required: "", note: "视频播放源 (mode=stream)" },
-    Endpoint { method: "GET", path: "/api/v1/series/{series_id}", required: "", note: "短剧详情" },
-    Endpoint { method: "GET", path: "/api/v1/series/{series_id}/comments", required: "", note: "剧评" },
-    Endpoint { method: "GET", path: "/api/v1/comments/{comment_id}/replies", required: "", note: "评论回复" },
-    Endpoint { method: "GET", path: "/api/v1/manga/{item_ids}", required: "", note: "漫画章节" },
-    Endpoint { method: "POST", path: "/api/v1/account/fanqie/library", required: "cookie,resource", note: "账号采集 (shelf_list/folder_list/progress_list 等, cookie 鉴权)" },
-    Endpoint { method: "POST", path: "/api/v1/account/fanqie/history", required: "cookie", note: "阅读历史 (cookie 鉴权)" },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/search",
+        required: "query",
+        note: "综合搜索 (tab_type: 综合1 小说3 听书2)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/search/hot",
+        required: "",
+        note: "热搜榜",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/search/suggest",
+        required: "",
+        note: "搜索建议 (未实现, 404)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/category",
+        required: "",
+        note: "分类首页 (category_tab: 1男频 2女频)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/recommend/homepage",
+        required: "",
+        note: "首页推荐流 (tab_type/tab_index)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/recommend/channels",
+        required: "",
+        note: "推荐频道表",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/rank/{rank_id}",
+        required: "",
+        note: "榜单数据",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/books/{book_id}",
+        required: "",
+        note: "书籍详情 (legacy)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/books/{book_id}/detail",
+        required: "",
+        note: "书籍详情",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/books/{book_id}/directory",
+        required: "",
+        note: "目录 (data.item_data_list)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/books/{book_id}/reviews",
+        required: "",
+        note: "书评",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/books/{book_id}/comments",
+        required: "",
+        note: "段评聚合 (legacy)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/books/{book_id}/related",
+        required: "",
+        note: "相关推荐",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/books/{book_id}/tones",
+        required: "",
+        note: "音色列表",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/books/{book_id}/share",
+        required: "",
+        note: "分享信息",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/chapters/{item_id}",
+        required: "",
+        note: "单章正文 (含解密)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/chapters/batch",
+        required: "item_ids",
+        note: "批量正文 (逗号分隔)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/chapters/{item_id}/reviews",
+        required: "",
+        note: "章评",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/chapters/{item_id}/paragraphs/{n}/reviews",
+        required: "",
+        note: "第 n 段段评",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/chapters/{item_id}/timeline",
+        required: "",
+        note: "听书字幕时间轴",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/items/{item_ids}",
+        required: "",
+        note: "章节信息 (不含正文)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/authors/{author_id}",
+        required: "",
+        note: "作者信息",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/authors/{author_id}/bookshelf",
+        required: "",
+        note: "作者作品",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/audio/books/{book_id}",
+        required: "",
+        note: "有声书详情",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/audio/books/{book_id}/chapters/{chapter_id}",
+        required: "",
+        note: "章节播放信息 (尊重 tone_id)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/audio/play",
+        required: "item_ids,book_id",
+        note: "播放源",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/audio/wkcontent/{item_ids}",
+        required: "",
+        note: "文稿",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/videos/{video_id}",
+        required: "",
+        note: "视频播放源 (mode=stream)",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/series/{series_id}",
+        required: "",
+        note: "短剧详情",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/series/{series_id}/comments",
+        required: "",
+        note: "剧评",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/comments/{comment_id}/replies",
+        required: "",
+        note: "评论回复",
+    },
+    Endpoint {
+        method: "GET",
+        path: "/api/v1/manga/{item_ids}",
+        required: "",
+        note: "漫画章节",
+    },
+    Endpoint {
+        method: "POST",
+        path: "/api/v1/account/fanqie/library",
+        required: "cookie,resource",
+        note: "账号采集 (shelf_list/folder_list/progress_list 等, cookie 鉴权)",
+    },
+    Endpoint {
+        method: "POST",
+        path: "/api/v1/account/fanqie/history",
+        required: "cookie",
+        note: "阅读历史 (cookie 鉴权)",
+    },
 ];
-
 
 /// 安装 rustls 加密提供方（`rustls-no-provider` 下 reqwest 构建前必须）。幂等。
 pub fn install_crypto() {
@@ -116,7 +285,10 @@ fn random_key_hex() -> Result<String, String> {
 ///
 /// 优先级：环境变量 `FQ_POOL_KEY` → `<data-dir>/pool.key` → 自动生成并写回。
 /// 拒绝在已加密的设备池上更换密钥（会导致池不可读）。
-fn load_or_create_pool_key(data: &std::path::Path, pool_path: &std::path::Path) -> Result<String, String> {
+fn load_or_create_pool_key(
+    data: &std::path::Path,
+    pool_path: &std::path::Path,
+) -> Result<String, String> {
     if let Ok(k) = std::env::var("FQ_POOL_KEY") {
         let k = k.trim().to_string();
         if k.len() == 64 {
@@ -126,8 +298,8 @@ fn load_or_create_pool_key(data: &std::path::Path, pool_path: &std::path::Path) 
     }
     let key_path = data.join("pool.key");
     if key_path.exists() {
-        let k = std::fs::read_to_string(&key_path)
-            .map_err(|e| format!("读取 pool.key 失败: {e}"))?;
+        let k =
+            std::fs::read_to_string(&key_path).map_err(|e| format!("读取 pool.key 失败: {e}"))?;
         let k = k.trim().to_string();
         if k.len() == 64 {
             return Ok(k);
@@ -168,12 +340,7 @@ fn prep_runtime() -> Result<(String, String, String, String), String> {
     runtime::set_device_pool_key(key)?;
 
     let s = |p: &PathBuf| p.to_string_lossy().into_owned();
-    Ok((
-        s(&config_path),
-        s(&pool_path),
-        s(&filter_path),
-        s(&data),
-    ))
+    Ok((s(&config_path), s(&pool_path), s(&filter_path), s(&data)))
 }
 
 /// 确保运行时已初始化（不监听端口）。幂等；重复调用直接返回。
@@ -244,7 +411,12 @@ fn truncate(s: &str) -> String {
 
 /// 发起一次进程内请求（todo14 透传用）。`query` 为 `a=1&b=2` 形式（不含问号）。
 #[allow(dead_code)]
-pub async fn call(method: &str, path: &str, query: &str, body: Vec<u8>) -> Result<ApiReply, String> {
+pub async fn call(
+    method: &str,
+    path: &str,
+    query: &str,
+    body: Vec<u8>,
+) -> Result<ApiReply, String> {
     ensure_runtime().await?;
     let server = runtime::server()
         .await
@@ -259,7 +431,10 @@ pub async fn call(method: &str, path: &str, query: &str, body: Vec<u8>) -> Resul
     let resp = dispatch::dispatch(&server, &req).await;
     let status = resp.status;
     let bytes = resp.into_bytes().await?;
-    Ok(ApiReply { status, body: bytes })
+    Ok(ApiReply {
+        status,
+        body: bytes,
+    })
 }
 
 /// 发起 GET 请求并解析 JSON（todo14 透传用）。

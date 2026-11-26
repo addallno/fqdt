@@ -120,7 +120,8 @@ static SPIN_ACTIVE: AtomicBool = AtomicBool::new(false);
 // 暂停协议：note() 置 PAUSE → 线程挂起并回 ACK → note 擦行输出 → 解除 PAUSE
 static SPIN_PAUSE: AtomicBool = AtomicBool::new(false);
 static SPIN_PAUSED: AtomicBool = AtomicBool::new(false);
-static SPIN_HANDLE: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
+static SPIN_HANDLE: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> =
+    std::sync::Mutex::new(None);
 // 当前运行中的 indicatif 进度条（with_progress_async 注册），note() 优先经它输出
 static ACTIVE_PB: std::sync::Mutex<Option<ProgressBar>> = std::sync::Mutex::new(None);
 
@@ -304,10 +305,18 @@ where
 
 /// 失败分组收据：同类错误最多展示 3 条 + 计数，其余收敛（TUI.md §6 错误分组）。
 pub fn print_failures(errs: &[String], retry_hint: &str) {
-    if errs.is_empty() { return; }
+    if errs.is_empty() {
+        return;
+    }
     let show: Vec<&str> = errs.iter().take(3).map(|s| s.as_str()).collect();
     let more = if errs.len() > 3 { " …" } else { "" };
-    eprintln!("  {RED}err{RST} 失败 {} 项 · {}{}{}", errs.len(), show.join(" · "), more, retry_hint);
+    eprintln!(
+        "  {RED}err{RST} 失败 {} 项 · {}{}{}",
+        errs.len(),
+        show.join(" · "),
+        more,
+        retry_hint
+    );
 }
 
 /// 按 `.a.b[0].c` 形式提取 JSON 字段（jq 子集，供 `fqdt api --jq` 与封装子命令共用）
@@ -339,7 +348,11 @@ pub fn jq_extract(v: &serde_json::Value, filter: &str) -> Option<serde_json::Val
 /// 单段前进：处理 `键名` / `键名[n]` / `键名[]`，结果追加到 `out`
 fn jq_step(item: &serde_json::Value, seg: &str, out: &mut Vec<serde_json::Value>) -> Option<()> {
     if let Some(key) = seg.strip_suffix("[]") {
-        let base = if key.is_empty() { Some(item) } else { item.get(key) };
+        let base = if key.is_empty() {
+            Some(item)
+        } else {
+            item.get(key)
+        };
         for x in base?.as_array()? {
             out.push(x.clone());
         }
@@ -388,10 +401,7 @@ mod tests {
     #[test]
     fn test_jq_spread() {
         let v = json!({"cells": [{"books": [{"n": 1}, {"n": 2}]}, {"books": [{"n": 3}]}]});
-        assert_eq!(
-            jq_extract(&v, "cells[].books[].n"),
-            Some(json!([1, 2, 3]))
-        );
+        assert_eq!(jq_extract(&v, "cells[].books[].n"), Some(json!([1, 2, 3])));
     }
 
     #[test]

@@ -77,7 +77,10 @@ pub fn store_path() -> PathBuf {
 }
 
 pub fn now_sec() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// 读取存储；缺失/损坏时迁移旧格式或回退空（损坏打 err 提示）。
@@ -111,16 +114,27 @@ pub fn save(st: &Store) -> Result<(), String> {
 /// 旧格式迁移：cookie / books.txt / authors.json 导入后改 `.bak`（store.json 已存在则不会走到这里）。
 fn migrate_legacy() -> Store {
     let mut st = Store::default();
-    let dir = store_path().parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let dir = store_path()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
     if let Ok(s) = fs::read_to_string(dir.join("cookie")) {
         let v = s.trim().to_string();
-        if !v.is_empty() { st.cookie = Some(Cookie { value: v, saved_at: now_sec() }); }
+        if !v.is_empty() {
+            st.cookie = Some(Cookie {
+                value: v,
+                saved_at: now_sec(),
+            });
+        }
         let _ = fs::rename(dir.join("cookie"), dir.join("cookie.bak"));
     }
     if let Ok(text) = fs::read_to_string(dir.join("books.txt")) {
         for line in text.lines() {
             if let Some((id, title)) = line.trim().split_once(':') {
-                st.bookmarks.push(Bookmark { id: id.trim().into(), title: title.trim().into() });
+                st.bookmarks.push(Bookmark {
+                    id: id.trim().into(),
+                    title: title.trim().into(),
+                });
             }
         }
         let _ = fs::rename(dir.join("books.txt"), dir.join("books.txt.bak"));
@@ -146,37 +160,53 @@ pub fn cookie_get() -> Option<String> {
 /// 存 cookie（调用方已完成校验与规范化）。
 pub fn cookie_set(value: String) -> Result<(), String> {
     let mut st = load();
-    st.cookie = Some(Cookie { value, saved_at: now_sec() });
+    st.cookie = Some(Cookie {
+        value,
+        saved_at: now_sec(),
+    });
     save(&st)
 }
 
 pub fn cookie_clear() -> Result<(), String> {
     let mut st = load();
-    if st.cookie.take().is_none() { return Err("未设置过 Cookie".into()); }
+    if st.cookie.take().is_none() {
+        return Err("未设置过 Cookie".into());
+    }
     save(&st)
 }
 
 pub fn bookmarks() -> Vec<(String, String)> {
-    load().bookmarks.into_iter().map(|b| (b.id, b.title)).collect()
+    load()
+        .bookmarks
+        .into_iter()
+        .map(|b| (b.id, b.title))
+        .collect()
 }
 
 pub fn bookmark_add(id: &str, title: &str) -> Result<(), String> {
     let mut st = load();
     st.bookmarks.retain(|b| b.id != id); // 防重复
-    st.bookmarks.push(Bookmark { id: id.into(), title: title.into() });
+    st.bookmarks.push(Bookmark {
+        id: id.into(),
+        title: title.into(),
+    });
     save(&st)
 }
 
 /// 按下标移除，返回被移除项（不存在返回 None）。
 pub fn bookmark_remove(idx: usize) -> Option<(String, String)> {
     let mut st = load();
-    if idx >= st.bookmarks.len() { return None; }
+    if idx >= st.bookmarks.len() {
+        return None;
+    }
     let b = st.bookmarks.remove(idx);
     let _ = save(&st);
     Some((b.id, b.title))
 }
 
-pub fn authors_load() -> HashMap<String, AuthorEntry> { load().authors }
+pub fn authors_load() -> HashMap<String, AuthorEntry> {
+    load().authors
+}
 
 pub fn authors_save(m: HashMap<String, AuthorEntry>) -> Result<(), String> {
     let mut st = load();
@@ -195,7 +225,10 @@ pub fn shelf_snap() -> Option<(Value, bool)> {
 
 pub fn shelf_snap_set(data: Value) -> Result<(), String> {
     let mut st = load();
-    st.shelf = Some(ShelfSnap { data, fetched_at: now_sec() });
+    st.shelf = Some(ShelfSnap {
+        data,
+        fetched_at: now_sec(),
+    });
     save(&st)
 }
 

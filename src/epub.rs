@@ -8,11 +8,15 @@ use zip::write::FileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
 fn stored_opts() -> FileOptions<'static, ()> {
-    FileOptions::default().compression_method(CompressionMethod::Stored).unix_permissions(0o644)
+    FileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .unix_permissions(0o644)
 }
 
 fn deflated_opts() -> FileOptions<'static, ()> {
-    FileOptions::default().compression_method(CompressionMethod::Deflated).unix_permissions(0o644)
+    FileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .unix_permissions(0o644)
 }
 
 /// 一次性写出完整 EPUB（O(n) 单遍）
@@ -28,24 +32,40 @@ fn deflated_opts() -> FileOptions<'static, ()> {
 ///
 /// # CLI 调用
 /// - `fqdt download <id> -f epub`
-pub fn write_book(title: &str, items: &[(Chapter, Option<String>)], path: &Path) -> Result<(), String> {
+pub fn write_book(
+    title: &str,
+    items: &[(Chapter, Option<String>)],
+    path: &Path,
+) -> Result<(), String> {
     let f = fs::File::create(path).map_err(|e| format!("创建 EPUB: {}", e))?;
     let mut z = ZipWriter::new(f);
 
-    z.start_file("mimetype", stored_opts()).map_err(|e| e.to_string())?;
-    z.write_all(b"application/epub+zip").map_err(|e| e.to_string())?;
+    z.start_file("mimetype", stored_opts())
+        .map_err(|e| e.to_string())?;
+    z.write_all(b"application/epub+zip")
+        .map_err(|e| e.to_string())?;
 
-    z.start_file("META-INF/container.xml", deflated_opts()).map_err(|e| e.to_string())?;
-    z.write_all(b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+    z.start_file("META-INF/container.xml", deflated_opts())
+        .map_err(|e| e.to_string())?;
+    z.write_all(
+        b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
 <container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">\
 <rootfiles><rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/>\
-</rootfiles></container>").map_err(|e| e.to_string())?;
+</rootfiles></container>",
+    )
+    .map_err(|e| e.to_string())?;
 
-    let uuid = format!("{:x}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos());
+    let uuid = format!(
+        "{:x}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
     let now = now_iso();
     let ts = xml_esc(title);
     let mut opf = format!(
-"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"bid\">
 <metadata>
 <dc:identifier id=\"bid\">urn:uuid:{uuid}</dc:identifier>
@@ -54,29 +74,40 @@ pub fn write_book(title: &str, items: &[(Chapter, Option<String>)], path: &Path)
 <meta property=\"dcterms:modified\">{now}</meta>
 </metadata>
 <manifest>
-<item id=\"toc\" href=\"toc.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>");
+<item id=\"toc\" href=\"toc.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>"
+    );
     for (ch, _) in items {
-        opf.push_str(&format!("\n<item id=\"ch{:04}\" href=\"ch{:04}.xhtml\" media-type=\"application/xhtml+xml\"/>", ch.index, ch.index));
+        opf.push_str(&format!(
+            "\n<item id=\"ch{:04}\" href=\"ch{:04}.xhtml\" media-type=\"application/xhtml+xml\"/>",
+            ch.index, ch.index
+        ));
     }
     opf.push_str("\n</manifest>\n<spine>\n<itemref idref=\"toc\"/>");
     for (ch, _) in items {
         opf.push_str(&format!("\n<itemref idref=\"ch{:04}\"/>", ch.index));
     }
     opf.push_str("\n</spine>\n</package>");
-    z.start_file("OEBPS/content.opf", deflated_opts()).map_err(|e| e.to_string())?;
+    z.start_file("OEBPS/content.opf", deflated_opts())
+        .map_err(|e| e.to_string())?;
     z.write_all(opf.as_bytes()).map_err(|e| e.to_string())?;
 
     let mut toc = format!(
-"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <!DOCTYPE html>
 <html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">
 <head><title>{ts}</title></head>
-<body><nav epub:type=\"toc\"><h1>{ts}</h1><ol>");
+<body><nav epub:type=\"toc\"><h1>{ts}</h1><ol>"
+    );
     for (ch, _) in items {
-        toc.push_str(&format!("\n<li><a href=\"ch{:04}.xhtml\">{}</a></li>", ch.index, xml_esc(&util::chapter_heading(ch))));
+        toc.push_str(&format!(
+            "\n<li><a href=\"ch{:04}.xhtml\">{}</a></li>",
+            ch.index,
+            xml_esc(&util::chapter_heading(ch))
+        ));
     }
     toc.push_str("\n</ol></nav></body></html>");
-    z.start_file("OEBPS/toc.xhtml", deflated_opts()).map_err(|e| e.to_string())?;
+    z.start_file("OEBPS/toc.xhtml", deflated_opts())
+        .map_err(|e| e.to_string())?;
     z.write_all(toc.as_bytes()).map_err(|e| e.to_string())?;
 
     for (ch, content) in items {
@@ -86,14 +117,18 @@ pub fn write_book(title: &str, items: &[(Chapter, Option<String>)], path: &Path)
             None => String::from("<p>获取失败</p>\n"),
         };
         let html = format!(
-"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <!DOCTYPE html>
 <html xmlns=\"http://www.w3.org/1999/xhtml\">
 <head><title>{h}</title></head>
 <body><h1>{h}</h1>
 {body}</body>
-</html>", h = heading, body = body);
-        z.start_file(format!("OEBPS/ch{:04}.xhtml", ch.index), deflated_opts()).map_err(|e| e.to_string())?;
+</html>",
+            h = heading,
+            body = body
+        );
+        z.start_file(format!("OEBPS/ch{:04}.xhtml", ch.index), deflated_opts())
+            .map_err(|e| e.to_string())?;
         z.write_all(html.as_bytes()).map_err(|e| e.to_string())?;
     }
 
@@ -105,18 +140,27 @@ fn content_to_html(s: &str) -> String {
     let mut out = String::new();
     for line in s.lines() {
         let t = line.trim();
-        if t.is_empty() { out.push_str("<br/>\n"); }
-        else { out.push_str(&format!("<p>{}</p>\n", xml_esc(t))); }
+        if t.is_empty() {
+            out.push_str("<br/>\n");
+        } else {
+            out.push_str(&format!("<p>{}</p>\n", xml_esc(t)));
+        }
     }
     out
 }
 
 fn xml_esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 fn now_iso() -> String {
-    let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     let s = dur.as_secs();
     let days = s / 86400;
     let ts = s % 86400;
@@ -128,16 +172,45 @@ fn now_iso() -> String {
     let mut d = days as i64;
     loop {
         let dy = if lp(y) { 366 } else { 365 };
-        if d < dy { break; }
-        d -= dy; y += 1;
+        if d < dy {
+            break;
+        }
+        d -= dy;
+        y += 1;
     }
-    let mo = [31, if lp(y){29}else{28}, 31,30,31,30,31,31,30,31,30,31];
+    let mo = [
+        31,
+        if lp(y) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut mi = 0;
     for &md in &mo {
-        if d < md { break; }
-        d -= md; mi += 1;
+        if d < md {
+            break;
+        }
+        d -= md;
+        mi += 1;
     }
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mi+1, d+1, h, m, sec)
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        y,
+        mi + 1,
+        d + 1,
+        h,
+        m,
+        sec
+    )
 }
 
-fn lp(y: i64) -> bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
+fn lp(y: i64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}

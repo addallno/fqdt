@@ -20,7 +20,9 @@ pub fn img_tool() -> Option<&'static str> {
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
-            if ok { return Some(cand); }
+            if ok {
+                return Some(cand);
+            }
         }
         None
     })
@@ -42,40 +44,67 @@ fn fetch(url: &str, path: &PathBuf) -> Result<(), String> {
         .arg(url)
         .status()
         .map_err(|e| e.to_string())?;
-    if !st.success() { return Err(format!("curl {st}")); }
+    if !st.success() {
+        return Err(format!("curl {st}"));
+    }
     let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    if size < 100 { return Err("图片过小".into()); }
+    if size < 100 {
+        return Err("图片过小".into());
+    }
     Ok(())
 }
 
 /// 渲染图片为 ANSI 行；仅接受 http(s) 绝对地址，其余/失败 → None。
 pub fn render(url: &str, width: u16, height: u16) -> Option<Vec<String>> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) { return None; }
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return None;
+    }
     let tool = img_tool()?;
     let cache = cache_path(url);
-    if !cache.exists() { fetch(url, &cache).ok()?; }
+    if !cache.exists() {
+        fetch(url, &cache).ok()?;
+    }
     let wh = format!("{}x{}", width, height);
     let mut cmd = std::process::Command::new(tool);
     match tool {
-        "timg" => { cmd.args(["-g", &wh]); }
-        "chafa" => { cmd.args(["-s", &wh]); }
-        "viu" => { cmd.args(["-w", &width.to_string(), "-h", &height.to_string()]); }
-        _ => { cmd.args(["-w", &width.to_string()]); } // catimg -w 字符宽
+        "timg" => {
+            cmd.args(["-g", &wh]);
+        }
+        "chafa" => {
+            cmd.args(["-s", &wh]);
+        }
+        "viu" => {
+            cmd.args(["-w", &width.to_string(), "-h", &height.to_string()]);
+        }
+        _ => {
+            cmd.args(["-w", &width.to_string()]);
+        } // catimg -w 字符宽
     }
     let out = cmd.arg(&cache).output().ok()?;
-    if !out.status.success() { return None; }
+    if !out.status.success() {
+        return None;
+    }
     let text = String::from_utf8_lossy(&out.stdout);
-    let rows: Vec<String> = text.lines()
+    let rows: Vec<String> = text
+        .lines()
         .map(|l| l.trim_end().to_string())
         .filter(|l| !l.is_empty())
         .take(height as usize)
         .collect();
-    if rows.is_empty() { None } else { Some(rows) }
+    if rows.is_empty() {
+        None
+    } else {
+        Some(rows)
+    }
 }
 
 /// 纯文本占位（无工具/渲染失败/非绝对地址）。
 pub fn placeholder(url: &str) -> String {
-    let short = if url.len() > 60 { format!("{}…", &url[..url.len().min(60)]) } else { url.to_string() };
+    let short = if url.len() > 60 {
+        format!("{}…", &url[..url.len().min(60)])
+    } else {
+        url.to_string()
+    };
     format!("[图片: {short}]")
 }
 
@@ -87,7 +116,10 @@ mod tests {
     fn placeholder_truncates() {
         let long = format!("https://example.com/{}", "a".repeat(80));
         let p = placeholder(&long);
-        assert!(p.starts_with("[图片: https://example.com/") && p.contains('…') && p.ends_with(']'), "got: {p}");
+        assert!(
+            p.starts_with("[图片: https://example.com/") && p.contains('…') && p.ends_with(']'),
+            "got: {p}"
+        );
         assert!(p.len() < 100);
     }
 
@@ -110,7 +142,11 @@ mod net_tests {
         let out = render(url, 60, 10).expect("有 timg/chafa 时应渲染成功");
         assert!(!out.is_empty(), "渲染行不应为空");
         // ANSI 着色行或纯文本行都算成功
-        eprintln!("rendered {} lines, first={:?}", out.len(), out[0].chars().take(40).collect::<String>());
+        eprintln!(
+            "rendered {} lines, first={:?}",
+            out.len(),
+            out[0].chars().take(40).collect::<String>()
+        );
     }
 
     /// 无工具降级：PATH 剥离后应返回 None（不 panic）

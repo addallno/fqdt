@@ -15,9 +15,16 @@ use crate::workflow::download;
 /// # CLI 调用
 /// - `fqdt update <id|path> [-T content,audio] [-r 范围] [-o 目录] [-j 并发] [-f]`
 #[allow(clippy::too_many_arguments)]
-pub async fn run(target: &str, output: Option<&str>, range: Option<&str>,
-                 only: Option<&str>, concurrent: Option<usize>, force: bool,
-                 verbose: bool, cfg: &Config) {
+pub async fn run(
+    target: &str,
+    output: Option<&str>,
+    range: Option<&str>,
+    only: Option<&str>,
+    concurrent: Option<usize>,
+    force: bool,
+    verbose: bool,
+    cfg: &Config,
+) {
     // 类别归一：仅接受 content/audio（大小写不敏感、去重）
     let only_norm = match only {
         None => None,
@@ -25,12 +32,16 @@ pub async fn run(target: &str, output: Option<&str>, range: Option<&str>,
             let mut kinds: Vec<String> = Vec::new();
             for p in s.split(',') {
                 let p = p.trim().to_ascii_lowercase();
-                if p.is_empty() { continue; }
+                if p.is_empty() {
+                    continue;
+                }
                 if p != "content" && p != "audio" {
                     eprintln!("  err 未知增量类别 {}（可用 content/audio）", p);
                     return;
                 }
-                if !kinds.contains(&p) { kinds.push(p); }
+                if !kinds.contains(&p) {
+                    kinds.push(p);
+                }
             }
             if kinds.is_empty() {
                 eprintln!("  err -T 需要 content 或 audio");
@@ -59,9 +70,27 @@ pub async fn run(target: &str, output: Option<&str>, range: Option<&str>,
     // id + 只音频 → audio 工作流（download id 模式无法只下音频）
     if !path.is_dir() && only_norm.as_deref() == Some("audio") {
         return crate::workflow::audio::run(
-            Some(target), output, range, cfg.audio_tone, verbose,
-            None, "zh-CN-XiaoxiaoNeural", None, None, None, None, None, false, None,
-            "external", force, concurrent, 0, cfg).await;
+            Some(target),
+            output,
+            range,
+            cfg.audio_tone,
+            verbose,
+            None,
+            "zh-CN-XiaoxiaoNeural",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            "external",
+            force,
+            concurrent,
+            0,
+            cfg,
+        )
+        .await;
     }
     download::run(target, &p, cfg).await;
 }
