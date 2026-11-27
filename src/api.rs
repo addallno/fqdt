@@ -716,7 +716,15 @@ impl Client {
     }
 
     /// 获取单章正文纯文本（fqapi 优先，第三方降级）。
+    /// 出口统一剥 `<img>`（107⑩：core 现保留 img，纯文本消费方不能见标签）。
     pub async fn fetch_content(&self, item_id: &str) -> Result<String, String> {
+        self.fetch_content_rich(item_id)
+            .await
+            .map(|t| strip_img_tags(&t))
+    }
+
+    /// 获取单章正文，保留 `<img>` 标签（view 图片渲染专用；107⑩）。
+    pub async fn fetch_content_rich(&self, item_id: &str) -> Result<String, String> {
         match self.core_content(item_id).await {
             Ok(text) => Ok(text),
             Err(e) => {
@@ -759,13 +767,21 @@ impl Client {
                 }
             }
             if !merged.is_empty() {
+                for v in merged.values_mut() {
+                    *v = strip_img_tags(v);
+                }
                 return Ok(merged);
             }
             self.log_fallback("batch", &last_err);
             return self.batch_legacy(book_id, item_ids).await;
         }
         match self.core_content_batch(book_id, item_ids).await {
-            Ok(map) => Ok(map),
+            Ok(mut map) => {
+                for v in map.values_mut() {
+                    *v = strip_img_tags(v);
+                }
+                Ok(map)
+            }
             Err(e) => {
                 self.log_fallback("batch", &e);
                 self.batch_legacy(book_id, item_ids).await
@@ -1574,25 +1590,69 @@ pub fn strip_html_imgs(s: &str) -> String {
     out
 }
 
-/// 从标签原文提取 src 属性值（双引号/单引号）。
+/// 从标签原文提取图片地址（107⑩）：优先 data-src（懒加载真图），src 取
+/// 第一个非空引号值——防 `src=\"\"` 先命中返回 None。
 fn img_src(raw_tag: &str) -> Option<String> {
     let lower = raw_tag.to_ascii_lowercase();
-    let i = lower.find("src=")?;
-    let rest = &raw_tag[i + 4..];
-    let rest = rest.trim_start();
-    let (q, body) = if let Some(r) = rest.strip_prefix('"') {
-        ('"', r)
-    } else {
-        let r = rest.strip_prefix('\'')?;
-        ('\'', r)
-    };
-    let end = body.find(q)?;
-    let src = body[..end].trim();
-    if src.is_empty() {
-        None
-    } else {
-        Some(src.to_string())
+    for key in ["data-src=", "src="] {
+        let mut from = 0;
+        while let Some(rel) = lower[from..].find(key) {
+            let at = from + rel + key.len();
+            from = at;
+            if let Some(v) = quoted_value(&raw_tag[at..]) {
+                if !v.is_empty() {
+                    return Some(v);
+                }
+            }
+        }
     }
+    None
+}
+
+/// 取 rest 开头的引号包值（双/单引号，trim 后）。
+fn quoted_value(rest: &str) -> Option<String> {
+    let rest = rest.trim_start();
+    let body = rest.strip_prefix('"').or_else(|| rest.strip_prefix('\''))?;
+    let end = body.find(['"', '\''])?;
+    Some(body[..end].trim().to_string())
+}
+
+/// 剥 `<img …>` 标签（107⑩：core 现在保留 img 供 view 渲染；纯文本出口
+/// （info --show/audio LRC/download）统一剥掉）。手写扫描，无 regex 依赖。
+fn strip_img_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    loop {
+        let Some(lt) = rest.find('<') else {
+            out.push_str(rest);
+            break;
+        };
+        let after = &rest[lt + 1..];
+        let b = after.as_bytes();
+        let is_img = b.len() >= 3
+            && b[0].eq_ignore_ascii_case(&b'i')
+            && b[1].eq_ignore_ascii_case(&b'm')
+            && b[2].eq_ignore_ascii_case(&b'g')
+            && b.get(3)
+                .map(|c| !c.is_ascii_alphanumeric() && *c != b'-')
+                .unwrap_or(true);
+        if is_img {
+            match after.find('>') {
+                Some(gt) => {
+                    out.push_str(&rest[..lt]); // 保留 `<` 前的前缀，丢整段 img
+                    rest = &after[gt + 1..];
+                    continue;
+                }
+                None => {
+                    out.push_str(&rest[..lt]); // 未闭合视作残片，丢弃
+                    break;
+                }
+            }
+        }
+        out.push_str(&rest[..lt + 1]);
+        rest = &rest[lt + 1..];
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1723,5 +1783,48 @@ mod tests {
         assert!(check_biz(&v2).is_err());
         let ok: Value = serde_json::from_str(r#"{"code":0,"data":{}}"#).unwrap();
         assert!(check_biz(&ok).is_ok());
+    }
+
+    #[test]
+    fn test_strip_img_tags() {
+        // 剥 img，保留其他标签与文本
+        assert_eq!(strip_img_tags("前<img src=\"a.jpg\"/>后"), "前后");
+        assert_eq!(strip_img_tags("<IMG SRC=b.png>"), "");
+        assert_eq!(
+            strip_img_tags("<p>文</p><img data-src='c.webp'><p>字</p>"),
+            "<p>文</p><p>字</p>"
+        );
+        // <image> 非 img 不误剥
+        assert_eq!(strip_img_tags("<image>x</image>"), "<image>x</image>");
+        // 无 img 原样
+        assert_eq!(strip_img_tags("纯文本"), "纯文本");
+        // 未闭合 img 丢残片
+        assert_eq!(strip_img_tags("a<img src=\"x"), "a");
+    }
+
+    #[test]
+    fn test_img_src_priority_and_empty() {
+        // 正常 src
+        assert_eq!(
+            img_src("<img src=\"https://a/1.jpg\">").as_deref(),
+            Some("https://a/1.jpg")
+        );
+        // 空 src 先出现 → 继续找 data-src（107⑩）
+        assert_eq!(
+            img_src("<img src=\"\" data-src=\"https://a/2.jpg\">").as_deref(),
+            Some("https://a/2.jpg")
+        );
+        // data-src 优先（src 也有值时取 data-src）
+        assert_eq!(
+            img_src("<img data-src=\"https://a/3.jpg\" src=\"placeholder.png\">").as_deref(),
+            Some("https://a/3.jpg")
+        );
+        // 全空 → None
+        assert_eq!(img_src("<img src=\"\">"), None);
+        // 单引号
+        assert_eq!(
+            img_src("<img src='https://a/4.jpg'>").as_deref(),
+            Some("https://a/4.jpg")
+        );
     }
 }

@@ -396,6 +396,8 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
             rd.cursor = 0;
             rd.paras.clear();
             rd.need_load = true;
+            // 107⑥：去前一章落章尾（末页末行），与 ←第一页回翻同语义
+            rd.pending_end = true;
         }
         Action::NextCh if rd.cur + 1 < rd.chs.len() => {
             rd.cur += 1;
@@ -411,7 +413,32 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
         Action::CursorMove(d) => {
             if !rd.paras.is_empty() {
                 let n = rd.paras.len() as i64;
-                rd.cursor = ((rd.cursor as i64 + d as i64).clamp(0, n - 1)) as usize;
+                let next = (rd.cursor as i64 + d as i64).clamp(0, n - 1);
+                // 107⑦：首页首段再↑ → 上一章（落章尾）；末页末段再↓ → 下一章（落章首）
+                if d < 0 && rd.cursor == 0 && next == 0 && rd.scroll == 0 && rd.cur > 0 {
+                    rd.cur -= 1;
+                    rd.cursor = 0;
+                    rd.paras.clear();
+                    rd.need_load = true;
+                    rd.pending_end = true;
+                    return false;
+                }
+                let view = rd.view_h(height) as usize;
+                let at_end = rd.scroll as usize + view >= rd.lines.len();
+                if d > 0
+                    && rd.cursor as i64 == n - 1
+                    && next == n - 1
+                    && at_end
+                    && rd.cur + 1 < rd.chs.len()
+                {
+                    rd.cur += 1;
+                    rd.scroll = 0;
+                    rd.cursor = 0;
+                    rd.paras.clear();
+                    rd.need_load = true;
+                    return false;
+                }
+                rd.cursor = next as usize;
                 ensure_cursor_visible(rd, height);
             }
         }
@@ -492,6 +519,10 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
             rd.zen = !rd.zen;
             rd.focus = Focus::Content;
             rewrap(rd, rd.content_width(terminal_width()));
+            // 107④：视窗高变化后 clamp scroll+光标，避免末行切入 zen/normal 空白
+            let max = rd.lines.len().saturating_sub(rd.view_h(height) as usize);
+            rd.scroll = (rd.scroll as usize).min(max) as u16;
+            ensure_cursor_visible(rd, height);
         }
         Action::GotoSel => {
             if rd.sel < rd.chs.len() && rd.sel != rd.cur {
@@ -525,11 +556,11 @@ fn terminal_width() -> u16 {
     crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80)
 }
 
-/// 加载当前章：取正文 → 剥 HTML → 按宽度折行（同步上下文里 block_on）。
+/// 加载当前章：取正文（保留 <img>，107⑩）→ 剥 HTML 留图标记 → 按宽度折行。
 async fn reload(rd: &mut Reader, api: &Client, width: u16) -> Result<(), String> {
     let item = rd.chs[rd.cur].item_id.clone();
     let res = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(api.fetch_content(&item))
+        tokio::runtime::Handle::current().block_on(api.fetch_content_rich(&item))
     });
     match res {
         Ok(html) => {
@@ -539,6 +570,9 @@ async fn reload(rd: &mut Reader, api: &Client, width: u16) -> Result<(), String>
             rd.imgs = imgs;
             rd.cursor = 0;
             rebuild_paras(rd);
+            // 107③：恢复进度/非0 scroll 时光标对齐视窗顶所在段
+            //（否则光标滞留段0：首帧无高亮、按键 ensure_cursor_visible 拉回第一页）
+            align_cursor_to_view(rd);
             rd.msg.clear();
             Ok(())
         }
@@ -563,8 +597,8 @@ fn wrap_text(text: &str, width: u16) -> Vec<Line<'static>> {
             out.push(Line::default());
             continue;
         }
-        // 段首缩进 2 空格（m2994；段间空行保持恰好 1 行）
-        let para = format!("  {para}");
+        // 段首缩进 2 全角=4 半角（m2994 原 2 半角，107⑧ 用户改；段间空行保持恰好 1 行）
+        let para = format!("    {para}");
         let mut cur = String::new();
         let mut cw = 0usize;
         for ch in para.chars() {
@@ -769,7 +803,15 @@ fn settle_pending(rd: &mut Reader, height: u16) {
     if rd.pending_end {
         rd.pending_end = false;
         rd.scroll = rd.lines.len().saturating_sub(rd.view_h(height) as usize) as u16;
+        // 107③：落章尾后光标对齐视窗顶段（否则光标滞留段0，按键跳页）
+        align_cursor_to_view(rd);
     }
+}
+
+/// 107③：光标对齐到视窗顶所在段（恢复进度 / 落章尾后调用；scroll=0 时等价 cursor=0）。
+fn align_cursor_to_view(rd: &mut Reader) {
+    let s = rd.scroll as usize;
+    rd.cursor = rd.paras.iter().position(|p| p.end > s).unwrap_or(0);
 }
 
 /// 编辑器命令行拆分（87 纯函数）；vim 系自动插 -R（已有 -R 不重复）。
@@ -1039,7 +1081,13 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
 fn zen_status_fit(rd: &Reader, width: u16) -> String {
     let ch_n = rd.cur + 1;
     let ch_t = rd.chs.len();
-    let pos = (rd.scroll as usize + 1).min(rd.lines.len().max(1));
+    // 107②：行号=光标段所在行（与 normal 状态行同语义）
+    let pos = rd
+        .paras
+        .get(rd.cursor)
+        .map(|p| p.start + 1)
+        .unwrap_or(rd.scroll as usize + 1)
+        .min(rd.lines.len().max(1));
     let line_t = rd.lines.len();
     let w = |s: &str| Span::raw(s.to_string()).width() as u16;
     let cands = [
@@ -1250,7 +1298,13 @@ fn highlight_lines(rd: &Reader) -> Vec<Line<'static>> {
 fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
     let ch = &rd.chs[rd.cur];
     let total = rd.lines.len();
-    let pos = (rd.scroll as usize + 1).min(total.max(1));
+    // 107②：行号=光标段所在行（读到哪显示哪），不再用视窗首行（首屏恒1、章末恒 m/n）
+    let pos = rd
+        .paras
+        .get(rd.cursor)
+        .map(|p| p.start + 1)
+        .unwrap_or(rd.scroll as usize + 1)
+        .min(total.max(1));
     let progress = format!("  {}/{}章 · {}/{}行", rd.cur + 1, rd.chs.len(), pos, total);
     let ch_only = format!("  {}/{}章", rd.cur + 1, rd.chs.len());
     // 候选层级（由全到简）；⑧ 顶行统一去书名（书名进框标题）
@@ -1336,6 +1390,108 @@ mod tests {
         scroll_by(&mut rd, 1, h); // small 到底 → 下章
         assert_eq!(rd.cur, 1, "末行↓下章");
         assert!(rd.need_load);
+    }
+
+    /// 107⑥⑦：PrevCh 落章尾；CursorMove 首段↑ / 末段↓边界跨章。
+    #[test]
+    fn prevch_and_cursor_boundary() {
+        let chs = vec![
+            Chapter {
+                index: 1,
+                item_id: "a".into(),
+                title: "一".into(),
+            },
+            Chapter {
+                index: 2,
+                item_id: "b".into(),
+                title: "二".into(),
+            },
+        ];
+        let mut rd = Reader::new("b".into(), chs);
+        rd.zen = true;
+        let h = 24u16;
+        let view = rd.view_h(h) as usize;
+        // ⑥ PrevCh（<）→ 上章且挂 pending_end（settle 落章尾）
+        rd.cur = 1;
+        rd.scroll = 0;
+        apply_action(Action::PrevCh, &mut rd, h);
+        assert_eq!(rd.cur, 0, "PrevCh→上章");
+        assert!(rd.pending_end, "PrevCh 应挂 pending_end 落章尾");
+        rd.lines = (0..80).map(|i| Line::from(format!("M{i}"))).collect();
+        settle_pending(&mut rd, h);
+        assert_eq!(rd.scroll as usize, 80 - view, "settle 落章尾末页");
+        // ⑦ 首页首段再 ↑ → 上章（落章尾）
+        rd.cur = 1;
+        rd.scroll = 0;
+        rd.pending_end = false;
+        rd.need_load = false;
+        rd.lines = (0..100).map(|i| Line::from(format!("L{i}"))).collect();
+        rebuild_paras(&mut rd);
+        rd.cursor = 0;
+        apply_action(Action::CursorMove(-1), &mut rd, h);
+        assert_eq!(rd.cur, 0, "首段↑→上章");
+        assert!(rd.pending_end, "首段↑挂 pending_end");
+        // ⑦ 末页末段再 ↓ → 下章（落章首）
+        rd.cur = 0;
+        rd.scroll = 0;
+        rd.pending_end = false;
+        rd.need_load = false;
+        rd.lines = (0..100).map(|i| Line::from(format!("L{i}"))).collect();
+        rebuild_paras(&mut rd);
+        rd.cursor = rd.paras.len() - 1;
+        rd.scroll = (100 - view) as u16;
+        apply_action(Action::CursorMove(1), &mut rd, h);
+        assert_eq!(rd.cur, 1, "末段↓→下章");
+        assert!(rd.need_load);
+    }
+
+    /// 107②③④：行号跟光标段；恢复对齐视窗顶段（按键不跳页）；zen 切换 clamp。
+    #[test]
+    fn line_cursor_restore_zen_clamp() {
+        let chs = vec![
+            Chapter {
+                index: 1,
+                item_id: "a".into(),
+                title: "一".into(),
+            },
+            Chapter {
+                index: 2,
+                item_id: "b".into(),
+                title: "二".into(),
+            },
+        ];
+        let mut rd = Reader::new("t".into(), chs);
+        // 50 段×(1 行+空行)=100 行，段 i 起始行 2i
+        rd.lines = (0..50)
+            .flat_map(|i| [Line::from(format!("L{i}")), Line::default()])
+            .collect();
+        rebuild_paras(&mut rd);
+        assert_eq!(rd.paras.len(), 50);
+        // ② 行号=光标段首行：光标到末段（start=98 → 99/100），scroll 仍 0
+        rd.scroll = 0;
+        rd.cursor = rd.paras.len() - 1;
+        let s = top_line_fit(&rd, 80).to_string();
+        assert!(s.contains("99/100"), "行号应=光标段行，got {s}");
+        let z = zen_status_fit(&rd, 80);
+        assert!(z.contains("99/100"), "zen 行号同语义，got {z}");
+        // ③ 恢复 scroll 后 align：光标对齐视窗顶段，按键 ↓ 不跳回第一页
+        rd.scroll = 50;
+        align_cursor_to_view(&mut rd);
+        assert!(rd.paras[rd.cursor].end > 50, "光标段应覆盖视窗顶");
+        apply_action(Action::CursorMove(1), &mut rd, 24);
+        assert!(rd.scroll > 0, "按键不应跳回第一页，scroll={}", rd.scroll);
+        // ④ 切 zen：normal(tail_blank=1) view=19 → max=81；zen view=20 → max=80 → clamp
+        rd.zen = false;
+        rd.tail_blank = 1;
+        rd.cursor = 0;
+        rd.scroll = (100 - rd.view_h(24) as usize) as u16;
+        assert_eq!(rd.scroll, 81);
+        apply_action(Action::ToggleZen, &mut rd, 24);
+        assert!(
+            (rd.scroll as usize) <= 100 - rd.view_h(24) as usize,
+            "切 zen 应 clamp scroll，got {}",
+            rd.scroll
+        );
     }
 
     /// 103 步骤4：view_h 与渲染区一致（zen=屏-4；normal=屏-4-tail）。
@@ -1480,16 +1636,16 @@ mod tests {
 
     #[test]
     fn wrap_chinese_by_width() {
-        // 宽度下限 20：宽 10 被抬到 20 列；段首缩进 2 → 2+9 全角=20 列
+        // 宽度下限 20：宽 10 被抬到 20 列；段首缩进 4 半角 → 4+8*2=20 列
         let lines = wrap_text("一二三四五六七八九十", 10);
-        assert_eq!(lines[0].to_string(), "  一二三四五六七八九");
-        assert_eq!(lines[1].to_string(), "十");
-        // 真实宽 24：首行 2 缩进+11 字=24；续行 12 字；30 字 = 11+12+7 + 段尾空行
+        assert_eq!(lines[0].to_string(), "    一二三四五六七八");
+        assert_eq!(lines[1].to_string(), "九十");
+        // 真实宽 24：首行 4 缩进+10 字=24；续行 12 字；30 字 = 10+12+8 + 段尾空行
         let lines = wrap_text(&"一".repeat(30), 24);
         assert_eq!(lines.len(), 4);
-        assert_eq!(lines[0].to_string(), format!("  {}", "一".repeat(11)));
+        assert_eq!(lines[0].to_string(), format!("    {}", "一".repeat(10)));
         assert_eq!(lines[1].to_string(), "一".repeat(12));
-        assert_eq!(lines[2].to_string(), "一".repeat(7));
+        assert_eq!(lines[2].to_string(), "一".repeat(8));
         assert_eq!(lines[3].to_string(), "");
     }
 
