@@ -783,7 +783,7 @@ pub fn post_process(
 
 pub fn gen_lrc_text(ch: &Chapter) -> String {
     format!(
-        "[ti:{}]\n[ar:fqdt]\n[00:00.00]{}\n",
+        "[ti:{}]\n[ar:fq]\n[00:00.00]{}\n",
         util::chapter_heading(ch),
         util::chapter_heading(ch)
     )
@@ -791,7 +791,7 @@ pub fn gen_lrc_text(ch: &Chapter) -> String {
 
 pub fn gen_lrc_text_full(ch: &Chapter, content: &str) -> String {
     let heading = util::chapter_heading(ch);
-    let mut out = format!("[ti:{}]\n[ar:fqdt]\n[00:00.00]{}\n", heading, heading);
+    let mut out = format!("[ti:{}]\n[ar:fq]\n[00:00.00]{}\n", heading, heading);
     let mut sec: u32 = 3;
     for line in content.lines() {
         let t = line.trim();
@@ -827,7 +827,7 @@ pub async fn fetch_timeline(item_id: &str) -> Option<String> {
 /// 听书 speech_text → LRC 文本。行格式 `[4450,0]<4450,0,0>文本`（毫秒时间戳）→ `[mm:ss.xx]文本`。
 pub fn speech_to_lrc(ch: &Chapter, speech: &str) -> String {
     let heading = util::chapter_heading(ch);
-    let mut out = format!("[ti:{}]\n[ar:fqdt]\n", heading);
+    let mut out = format!("[ti:{}]\n[ar:fq]\n", heading);
     for line in speech.lines() {
         let t = line.trim();
         let Some(head) = t.strip_prefix('[') else {

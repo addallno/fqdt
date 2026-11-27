@@ -28,12 +28,12 @@ pub fn img_tool() -> Option<&'static str> {
     })
 }
 
-/// 缓存路径：temp/fqdt_img_<url hash>。
+/// 缓存路径：temp/fq_img_<url hash>。
 fn cache_path(url: &str) -> PathBuf {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     url.hash(&mut h);
-    std::env::temp_dir().join(format!("fqdt_img_{:016x}", h.finish()))
+    std::env::temp_dir().join(format!("fq_img_{:016x}", h.finish()))
 }
 
 /// curl 下载（同 audio.rs 先例）：成功且 >100 字节返回 Ok。
@@ -134,7 +134,7 @@ mod tests {
 mod net_tests {
     use super::*;
 
-    /// 真实 CDN 图片渲染（需网络）：`cargo test -p fqdt imgtool::net -- --ignored`
+    /// 真实 CDN 图片渲染（需网络）：`cargo test -p fq imgtool::net -- --ignored`
     #[test]
     #[ignore = "需要网络：真实番茄封面 URL"]
     fn render_real_cover() {

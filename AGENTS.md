@@ -1,4 +1,4 @@
-# fqdt — 番茄小说下载器
+# fq — 番茄小说下载器
 
 - **版本**: v0.31.0（`Cargo.toml` 中定义，每次变更更新）
 - **目标**: 番茄小说离线下载 + 音频获取 + 语音合成
@@ -133,7 +133,7 @@ where F: Fn() -> Result<T, String> {
 ///    c. `write_audio_info_list(dir, meta)` — 写入音频元数据
 ///
 /// ## 调用
-/// - CLI: `fqdt download <book_id> [-r 范围] [-t txt|epub]`；音频续下见 fetch_and_dl_audio
+/// - CLI: `fq download <book_id> [-r 范围] [-t txt|epub]`；音频续下见 fetch_and_dl_audio
 pub fn workflow_download(api: &Client, book_id: &str, out: PathBuf, range: Option<&str>,
                          fmt: &str, ft: &str, concurrent: usize, force: bool, vb: bool,
                          audio: bool, tone: usize, abr: u32, lrc: &str, fallbacks: &[usize]) { ... }
@@ -160,20 +160,20 @@ pub fn workflow_download(api: &Client, book_id: &str, out: PathBuf, range: Optio
 `function` 子命令已于 **v0.24.0 删除**（用户判定 worthless，管道需求由 `api` 与既有命令覆盖）。
 基本函数的 CLI 暴露途径：
 
-- 端点级透传：`fqdt api <path>`（见 1.5.1）
+- 端点级透传：`fq api <path>`（见 1.5.1）
 - 业务封装：`search` / `info` / `download` / `audio` 等顶层命令（见 1.5.2）
-- 正文获取：`fqdt api /api/v1/chapters/{item_id} --jq data.content` 直接吐正文明文
+- 正文获取：`fq api /api/v1/chapters/{item_id} --jq data.content` 直接吐正文明文
 
 #### 1.5.1 `api` 子命令（端点透传）
 
-`api` 将路径原样交给 `fqapi_core::dispatch`，**不含任何端点特定逻辑**——核心新增端点后 CLI 自动可用，无需改 fqdt 代码。
+`api` 将路径原样交给 `fqapi_core::dispatch`，**不含任何端点特定逻辑**——核心新增端点后 CLI 自动可用，无需改 fq 代码。
 
 ```sh
-fqdt api --list                                  # 列出常用端点（fqapi.rs ENDPOINTS 单点定义）
-fqdt api /api/v1/books/123 --jq data.book_name   # 默认 GET，响应体原样输出
-fqdt api /api/v1/search -q query=诡秘 -q tab_type=3   # -q 追加 query（值需 URL 编码）
-fqdt api /api/v1/books/123/directory --jq 'data.item_data_list[0].title'
-fqdt api /api/v1/videos/1 -X POST -d '{"a":1}' --status
+fq api --list                                  # 列出常用端点（fqapi.rs ENDPOINTS 单点定义）
+fq api /api/v1/books/123 --jq data.book_name   # 默认 GET，响应体原样输出
+fq api /api/v1/search -q query=诡秘 -q tab_type=3   # -q 追加 query（值需 URL 编码）
+fq api /api/v1/books/123/directory --jq 'data.item_data_list[0].title'
+fq api /api/v1/videos/1 -X POST -d '{"a":1}' --status
 ```
 
 - `--jq`：内置 jq 子集（`a.b[0].c`、`a[].b[]` 展开），字符串去引号输出；`util::jq_extract`
@@ -185,19 +185,19 @@ fqdt api /api/v1/videos/1 -X POST -d '{"a":1}' --status
 高阶工作流（`src/workflow/discover.rs`），默认彩色表格，`--json` 输出机器可读原文：
 
 ```sh
-fqdt info recommend                     # 首页推荐流（16 本书）
-fqdt info recommend --tab-type 25 --tab-index 0   # 2 推荐 / 25 小说 / 11 经典 / 5 听书
-fqdt info category --tab 1              # 1 男频 / 2 女频 / 3 出版 / 4 听书
-fqdt info recommend --json | jq .       # 机器可读
-fqdt info <book_id> comments            # 书评（原顶层 comments 命令，v0.13.0 迁入 info）
-fqdt info <book_id> author              # 作者资料 + 推荐书单（原顶层 author 命令，v0.13.0 迁入 info）
+fq info recommend                     # 首页推荐流（16 本书）
+fq info recommend --tab-type 25 --tab-index 0   # 2 推荐 / 25 小说 / 11 经典 / 5 听书
+fq info category --tab 1              # 1 男频 / 2 女频 / 3 出版 / 4 听书
+fq info recommend --json | jq .       # 机器可读
+fq info <book_id> comments            # 书评（原顶层 comments 命令，v0.13.0 迁入 info）
+fq info <book_id> author              # 作者资料 + 推荐书单（原顶层 author 命令，v0.13.0 迁入 info）
 ```
 
 - **breaking（v0.13.0）**：顶层 `comments` / `author` 删除；**breaking（v0.24.0）**：顶层 `recommend` / `category` 删除并入 info——info 的 book_id 改 Option，无 id 且首参为二者时走 discover
 - info 的 section：`chapters`（目录含 item_id）/ `intro`（完整简介）/ `author` / `comments` / `cover` / `relative`（原 `related` 更名，HTTP 路径 `/related` 不动）/ `audio`，无 id = `recommend` / `category` 流，无 section = 概览
 - **个人数据 sections（v0.24.0，原 account 只读迁入）**：`folders` / `history` / `progress`（可 `--search`）/ `user` / `highlights`（需登录，`--json` 机器可读）
 - 结构约定：`取 JSON → 字段提取 → 渲染管线`；新封装只需复用 `get/clip/pad/book_line` 辅助
-- `rank` 端点只返回区块模板配置、无实体书单，故不封装，用 `fqdt api /api/v1/rank/<id>` 透传
+- `rank` 端点只返回区块模板配置、无实体书单，故不封装，用 `fq api /api/v1/rank/<id>` 透传
 - `author` 的 bookshelf 是作者**推荐书单**，非全部作品
 
 #### 1.5.3 `serve` 子命令（HTTP 服务）
@@ -205,8 +205,8 @@ fqdt info <book_id> author              # 作者资料 + 推荐书单（原顶�
 进程内启动 `fqapi_core` HTTP 运行时，直接暴露全部 API 端点：
 
 ```sh
-fqdt serve                    # 默认 127.0.0.1:18921（回环）
-fqdt serve --port 18999 --lan # 指定端口 + 监听局域网
+fq serve                    # 默认 127.0.0.1:18921（回环）
+fq serve --port 18999 --lan # 指定端口 + 监听局域网
 ```
 
 - 实现在 `src/fqapi.rs::serve_at`（与 `ensure_runtime` 共用 `prep_runtime`：数据目录/默认 config.json/pool 密钥）
@@ -235,7 +235,7 @@ download_custom = "search $1 -D 1 | fetch-catalog {} | fetch-content {}"
 
 [workflow_cmd]
 # 注册为主命令（等价于 clap 子命令）
-# 将出现在 `fqdt --help` 中
+# 将出现在 `fq --help` 中
 echo = "echo hello"
 ```
 
@@ -293,7 +293,7 @@ src/
 /// - `workflow_search_dl` — 搜索→选择→下载
 ///
 /// # CLI 调用
-/// - `fqdt search <keyword> -p <page>`
+/// - `fq search <keyword> -p <page>`
 ///
 /// # 可选高阶函数包装
 /// - `with_verbose` — 打印 API URL 和响应摘要
@@ -374,7 +374,7 @@ pub fn compress_mp3(input: &Path, output: &Path) -> Result<(), String> {
 
 ### 4.4 日志开关
 
-- 全局 flag：`fqdt -v <子命令>`（clamp `global=true`，可置于任意位置）开启详细日志
+- 全局 flag：`fq -v <子命令>`（clamp `global=true`，可置于任意位置）开启详细日志
 - core 日志默认**不打印**（仍落盘 `rust.log`）；`-v` 时 stderr 镜像（`core_log::set_console`）
 - stdout 永远只放数据，stderr 放日志与诊断（详见 TUI.md）
 
@@ -436,7 +436,7 @@ use crate::types::Chapter;
 
 基本函数不再有独立 CLI 映射（`function` 子命令 v0.24.0 已删）。暴露方式：
 
-- **端点函数**（`api.rs`）→ `fqdt api` 透传 + 各封装命令内部调用
+- **端点函数**（`api.rs`）→ `fq api` 透传 + 各封装命令内部调用
 - **原子函数**（`audio.rs`/`download.rs`/`epub.rs`）→ 仅工作流内部调用，CLI 不直出
 - 新增基本函数时：补文档注释（3.1 模板，写明被哪些工作流调用），**不**再加 CLI 变体
 
@@ -584,11 +584,11 @@ fn workflow_download(api: &Client, p: DownloadParams, cfg: &Config) { ... }
 磁盘长期紧张（rootfs 常驻 97%），**每次发版（打 tag 前）执行一次清理**：
 
 ```sh
-cd ~/openwork/fqdt
+cd ~/openwork/fq
 cargo clean                      # 删 target/（~9G，下次 debug build 重编 ~2min）
-rm -rf /tmp/fqdt-prof-* /tmp/ids100 /tmp/full100b.json /tmp/prof*.txt
+rm -rf /tmp/fq-prof-* /tmp/ids100 /tmp/full100b.json /tmp/prof*.txt
 rm -f rust.log                   # 本地日志（远端 rust.log 另行处理）
-du -sh ~/.local/share/fqdt       # 检查数据目录（媒体缓存大了才清）
+du -sh ~/.local/share/fq       # 检查数据目录（媒体缓存大了才清）
 df -h /                          # 确认释放
 ```
 
@@ -664,7 +664,7 @@ df -h /                          # 确认释放
 ## 10. 文件清单
 
 ```
-/root/build/fqdt/
+/root/build/fq/
 ├── AGENTS.md              ← 本文件（AI agent 主文档）
 ├── Cargo.toml             ← 版本号 + 依赖（workspace）
 ├── Cargo.lock
@@ -691,11 +691,11 @@ df -h /                          # 确认释放
 
 扩展原则（新功能按此落地，避免散落硬编码）：
 
-1. **端点单点定义** — 常用端点集中在 `src/fqapi.rs::ENDPOINTS`（方法/路径/必填/说明）。`fqdt api --list`、封装子命令、`fqdt serve` 共用同一索引；新增端点先加索引项。
-2. **透传零业务逻辑** — `fqdt api` 不加端点特定分支，core 新增端点后自动可用；只有需要友好输出时才另写封装。
+1. **端点单点定义** — 常用端点集中在 `src/fqapi.rs::ENDPOINTS`（方法/路径/必填/说明）。`fq api --list`、封装子命令、`fq serve` 共用同一索引；新增端点先加索引项。
+2. **透传零业务逻辑** — `fq api` 不加端点特定分支，core 新增端点后自动可用；只有需要友好输出时才另写封装。
 3. **封装 = 提取 + 渲染管线** — 新封装子命令（todo15）统一为「取 JSON → 路径提取 → 表格/JSON 渲染」，参数与输出（`--json`）保持一致，不重复 HTTP 代码。
 4. **解析辅助集中** — `api.rs` 的 `find_items`/`find_str`/`parse_*` 与 `util::jq_extract` 是唯一 JSON 提取入口，禁止各处手写路径遍历。
 5. **运行时单一入口** — 对 core 的调用一律经 `src/fqapi.rs`（`ensure_runtime`/`call`/`get`/`get_json_timeout`），不直接依赖 `fqapi_core::runtime` 细节。
-6. **re-vendor 流程** — 上游 fanqie-lite-api 更新时，替换 `crates/fqapi-core` 后跑 `cargo test --workspace` 与冒烟（search/catalog/content/audio），并在本节记录本地改动。目前本地改动六处：① `core_log.rs` 日志改走 stderr（防污染 JSON 管道）；② `endpoints/video.rs` 导出 `needs_cenc_decrypt`/`decrypt_cenc_content` 包装、`streaming_client` 挂 `DnsResolver`；③ 新增 `upstream/dns.rs`（进程内 DNS：探测 nameserver + 手写 UDP A 查询，静态 musl Android 无 /etc/resolv.conf）并在 `upstream/http.rs` 挂 `DnsResolver`、网络错误改 `format!("{e:?}")` 展开 source 链；④ （fqdt 侧非 vendor）`src/api.rs::tls_builder` webpki 根证书 + `DnsResolver`；⑤ `upstream/dns.rs` 探测顺序改 `FQDT_DNS` 短路 → `/etc/resolv.conf` 优先 → getprop/网关（WSL 网关不答 DNS 白等 12s/主机），`lookup_a` 去外层双重重试（v0.11.0）；⑥ `endpoints/content.rs::handle_batch` 接受真实 `book_id` 替换 URL 中 `book_id=0`（v0.11.0，batch 对匿名仍回元数据 Invalid，逐章 full 兜底）。
+6. **re-vendor 流程** — 上游 fanqie-lite-api 更新时，替换 `crates/fqapi-core` 后跑 `cargo test --workspace` 与冒烟（search/catalog/content/audio），并在本节记录本地改动。目前本地改动六处：① `core_log.rs` 日志改走 stderr（防污染 JSON 管道）；② `endpoints/video.rs` 导出 `needs_cenc_decrypt`/`decrypt_cenc_content` 包装、`streaming_client` 挂 `DnsResolver`；③ 新增 `upstream/dns.rs`（进程内 DNS：探测 nameserver + 手写 UDP A 查询，静态 musl Android 无 /etc/resolv.conf）并在 `upstream/http.rs` 挂 `DnsResolver`、网络错误改 `format!("{e:?}")` 展开 source 链；④ （fq 侧非 vendor）`src/api.rs::tls_builder` webpki 根证书 + `DnsResolver`；⑤ `upstream/dns.rs` 探测顺序改 `FQ_DNS` 短路 → `/etc/resolv.conf` 优先 → getprop/网关（WSL 网关不答 DNS 白等 12s/主机），`lookup_a` 去外层双重重试（v0.11.0）；⑥ `endpoints/content.rs::handle_batch` 接受真实 `book_id` 替换 URL 中 `book_id=0`（v0.11.0，batch 对匿名仍回元数据 Invalid，逐章 full 兜底）。
 7. **新增功能落地顺序** — 更新 TODO.md → 加 ENDPOINTS 索引 → 实现提取/渲染 → 单测 → 手测 → 同步本文件。
 8. **版本节奏** — 新增 CLI 能力升 MINOR，重构/修复升 PATCH；`Cargo.toml` 与本文件版本号同步。

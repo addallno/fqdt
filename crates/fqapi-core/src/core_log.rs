@@ -162,7 +162,7 @@ impl Log for CoreLogger {
     fn flush(&self) {}
 }
 
-/// 控制台镜像开关：默认关闭（日志仍落盘 rust.log），`fqdt -v` 时开启。
+/// 控制台镜像开关：默认关闭（日志仍落盘 rust.log），`fq -v` 时开启。
 static CONSOLE: AtomicBool = AtomicBool::new(false);
 
 /// 控制台镜像输出 hook：CLI 场景进度条运行期间日志须走 util::note，

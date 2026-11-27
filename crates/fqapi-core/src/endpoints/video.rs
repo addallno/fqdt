@@ -3564,16 +3564,16 @@ mod unsigned_get_cap;
 #[cfg(test)]
 mod variant_url_shapes;
 
-// ===== 本地导出层（fqdt 音频下载嵌入方依赖，AGENTS 六处改动②）=====
+// ===== 本地导出层（fq 音频下载嵌入方依赖，AGENTS 六处改动②）=====
 // 上游生产路径按 range 服务（build_cenc_index + apply_cenc_index），
 // 嵌入方需要整文件就地解密，故在此包装。
 
-/// 供嵌入方（fqdt 音频下载）判断缓存文件是否需要 CENC 解密。
+/// 供嵌入方（fq 音频下载）判断缓存文件是否需要 CENC 解密。
 pub fn needs_cenc_decrypt(data: &[u8]) -> bool {
     mp4_needs_cenc_decrypt(data)
 }
 
-/// 供嵌入方（fqdt 音频下载）按内容密钥就地解密 CENC 音视频。
+/// 供嵌入方（fq 音频下载）按内容密钥就地解密 CENC 音视频。
 ///
 /// 整文件走上游参考路径：build_cenc_index → apply_cenc_index（含 sample-entry
 /// 还原补丁），随后清除 senc/saio/saiz 辅助盒（本地改动，上游未做——

@@ -128,7 +128,7 @@ async fn chapter_card(item_id: &str, v: &Value, section: Option<&str>, show: boo
         show_item_text(cfg, item_id).await;
     }
     crate::emit_line(&format!(
-        "  {DIM}概览 fqdt info {book_id} · 目录 fqdt info {book_id} chapters · 正文 fqdt api /api/v1/chapters/{item_id} --jq data.content{RST}"));
+        "  {DIM}概览 fq info {book_id} · 目录 fq info {book_id} chapters · 正文 fq api /api/v1/chapters/{item_id} --jq data.content{RST}"));
 }
 
 /// 章节正文预览（同概览 show：40 行折叠 + 逃生口）。
@@ -141,7 +141,7 @@ async fn show_item_text(cfg: &Config, item_id: &str) {
                 println!("    {line}");
             }
             if total > 40 {
-                println!("  {DIM}… 共 {total} 行 · 全文 fqdt api /api/v1/chapters/{item_id} --jq data.content{RST}");
+                println!("  {DIM}… 共 {total} 行 · 全文 fq api /api/v1/chapters/{item_id} --jq data.content{RST}");
             }
         }
         Err(e) => eprintln!("  {RED}err{RST} 获取正文失败: {e}"),
@@ -333,7 +333,7 @@ async fn print_top_chapters(v: &[&crate::types::Chapter], top: usize, show: bool
                     println!("    {}", line);
                 }
                 if total > 40 {
-                    println!("  {DIM}… 共 {} 行 · 全文 fqdt api /api/v1/chapters/{} --jq data.content{RST}", total, c.item_id);
+                    println!("  {DIM}… 共 {} 行 · 全文 fq api /api/v1/chapters/{} --jq data.content{RST}", total, c.item_id);
                 }
             }
             Err(e) => eprintln!("  {RED}err{RST} {:04}: {}", c.index, e),
@@ -458,7 +458,7 @@ async fn author(book_id: &str, cfg: &Config) {
     crate::workflow::discover::author(&id, cfg.info_author_count, false, cfg).await;
 }
 
-/// 相关书籍 + 听书/音色 misc（`fqdt info <id> relative`）。
+/// 相关书籍 + 听书/音色 misc（`fq info <id> relative`）。
 async fn relative(book_id: &str, cfg: &Config) {
     let misc_lines = relative_misc(book_id).await;
     util::progress("获取相关书籍");
@@ -552,7 +552,7 @@ async fn relative_misc(book_id: &str) -> Vec<String> {
     lines
 }
 
-/// 听书版本与音色（`fqdt info <id> audio`）：AI 音色编号+名称 + 各听书版主播阵容。
+/// 听书版本与音色（`fq info <id> audio`）：AI 音色编号+名称 + 各听书版主播阵容。
 async fn audio_section(book_id: &str, cfg: &Config) {
     let Some(d) = detail_json(book_id).await else {
         return;

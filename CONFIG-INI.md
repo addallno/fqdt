@@ -1,7 +1,7 @@
 # config.ini 编写指南
 
-> 配置的**唯一长期存放处**：`~/.config/fqdt/config.ini`（首次运行自动生成完整模板）。
-> 键的权威说明 = 本文件 + `fqdt config <点号键> --help`；`DEFAULT_INI`（src/config.rs）是模板源码。
+> 配置的**唯一长期存放处**：`~/.config/fq/config.ini`（首次运行自动生成完整模板）。
+> 键的权威说明 = 本文件 + `fq config <点号键> --help`；`DEFAULT_INI`（src/config.rs）是模板源码。
 
 ## 1. 基本语法
 
@@ -46,15 +46,15 @@ concurrent = 0
 
 ```bash
 # ① 直接编辑文件（推荐批量改 / 加注释）
-vim ~/.config/fqdt/config.ini
+vim ~/.config/fq/config.ini
 
 # ② 命令行改单键（点号键，自动保留注释与格式）
-fqdt config download.format epub
-fqdt config --list          # 列出全部键与当前值
-fqdt config download.format --help   # 单键详情
+fq config download.format epub
+fq config --list          # 列出全部键与当前值
+fq config download.format --help   # 单键详情
 
 # ③ 命令行 flag（临时覆盖）
-fqdt download <id> -t epub -j 8
+fq download <id> -t epub -j 8
 ```
 
 **优先级：命令行 flag > config.ini 同义项 > 内置默认值。**
@@ -91,7 +91,7 @@ fqdt download <id> -t epub -j 8
 ### [audio] 有声书
 | 点号键 | ini 键 | 类型 | 默认 | 作用 |
 |---|---|---|---|---|
-| `audio.tone` | `audio_tone` | int | `1` | 默认 AI 音色 1-91；`fqdt info audio <id>` 查本书可用 |
+| `audio.tone` | `audio_tone` | int | `1` | 默认 AI 音色 1-91；`fq info audio <id>` 查本书可用 |
 | `audio.tone_fallbacks` | `audio_tone_fallbacks` | str | `2,4,5,6,74,91` | 主音色失败时依次尝试 |
 | `audio.abr` | `abr` | int | `0` | MP3 码率 32/64/128 kbps；0=不重编码 |
 | `audio.post_process` | `post_process` | str | 空 | 后处理命令，`{input}`/`{output}` 占位 |
@@ -171,7 +171,7 @@ ui_help_examples = true
 2. **布尔写 `1`/`0`**——不认，只认 `true`/`false`。
 3. **值加引号**——`format = "epuc"` 之类引号进值，解析异常。
 4. **`{}` 占位符删改**——URL 模板里 `{}` 数量与顺序必须保留，删掉会导致降级请求 404。
-5. **改了键没生效**——先 `fqdt config --list` 确认值；再确认命令行有没有同名 flag 覆盖（flag 优先）。
+5. **改了键没生效**——先 `fq config --list` 确认值；再确认命令行有没有同名 flag 覆盖（flag 优先）。
 6. **手改模板**——改 `DEFAULT_INI` 源码时同步更新本文件键清单；用户已存在的 config.ini 不会被启动覆盖（仅首次生成）。
 
 ## 8. 待调查：还有哪些该进 config（便利性候选）
@@ -180,7 +180,7 @@ ui_help_examples = true
 
 1. **长期偏好**——用户改一次就想一直生效的值（端口、语音名、间隔）才进 config；一次性运行参数（页码 `-p`、`-X` 方法、`--jq` 路径、book_id）**不进**。
 2. **flag 同义**——已有 CLI flag 的，config 提供同义项即可，保持「flag > ini > 默认」优先级（见 §4）。
-3. **成本合算**——改动点 = `KEYS` + `DEFAULT_INI` + `CONFIG_HELP` + 本文件清单 + `fqdt config <key> --help` 测试，四处缺一不可；收益小的硬编码常量宁可不动。
+3. **成本合算**——改动点 = `KEYS` + `DEFAULT_INI` + `CONFIG_HELP` + 本文件清单 + `fq config <key> --help` 测试，四处缺一不可；收益小的硬编码常量宁可不动。
 4. **先查证再立项**——按下面的方法扫代码，确认「只有 flag / 只有硬编码」而非已有键。
 
 **调查方法**：
@@ -207,5 +207,5 @@ grep -n "const KEYS" -A 40 src/config.rs
 | 熔断阈值 `fail≥2` | 硬编码 `source_dead()` api.rs:74 | int | 同上 | 暂不加 |
 | 单章内层超时 `10s` | 硬编码 | int | 与 `api.timeout` 概念重叠，易混淆 | 暂不加 |
 
-> 流程：确认要加的候选 → 按 §2 写进 `DEFAULT_INI`（节标题+中文注释）→ `KEYS`/`CONFIG_HELP` 同步 → 本文件 §5 清单补行 → `fqdt config <key>` 冒烟 → 随版本发布。
+> 流程：确认要加的候选 → 按 §2 写进 `DEFAULT_INI`（节标题+中文注释）→ `KEYS`/`CONFIG_HELP` 同步 → 本文件 §5 清单补行 → `fq config <key>` 冒烟 → 随版本发布。
 

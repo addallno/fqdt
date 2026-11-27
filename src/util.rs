@@ -367,7 +367,7 @@ pub fn print_failures(errs: &[String], retry_hint: &str) {
     );
 }
 
-/// 按 `.a.b[0].c` 形式提取 JSON 字段（jq 子集，供 `fqdt api --jq` 与封装子命令共用）
+/// 按 `.a.b[0].c` 形式提取 JSON 字段（jq 子集，供 `fq api --jq` 与封装子命令共用）
 ///
 /// 段语法：`键名`、`键名[n]`（取下标）、`键名[]`（数组展开，多结果合并为数组）。
 /// 前导点可省略。

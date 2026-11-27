@@ -4,7 +4,7 @@
 //! 管理器，之后所有业务请求通过 `dispatch` 直调，不监听端口。CLI 的向外交
 //! 互层完全建立在此之上，取代旧的 URL 模板 + 第三方源轮换。
 //!
-//! 数据目录（`~/.local/share/fqdt/`，可用 `FQ_DATA_DIR` 覆盖）：
+//! 数据目录（`~/.local/share/fq/`，可用 `FQ_DATA_DIR` 覆盖）：
 //! - `config/config.json`  运行时配置（缺失时写入默认值）
 //! - `config/filter.json`  响应过滤（可缺省，缺省即不过滤）
 //! - `config/device_pool.json` 设备池（加密）
@@ -21,7 +21,7 @@ use fqapi_core::server::ListenMode;
 /// 进程内共用的请求超时（毫秒）。下载类长任务另行放宽。
 pub const DEFAULT_TIMEOUT_MS: i64 = 30_000;
 
-/// 端点索引项（单点定义，供 `fqdt api --list`、封装子命令与 serve 复用）。
+/// 端点索引项（单点定义，供 `fq api --list`、封装子命令与 serve 复用）。
 pub struct Endpoint {
     /// HTTP 方法
     pub method: &'static str,
@@ -260,15 +260,28 @@ fn data_dir() -> PathBuf {
             }
         }
         // XDG 数据目录优先，回退到用户主目录下的 .local/share。
-        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-            if !xdg.trim().is_empty() {
-                return PathBuf::from(xdg).join("fqdt");
-            }
+        let base = std::env::var("XDG_DATA_HOME")
+            .ok()
+            .filter(|x| !x.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                let home = std::env::var("HOME")
+                    .or_else(|_| std::env::var("USERPROFILE"))
+                    .unwrap_or_else(|_| ".".to_string());
+                PathBuf::from(home).join(".local/share")
+            });
+        // 改名迁移（101）：fqdt → fq（幂等；失败保留旧目录）
+        let new = base.join("fq");
+        let old = base.join("fqdt");
+        if !new.exists() && old.exists() {
+            let _ = std::fs::create_dir_all(&base);
+            let _ = std::fs::rename(&old, &new);
         }
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".local/share/fqdt")
+        if new.exists() {
+            new
+        } else {
+            old
+        }
     })
     .clone()
 }
@@ -353,7 +366,7 @@ pub async fn ensure_runtime() -> Result<(), String> {
     Ok(())
 }
 
-/// 以监听模式启动运行时（`fqdt serve` 用），返回对外 base_url。
+/// 以监听模式启动运行时（`fq serve` 用），返回对外 base_url。
 /// `lan=true` 监听局域网地址，否则仅本机回环；进程内仅允许一份运行时。
 pub async fn serve_at(port: u16, lan: bool) -> Result<String, String> {
     // init 幂等且成功/复用均返回 "running"，无法据此判重，直接取 base_url。
@@ -370,7 +383,7 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
-/// 一次进程内 API 调用的返回（todo14 `fqdt api` 透传用）。
+/// 一次进程内 API 调用的返回（todo14 `fq api` 透传用）。
 #[allow(dead_code)]
 pub struct ApiReply {
     pub status: u16,

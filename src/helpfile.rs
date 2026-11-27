@@ -3,14 +3,13 @@
 //! 要讲清格式与目的、要什么命令、端点有什么作用，不要 example）。
 //! 启动时 ensure：文件不存在或版本标记不一致才重写。
 
-use crate::types::get_home;
 use clap::Command;
 
-/// 启动时确保 `~/.config/fqdt/help.txt` 存在且为当前版本。
+/// 启动时确保 `~/.config/fq/help.txt` 存在且为当前版本。
 pub fn ensure_help_file() {
-    let dir = get_home().join(".config/fqdt");
+    let dir = crate::config::config_dir();
     let path = dir.join("help.txt");
-    let marker = format!("fqdt {} -- 命令参考", env!("CARGO_PKG_VERSION"));
+    let marker = format!("fq {} -- 命令参考", env!("CARGO_PKG_VERSION"));
     if let Ok(old) = std::fs::read_to_string(&path) {
         if old.starts_with(&marker) {
             return;
@@ -43,7 +42,7 @@ fn render_cmd(cmd: &Command, prefix: &str, depth: usize, out: &mut String) {
         render_subs(cmd, "", "顶层命令:", out);
     } else {
         let pad = "  ".repeat(depth);
-        out.push_str(&format!("\n{}### fqdt {}\n", pad, full));
+        out.push_str(&format!("\n{}### fq {}\n", pad, full));
         if let Some(a) = cmd.get_about() {
             out.push_str(&format!("{}目的: {}\n", pad, a));
         }
@@ -114,20 +113,20 @@ pub(crate) fn usage_of(cmd: &Command, full: &str) -> String {
         .lines()
         .find(|l| l.contains("Usage:"))
         .map(|l| l.trim_start().trim_start_matches("Usage: ").to_string())
-        .unwrap_or_else(|| format!("fqdt {}", cmd.get_name()));
+        .unwrap_or_else(|| format!("fq {}", cmd.get_name()));
     // 词表大小写（m0160/m0162）：clap 全大写占位 → Options / Subcommands / Subcommand
     let u = u
         .replace("[OPTIONS]", "[Options]")
         .replace("[SUBCOMMANDS]", "[Subcommands]")
         .replace("<COMMAND>", "<Subcommand>");
-    let u = if u.starts_with("fqdt ") {
+    let u = if u.starts_with("fq ") {
         u
     } else {
-        format!("fqdt {u}")
+        format!("fq {u}")
     };
-    let name = format!("fqdt {} ", cmd.get_name());
+    let name = format!("fq {} ", cmd.get_name());
     match u.strip_prefix(&name) {
-        Some(rest) => format!("fqdt {full} {rest}"),
+        Some(rest) => format!("fq {full} {rest}"),
         None => u,
     }
 }
@@ -186,11 +185,11 @@ fn api_section() -> String {
 
 /// 开篇约定与全局说明。
 const CONVENTION: &str = "\
-fqdt 命令参考 — 命令的格式与目的、各参数与端点的作用、底层 API 请求格式
+fq 命令参考 — 命令的格式与目的、各参数与端点的作用、底层 API 请求格式
 
   <尖括号> 必填参数 · [方括号] 可选参数 · | 分隔二选一
   全局选项，任何命令都可用: --timeout <秒> 请求超时 · -v 详细日志
-  单条命令的完整帮助: fqdt <命令> --help
+  单条命令的完整帮助: fq <命令> --help
 
 ";
 
@@ -198,8 +197,8 @@ fqdt 命令参考 — 命令的格式与目的、各参数与端点的作用、�
 const API_HEAD: &str = "\
 ━━━ API 请求 ━━━
 
-fqdt api 把任意端点路径交给 fqapi 核心执行，自动携带签名与设备池，响应体原样写 stdout。
-格式: fqdt api <路径> [-X 方法] [-q 键=值]... [-d 请求体] [--jq 路径] [--status] [--list]
+fq api 把任意端点路径交给 fqapi 核心执行，自动携带签名与设备池，响应体原样写 stdout。
+格式: fq api <路径> [-X 方法] [-q 键=值]... [-d 请求体] [--jq 路径] [--status] [--list]
 
   <路径>     端点路径，? 后可直接带 query；{xxx} 占位换真实值
   -X 方法    HTTP 方法，默认 GET，按端点要求可 POST/PUT
@@ -209,97 +208,97 @@ fqdt api 把任意端点路径交给 fqapi 核心执行，自动携带签名与�
   --status   HTTP 状态码打到 stderr，stdout 只留数据
   --list     打印端点清单（方法/路径/必填参数/说明）
 
-端点清单（未列入的路径同样可透传；fqdt api --list 输出同表）:
+端点清单（未列入的路径同样可透传；fq api --list 输出同表）:
 ";
 
 /// 端点清单之后：各命令实际发出的请求格式。
 const API_TAIL: &str = "
 ━━━ 各命令底层的 API 请求格式 ━━━
 
-fqdt search <key> -p N
+fq search <key> -p N
   GET /api/v1/search?query=<key>&page=<N>&tab_type=1     综合搜索，tab_type 1综合 3小说 2听书
 
-fqdt info overview <id|key>
+fq info overview <id|key>
   GET /api/v1/books/{book_id}/detail                       书籍详情：标题/作者/热度/简介
   GET /api/v1/books/{book_id}/directory                    章节目录，概览取前 N 章
   GET /api/v1/books/{book_id}/reviews                      书评，概览取前 N 条
 
-fqdt info chapters <id|key> [-r 范围]
+fq info chapters <id|key> [-r 范围]
   GET /api/v1/books/{book_id}/directory                    全量目录含 item_id，本地按范围筛选
 
-fqdt info intro <id|key>
+fq info intro <id|key>
   GET /api/v1/books/{book_id}/detail                       完整简介字段
 
-fqdt info author <id|key>
+fq info author <id|key>
   GET /api/v1/books/{book_id}/detail                       取 author_id，含 N_ 前缀原样使用
   GET /api/v1/authors/{author_id}                          作者资料
   GET /api/v1/authors/{author_id}/bookshelf                作者推荐书单
 
-fqdt info comments <id|key>
+fq info comments <id|key>
   GET /api/v1/books/{book_id}/reviews                      书评列表
 
-fqdt info cover <id|key>
+fq info cover <id|key>
   GET /api/v1/books/{book_id}/detail                       封面 thumb_url 字段
 
-fqdt info relative <id|key>
+fq info relative <id|key>
   GET /api/v1/books/{book_id}/related                      相关推荐书单与杂项
 
-fqdt info audio <id|key>
+fq info audio <id|key>
   GET /api/v1/books/{book_id}/tones                        本书可用 AI 音色集合
 
-fqdt info recommend [--tab-type N] [--tab-index N] [--offset N]
+fq info recommend [--tab-type N] [--tab-index N] [--offset N]
   GET /api/v1/recommend/homepage?tab_type=&tab_index=&offset=   首页推荐流
 
-fqdt info category [--tab N]
+fq info category [--tab N]
   GET /api/v1/category?category_tab=<tab>                  分类首页，tab 1男频 2女频 3出版 4听书
 
-fqdt info folders / history
+fq info folders / history
   POST /api/v1/account/fanqie/library|history              个人数据，需登录 Cookie
 
-fqdt info progress
+fq info progress
   GET /api/reader/book/progress                            网页阅读进度，需 Cookie；失败回退 POST library progress_list
 
-fqdt info user
+fq info user
   GET /api/user/info/v2                                    昵称/uid/简介，需 Cookie
   GET /reading/user/basic_info/get/v                       粉丝/关注/已读统计，需 Cookie
 
-fqdt info highlights
+fq info highlights
   GET /reading/reader/bookmark/personal_list/              划线书单，需 Cookie
 
-fqdt view <id|key> [-r 范围]
+fq view <id|key> [-r 范围]
   GET /api/v1/books/{book_id}/directory                    取目录与 item_id（TUI 逐章）
   GET /api/v1/chapters/{item_id}                           单章正文，n/p 切章时加载
   GET /api/v1/books/{book_id}                              书名（顶栏，失败回退 id）
 
-fqdt download <id> [-r 范围]
+fq download <id> [-r 范围]
   GET /api/v1/books/{book_id}/directory                    取目录与 item_id
   GET /api/v1/chapters/full?book_id=&item_ids=             批量正文，每 100 章一块
   GET /api/v1/chapters/{item_id}                           单章正文，批量失败逐章回退
 
-fqdt update <已下载目录>
+fq update <已下载目录>
   同 download：先 directory 再补缺失章节，即增量更新
 
-fqdt audio <id> [--real|--ai|--tts]
+fq audio <id> [--real|--ai|--tts]
   GET /api/v1/books/{book_id}/tones                        音色列表与回退
   GET /api/v1/audio/play?item_ids=&book_id=                播放源，返回地址与解密 key
   GET /api/v1/chapters/{item_id}                           --ai/--tts 的文本来源
 
-fqdt tts <本地txt> / fqdt audio --tts
+fq tts <本地txt> / fq audio --tts
   本地 edge-tts 合成，不请求音频端点；文本先经 download 同款正文端点取得
 
-fqdt shelf list / add / remove / move / download
+fq shelf list / add / remove / move / download
   GET /reading/bookapi/bookshelf/info/v:version/           云端书架一层与分组，需 Cookie
   POST /reading/bookapi/bookshelf/add/v|delete/v           加书 / 移出
   POST /reading/bookapi/bookshelf/update/v                 分组移动
   POST /api/bookshelf/multidetail                          批量补书名与当前章节
 
-fqdt login [COOKIE] / --check
+fq login [COOKIE] / --check
   GET /api/user/info/v2                                    验证 Cookie 是否有效
 
-fqdt info overview <id|key> --add / shelf add <id>
+fq info overview <id|key> --add / shelf add <id>
   POST /reading/bookapi/bookshelf/add/v                    收藏到云端书架
 
-fqdt api <路径>
+fq api <路径>
   指定路径原样透传，不经过以上任何封装
 ";
 

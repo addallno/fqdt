@@ -1,4 +1,4 @@
-# fqdt — A Rust FanqieNovel CLI
+# fq — A Rust FanqieNovel CLI
 
 番茄小说（FanqieNovel）命令行下载器：正文 / 有声书 / 书架 / 阅读数据，一条命令离线归档。
 
@@ -7,7 +7,7 @@
 - **发现**：搜索、首页推荐、分类、书评、作者书单
 - **书架**：本地 / 云端（需登录 Cookie），分组、过滤、一键更新
 - **阅读数据**：进度时间线、阅读历史、云端文件夹、划线笔记
-- **透传**：`fqdt api <path>` 直达任意端点，`serve` 起本地 HTTP 服务
+- **透传**：`fq api <path>` 直达任意端点，`serve` 起本地 HTTP 服务
 - **TTS**：edge-tts 把正文合成为语音
 
 目标环境 Android Termux（aarch64），也提供 x86_64 Linux 静态二进制。
@@ -15,26 +15,26 @@
 ## 安装
 
 ```sh
-# 从 GitHub Releases 下载（x86_64；aarch64 用 fqdt-aarch64-linux-musl）
-curl -L https://github.com/addallno/fqdt/releases/latest/download/fqdt-x86_64-linux-musl -o ~/fqdt
-chmod +x ~/fqdt
-~/fqdt --version
+# 从 GitHub Releases 下载（x86_64；aarch64 用 fq-aarch64-linux-musl）
+curl -L https://github.com/addallno/fq/releases/latest/download/fq-x86_64-linux-musl -o ~/fq
+chmod +x ~/fq
+~/fq --version
 ```
 
-首次运行自动生成 `~/.config/fqdt/config.ini`（分节、每键带中文注释）。配置说明见 [CONFIG-INI.md](CONFIG-INI.md)，完整命令参考见运行时生成的 `~/.config/fqdt/help.txt`。
+首次运行自动生成 `~/.config/fq/config.ini`（分节、每键带中文注释）。配置说明见 [CONFIG-INI.md](CONFIG-INI.md)，完整命令参考见运行时生成的 `~/.config/fq/help.txt`。
 
 ## 快速上手
 
 ```sh
-fqdt search 诡秘之主              # 搜索
-fqdt download 7185478854738185271 # 下载正文（纯数字 = book_id）
-fqdt download 诡秘之主            # 书名关键词 → 交互选书
-fqdt download <id> -t epub -r 1-50 -j 8
-fqdt view 诡秘之主               # TUI 阅读器（分栏目录/正文，j/k 段光标，翻页键位见下方「view TUI 快捷键」，q 退出存进度）
-fqdt audio <id> -T ai --tone 6    # 有声书：AI 朗读指定音色
-fqdt info overview <id>           # 概览：热度 / 简介 / 前几章 / 书评
-fqdt shelf list                   # 书架（登录后为云端）
-fqdt --help                       # 全部命令
+fq search 诡秘之主              # 搜索
+fq download 7185478854738185271 # 下载正文（纯数字 = book_id）
+fq download 诡秘之主            # 书名关键词 → 交互选书
+fq download <id> -t epub -r 1-50 -j 8
+fq view 诡秘之主               # TUI 阅读器（分栏目录/正文，j/k 段光标，翻页键位见下方「view TUI 快捷键」，q 退出存进度）
+fq audio <id> -T ai --tone 6    # 有声书：AI 朗读指定音色
+fq info overview <id>           # 概览：热度 / 简介 / 前几章 / 书评
+fq shelf list                   # 书架（登录后为云端）
+fq --help                       # 全部命令
 ```
 
 ## 命令一览
@@ -82,24 +82,24 @@ TARGET 支持 `id`、`key`（关键词选书）、本地已下载目录（批量
 ## download — 下载正文
 
 ```sh
-fqdt d <id>
-fqdt d <id> -o ./books -t epub -j 8   # 输出 + 格式 + 并发
-fqdt d <id> -r 1-100                 # 章节范围（-r=-10 前 10 章）
-fqdt d <id> -f                       # 强制覆盖
-fqdt d <书名>                             # 关键词交互选书
+fq d <id>
+fq d <id> -o ./books -t epub -j 8   # 输出 + 格式 + 并发
+fq d <id> -r 1-100                 # 章节范围（-r=-10 前 10 章）
+fq d <id> -f                       # 强制覆盖
+fq d <书名>                             # 关键词交互选书
 ```
 
 ## audio — 下载有声书
 
 ```sh
-fqdt a <id> -r 1-50 -j 6       # 范围 + 并发
-fqdt a <id> -T real            # 真人讲书
-fqdt a <id> -T ai --tone 6     # AI 朗读（fqdt info audio <id> 查可用音色）
-fqdt a <id> -T tts --voice zh-CN-XiaoxiaoNeural  # Edge-TTS（需本机 edge-tts）
-fqdt a <id> --lrc embed        # 歌词嵌入（非 MP3 退化外置；听书章节自动用 timeline 精确时间轴，文字书按段落估算）
-fqdt a <id> -c mp3             # 输出转 MP3（默认是 Ogg Opus）
-fqdt a <id> -c m4a             # 保持 m4a 原样，不转码
-fqdt a <id> --cover            # 新下载的 MP3 嵌入书籍封面
+fq a <id> -r 1-50 -j 6       # 范围 + 并发
+fq a <id> -T real            # 真人讲书
+fq a <id> -T ai --tone 6     # AI 朗读（fq info audio <id> 查可用音色）
+fq a <id> -T tts --voice zh-CN-XiaoxiaoNeural  # Edge-TTS（需本机 edge-tts）
+fq a <id> --lrc embed        # 歌词嵌入（非 MP3 退化外置；听书章节自动用 timeline 精确时间轴，文字书按段落估算）
+fq a <id> -c mp3             # 输出转 MP3（默认是 Ogg Opus）
+fq a <id> -c m4a             # 保持 m4a 原样，不转码
+fq a <id> --cover            # 新下载的 MP3 嵌入书籍封面
 ```
 
 > **输出格式**：第三方源直出真 MP3；番茄官方源是 Opus 编码的 MP4，装有 ffmpeg 时默认 `ffmpeg -c copy` remux 为 Ogg Opus（零转码、秒级、通用可播），`-c mp3` 改走 libmp3lame 64k 转码（iOS/Windows Media Player 兼容），无 ffmpeg 则降级保留 `.m4a`（仅 VLC/mpv/Android 10+ 等可播，下载时提示一次）。`-c m4a` 跳过转码；`--cover` 整本书取一次封面写入每章 APIC，仅对新下载的 MP3 生效；同义配置键 `audio.mp3` / `audio.keep_m4a` / `audio.cover`。
@@ -108,22 +108,22 @@ fqdt a <id> --cover            # 新下载的 MP3 嵌入书籍封面
 ## update — 增量更新
 
 ```sh
-fqdt u <id>               # 按 ID 更新（按文件名补缺，含中间缺章）
-fqdt u ./output           # 按目录增量（info.list 比对，含音频）
-fqdt u ./output -T content   # 只补正文；-T audio 只补音频（可逗号分隔）
+fq u <id>               # 按 ID 更新（按文件名补缺，含中间缺章）
+fq u ./output           # 按目录增量（info.list 比对，含音频）
+fq u ./output -T content   # 只补正文；-T audio 只补音频（可逗号分隔）
 ```
 
 ## info — 书籍信息与个人数据
 
 ```sh
-fqdt i overview <id>           # 概览（默认，直接 fqdt i <id> 等价）
-fqdt i chapters <id> -r 1-50   # 目录（含 item_id）
-fqdt i intro / author / comments / cover / relative / audio <id>
-fqdt i recommend               # 首页推荐流
-fqdt i category --tab 1        # 分类（1 男频 / 2 女频 / 3 出版 / 4 听书）
-fqdt i progress                # 阅读进度时间线（需登录）
-fqdt i history / folders / user / highlights
-fqdt i overview <id> --add     # 概览后直接收藏进云端书架
+fq i overview <id>           # 概览（默认，直接 fq i <id> 等价）
+fq i chapters <id> -r 1-50   # 目录（含 item_id）
+fq i intro / author / comments / cover / relative / audio <id>
+fq i recommend               # 首页推荐流
+fq i category --tab 1        # 分类（1 男频 / 2 女频 / 3 出版 / 4 听书）
+fq i progress                # 阅读进度时间线（需登录）
+fq i history / folders / user / highlights
+fq i overview <id> --add     # 概览后直接收藏进云端书架
 ```
 
 `<id>` 支持 book_id / 章节 item_id / 作者 id（`N_` 前缀）/ 读者 uid，自动识别。
@@ -131,27 +131,27 @@ fqdt i overview <id> --add     # 概览后直接收藏进云端书架
 ## shelf — 书架管理
 
 ```sh
-fqdt s list                    # 未登录=本地，已登录=云端
-fqdt s list 已读                # 指定分组
-fqdt s list --local --search 词 --author --json
-fqdt s add <id>[:标题]
-fqdt s remove <编号>
-fqdt s move <id> <组名>   # 组不存在则自动建组
-fqdt s download 1              # 下载书架第 1 本
+fq s list                    # 未登录=本地，已登录=云端
+fq s list 已读                # 指定分组
+fq s list --local --search 词 --author --json
+fq s add <id>[:标题]
+fq s remove <编号>
+fq s move <id> <组名>   # 组不存在则自动建组
+fq s download 1              # 下载书架第 1 本
 ```
 
 ## login / config / api / serve
 
 ```sh
-fqdt login '<Cookie>'          # 浏览器复制 Cookie；--check 验证；--clear 清除
-fqdt config get --all          # 全部键与当前值（旧 --list 仍兼容）
-fqdt config download.format epub
-fqdt config download.format --help   # 单键详情
+fq login '<Cookie>'          # 浏览器复制 Cookie；--check 验证；--clear 清除
+fq config get --all          # 全部键与当前值（旧 --list 仍兼容）
+fq config download.format epub
+fq config download.format --help   # 单键详情
 
-fqdt api --list                # 常用端点清单
-fqdt api /api/v1/search -q query=诡秘 -q tab_type=3
-fqdt api /api/v1/books/<id> --jq data.book_name
-fqdt serve --port 18999 --lan  # 局域网 HTTP 服务
+fq api --list                # 常用端点清单
+fq api /api/v1/search -q query=诡秘 -q tab_type=3
+fq api /api/v1/books/<id> --jq data.book_name
+fq serve --port 18999 --lan  # 局域网 HTTP 服务
 ```
 
 ## 智能特性

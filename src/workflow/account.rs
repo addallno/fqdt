@@ -1,7 +1,7 @@
 //! # login / account — 登录态与个人数据
 //!
 //! 上游无账号密码登录端点：登录态 = 浏览器登录 fanqienovel.com 后复制的 Cookie。
-//! cookie 存独立文件 `~/.config/fqdt/cookie`（不进 config.ini，防 `config --list` 泄露）。
+//! cookie 存独立文件 `~/.config/fq/cookie`（不进 config.ini，防 `config --list` 泄露）。
 //! 两条数据通道：
 //! - core 端点（cookie 放 body）：library（shelf/folders/progress）、history
 //! - 网页端点（fanqienovel.com 同源，Cookie 放 header）：user/info/v2、basic_info、
@@ -9,9 +9,9 @@
 //!   naiyQAQ/fanqie-assistant、hesan1232/fanqie.koplugin
 //!
 //! # CLI 调用
-//! - `fqdt login [COOKIE] [--check] [--clear]`
-//! - `fqdt info <sec> [--json]`：folders/history/progress/highlights/user 只读 sections
-//! - `fqdt shelf add|remove|move|check <book_id>`：云端书架写操作
+//! - `fq login [COOKIE] [--check] [--clear]`
+//! - `fq info <sec> [--json]`：folders/history/progress/highlights/user 只读 sections
+//! - `fq shelf add|remove|move|check <book_id>`：云端书架写操作
 
 use crate::config;
 use crate::util::{BLUE, CYAN, DIM, GREEN, MAGENTA, RED, RST, YELLOW};
@@ -22,7 +22,7 @@ use std::collections::HashMap;
 /// 番茄网页端点基址（同源 Cookie 鉴权）。
 const FQ_WEB: &str = "https://fanqienovel.com";
 
-/// `fqdt login`：设置/查看/验证/清除 Cookie。
+/// `fq login`：设置/查看/验证/清除 Cookie。
 pub async fn login(cookie: Option<String>, check: bool, clear: bool) {
     if clear {
         return match config::clear_cookie() {
@@ -33,9 +33,7 @@ pub async fn login(cookie: Option<String>, check: bool, clear: bool) {
     if let Some(raw) = cookie {
         match config::save_cookie(&raw) {
             Ok(()) => {
-                crate::emit_line(&format!(
-                    "{GREEN}ok{RST} Cookie 已保存 ~/.config/fqdt/cookie"
-                ));
+                crate::emit_line(&format!("{GREEN}ok{RST} Cookie 已保存 ~/.config/fq/cookie"));
                 // 保存后立即验证，不再让用户对着提示行猜有没有生效
                 verify_now().await;
             }
@@ -50,7 +48,7 @@ pub async fn login(cookie: Option<String>, check: bool, clear: bool) {
     match config::load_cookie() {
         None => {
             crate::emit_line(&format!("  {YELLOW}未设置 Cookie{RST}"));
-            crate::emit_line(&format!("  {DIM}获取: 浏览器登录 fanqienovel.com → 开发者工具 → 复制请求 Cookie → fqdt login '<Cookie>'{RST}"));
+            crate::emit_line(&format!("  {DIM}获取: 浏览器登录 fanqienovel.com → 开发者工具 → 复制请求 Cookie → fq login '<Cookie>'{RST}"));
         }
         Some(c) => {
             let sess = config::cookie_has_session(&c);
@@ -64,7 +62,7 @@ pub async fn login(cookie: Option<String>, check: bool, clear: bool) {
                 c.len()
             ));
             crate::emit_line(&format!(
-                "  {DIM}验证: fqdt login --check · 清除: fqdt login --clear{RST}"
+                "  {DIM}验证: fq login --check · 清除: fq login --clear{RST}"
             ));
         }
     }
@@ -85,7 +83,7 @@ fn id_str(d: Option<&serde_json::Value>) -> String {
 /// 不回退 core library——实测假 Cookie 下 library 也回 code:0，会误报成功。
 async fn verify_now() {
     let Some(c) = config::load_cookie() else {
-        return eprintln!("  {RED}err{RST} 未设置 Cookie（fqdt login '<Cookie>'）");
+        return eprintln!("  {RED}err{RST} 未设置 Cookie（fq login '<Cookie>'）");
     };
     match page_json(&format!("{FQ_WEB}/api/user/info/v2"), &c).await {
         Ok(v) => {
@@ -126,7 +124,7 @@ fn page_check(v: Value) -> Result<Value, String> {
         || msg.contains("登录")
         || msg.to_lowercase().contains("login")
     {
-        return Err("登录态失效或 Cookie 无效（fqdt login '<Cookie>' 更新）".into());
+        return Err("登录态失效或 Cookie 无效（fq login '<Cookie>' 更新）".into());
     }
     if code.is_some_and(|c| c != 0) {
         return Err(format!("上游拒绝 code={code:?} {msg}"));
@@ -134,7 +132,7 @@ fn page_check(v: Value) -> Result<Value, String> {
     Ok(v)
 }
 
-/// `fqdt info <sec>` 只读 section 分发（原 account 迁入，42③）：
+/// `fq info <sec>` 只读 section 分发（原 account 迁入，42③）：
 /// folders/history/progress/highlights 需 Cookie，user 自行判断登录态。
 pub async fn read_section(sec: &str, json: bool, search: Option<&str>) {
     if sec == "user" {
@@ -171,14 +169,14 @@ pub fn need_cookie() -> Option<String> {
         None => {
             eprintln!("  {RED}err{RST} 未设置登录 Cookie");
             crate::emit_line(&format!(
-                "  {DIM}先 fqdt login '<Cookie>'（浏览器登录 fanqienovel.com 复制）{RST}"
+                "  {DIM}先 fq login '<Cookie>'（浏览器登录 fanqienovel.com 复制）{RST}"
             ));
             None
         }
     }
 }
 
-/// `fqdt info <id> --add` 入口：复用书架 add 写操作。
+/// `fq info <id> --add` 入口：复用书架 add 写操作。
 pub async fn add_book(book_id: &str) {
     let Some(cookie) = need_cookie() else { return };
     shelf_op(&cookie, "add", book_id, None).await;
@@ -432,7 +430,7 @@ pub async fn shelf_op(cookie: &str, op: &str, book_id: &str, group: Option<&str>
 /// 分组移动（update/v；组不存在时服务端按名字自动建组，实测往返通过）。
 async fn shelf_move(cookie: &str, book_id: &str, group: &str) {
     if group.is_empty() {
-        return eprintln!("  {RED}err{RST} 缺少目标分组（fqdt shelf move <id> <分组>）");
+        return eprintln!("  {RED}err{RST} 缺少目标分组（fq shelf move <id> <分组>）");
     }
     let body = json!({"book_data":[{"asterisked":false,"book_id":book_id,"book_type":0,
         "group_name":group,"has_shown":false,"is_pin":false,"modify_time":ms_now()}]});
@@ -1172,12 +1170,12 @@ fn find_books(v: &Value) -> Option<&Vec<Value>> {
     }
 }
 
-/// `fqdt info user`：真实用户资料（user/info/v2 + basic_info，网页端点）。
+/// `fq info user`：真实用户资料（user/info/v2 + basic_info，网页端点）。
 async fn render_user() {
     let Some(c) = config::load_cookie() else {
         crate::emit_line(&format!("  {YELLOW}未登录{RST}"));
         crate::emit_line(&format!(
-            "  {DIM}fqdt login '<Cookie>' 设置（浏览器登录 fanqienovel.com 复制）{RST}"
+            "  {DIM}fq login '<Cookie>' 设置（浏览器登录 fanqienovel.com 复制）{RST}"
         ));
         return;
     };
@@ -1260,7 +1258,7 @@ async fn render_user() {
     }
 }
 
-/// `fqdt info highlights`：有划线/书签的书（bookmark/personal_list）。
+/// `fq info highlights`：有划线/书签的书（bookmark/personal_list）。
 fn render_highlights(v: &Value, json: bool, search: Option<&str>) {
     if json {
         return crate::emit_line(&serde_json::to_string_pretty(v).unwrap_or_default());
@@ -1360,7 +1358,7 @@ mod tests {
         assert!(group_ids(&bad, "Reading").is_err());
     }
 
-    /// 97：真 history 载荷（远端 fqdt i history --json 实录 data.data_list 结构）。
+    /// 97：真 history 载荷（远端 fq i history --json 实录 data.data_list 结构）。
     #[test]
     fn history_arr_from_real_payload() {
         let v: Value = serde_json::from_str(

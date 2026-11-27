@@ -3,7 +3,7 @@ members = [".", "crates/fqapi-core"]
 resolver = "2"
 
 [package]
-name = "fqdt"
+name = "fq"
 version = "0.40.0"
 edition = "2021"
 license = "GPL-3.0-only"

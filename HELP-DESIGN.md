@@ -1,6 +1,6 @@
-# fqdt help 设计与重写规范
+# fq help 设计与重写规范
 
-> 面向修改 fqdt CLI 帮助文案的 agent。改任何 help/输出前必读；总输出规范见 `TUI.md`。
+> 面向修改 fq CLI 帮助文案的 agent。改任何 help/输出前必读；总输出规范见 `TUI.md`。
 > 依据：clig.dev（Command Line Interface Guidelines）、Vercel CLI Design Guidelines、bettercli.org，
 > 以及本项目 v0.16.0–v0.24.0 的迭代结论（去括号、不教 help、不列配置、分组顶层 help）。
 
@@ -10,11 +10,11 @@
 
 | 层 | 触发 | 载体 | 内容 |
 |---|---|---|---|
-| 顶层 help | `fqdt` / `fqdt --help` / `fqdt help` / `fqdt -h` | `main.rs::render_top_help`（手写）+ `TOP_GROUPS`/`TOP_OPTIONS` | 标题、用法行、**按任务分组**的子命令表、全局选项、优先级尾行 |
-| 子命令 help | `fqdt <cmd> --help` / `fqdt help <cmd>` | clap derive doc + `HELP_TAILS` 追加示例段 | 一句话摘要、位置参数、flags（长 help）、示例 |
-| flag 详情 | `fqdt <cmd> <flag> --help` | `main.rs::FLAG_HELP` / `config.rs::CONFIG_HELP` | 取值范围、语义、示例、关联查询/配置键 |
-| config 键详情 | `fqdt config get <key>`（子命令式，m0162） | `CONFIG_HELP` | 同上（键专属） |
-| help.txt 参考 | 启动自动生成 `~/.config/fqdt/help.txt` | `helpfile.rs` | 解释性参考：命令格式与目的、参数/端点作用、各命令底层 API 请求格式（**非** clap help 复制、**无** example） |
+| 顶层 help | `fq` / `fq --help` / `fq help` / `fq -h` | `main.rs::render_top_help`（手写）+ `TOP_GROUPS`/`TOP_OPTIONS` | 标题、用法行、**按任务分组**的子命令表、全局选项、优先级尾行 |
+| 子命令 help | `fq <cmd> --help` / `fq help <cmd>` | clap derive doc + `HELP_TAILS` 追加示例段 | 一句话摘要、位置参数、flags（长 help）、示例 |
+| flag 详情 | `fq <cmd> <flag> --help` | `main.rs::FLAG_HELP` / `config.rs::CONFIG_HELP` | 取值范围、语义、示例、关联查询/配置键 |
+| config 键详情 | `fq config get <key>`（子命令式，m0162） | `CONFIG_HELP` | 同上（键专属） |
+| help.txt 参考 | 启动自动生成 `~/.config/fq/help.txt` | `helpfile.rs` | 解释性参考：命令格式与目的、参数/端点作用、各命令底层 API 请求格式（**非** clap help 复制、**无** example） |
 
 **分层原则**：顶层只教"有哪些命令、干什么"；子命令层教"这个命令怎么用"；
 flag 详情层教"这个取值是什么"。每层不越界——顶层不列 flag 详情，子命令 help 不教 help、不列配置键。
@@ -51,14 +51,14 @@ flag 详情层教"这个取值是什么"。每层不越界——顶层不列 fla
 ### 1.3 flag 详情（FLAG_HELP）
 
 `(命令, flag, FlagDoc)` 三元组，字段：`brief`（一句话）、`takes_value`、`fields`（取值/语义/查询/配置/示例，成对出现）。
-新增会取值的 flag 时**同步加详情行**，否则 `fqdt <cmd> <flag> --help` 退化为 clap 粗 help。
+新增会取值的 flag 时**同步加详情行**，否则 `fq <cmd> <flag> --help` 退化为 clap 粗 help。
 
 ---
 
 ## 2. 文案规则（硬约束）
 
 1. **去括号**——help 里禁止括号及括号内注释（v0.23.0 起，用户明确要求）；改用换行缩进或独立行表达补充信息。代码注释、运行输出不受此限。
-2. **不教 help**——删除 `flag 详情: ...`、`用 fqdt xxx --help 查看` 类尾行（v0.24.0）。
+2. **不教 help**——删除 `flag 详情: ...`、`用 fq xxx --help 查看` 类尾行（v0.24.0）。
 3. **不列配置键**——help 不写 `配置: config.ini [x] y` 说明；配置说明唯一来源 = `config.ini` 分节模板注释（v0.24.0）+ `CONFIG_HELP`。
 4. **不打迁移提示**——命令移除后直接未知命令 err，不打"已移除/请改用 xxx"（v0.24.0）。
 5. **动词化、短**——摘要行 ≤20 字；flag help ≤1 行；占位符小写（m0108：不写 `<ID>`），**合法形式**（m0125，清单扩充 m0142）：单类型必填 `<id>`/`<key>`、联合必填 `<id|key>`/`<id|path>`、可选 `[path]`/`[id|path]`——位置参数支持多种类型时用 `|` 联合（如 download/update 的 `<id|path>` = id、书名或已下载目录；view/audio/info 支持书名关键词用 `<id|key>`，占位与描述类数必须一致 m0139/m0142）；对象多样用通名 `id` 不用 `book_id`。
@@ -79,9 +79,9 @@ flag 详情层教"这个取值是什么"。每层不越界——顶层不列 fla
 ### 1.4 子项缩进（SUBITEMS + 自定义渲染，v0.26.1）
 
 - **子项** = 挂在某 flag 下的附属 flag（如 `--tone` 隶属 `--ai`、`--voice` 隶属 `--tts`），不是独立配置，help 中必须**缩进 +2 挂父下**，禁止当描述文本塞进父 flag 的多行 help（用户：作描述放那里=错误）。
-- 实现：`SUBITEMS: &[(&str, &[&str])]`（main.rs）声明归属；`fqdt <子命令> --help` / `fqdt help <子命令>` 由 `render_sub_help()` 自定义渲染（about/Usage/Arguments/Commands/Options/尾部），`option_rows()` 让子项行 = 父行 +2 缩进、help 列按最长左列对齐；`Cli` 的 `global=true` flag（--timeout/-v）自动追加。
+- 实现：`SUBITEMS: &[(&str, &[&str])]`（main.rs）声明归属；`fq <子命令> --help` / `fq help <子命令>` 由 `render_sub_help()` 自定义渲染（about/Usage/Arguments/Commands/Options/尾部），`option_rows()` 让子项行 = 父行 +2 缩进、help 列按最长左列对齐；`Cli` 的 `global=true` flag（--timeout/-v）自动追加。
 - `helpfile.rs`（help.txt）同步：`arg_left` 自含 2 空格前导，子项行缩进 +2，隐藏 flag 除非是子项否则跳过。
-- **审查原则**：新增"父 flag + 附属 flag"结构必须登记进 `SUBITEMS`，两侧（自定义 help、help.txt）同步；`fqdt <cmd> <flag> --help` 详情拦截（FLAG_HELP）优先级更高，不受影响。
+- **审查原则**：新增"父 flag + 附属 flag"结构必须登记进 `SUBITEMS`，两侧（自定义 help、help.txt）同步；`fq <cmd> <flag> --help` 详情拦截（FLAG_HELP）优先级更高，不受影响。
 
 ## 3. 机制（代码里的四张表 + 拦截链）
 
@@ -97,7 +97,7 @@ flag 详情层教"这个取值是什么"。每层不越界——顶层不列 fla
 
 #### 3.1.1 help.txt（helpfile.rs）
 
-- `ensure_help_file()` 在 `Config::save_default()` 后调用：写 `~/.config/fqdt/help.txt`，首行标记 `fqdt <版本> -- 命令参考`，**版本变化才重写**（用户改动在版本升级时被覆盖）。
+- `ensure_help_file()` 在 `Config::save_default()` 后调用：写 `~/.config/fq/help.txt`，首行标记 `fq <版本> -- 命令参考`，**版本变化才重写**（用户改动在版本升级时被覆盖）。
 - **内容是解释性参考，不是 clap help 的复制**：每条命令给 `目的:`（about）+ `格式:`（usage 补全父命令路径）+ `参数:`/`选项:`（签名 + 作用说明，不带 example）+ `子命令:` 一览；末尾三节 = api 命令格式与各 flag 作用、端点清单（遍历 `fqapi::ENDPOINTS` 与 `--list` 同源）、**各命令底层 API 请求格式**（手写 `API_TAIL`：命令 → 实际发出的 GET/POST 路径与参数）。
 - 渲染函数拆分遵守 ≤30 行：`render_cmd` / `render_args` / `render_subs` / `usage_of` / `arg_line` / `api_section`；输出统一 `strip_ansi` 后落盘。
 - bool flag 不显示 value（`ArgAction::SetTrue` 等）；隐藏/自动 help/version flag 跳过。
@@ -112,7 +112,7 @@ args → try_flag_help（FLAG_HELP 逐 flag 详情，clap 解析前）
 ```
 
 - `top_help_requested`：args 空 / `["help"]` / 首个 `--help`-`-h` 前无所见子命令 → true；
-  `fqdt search --help`、`fqdt help <cmd>` 走原 clap 路径。
+  `fq search --help`、`fq help <cmd>` 走原 clap 路径。
 - 改 help 时先确认落在哪一层，改对应表；**双份维护点**（doc 注释 vs TOP_GROUPS 摘要）靠内省消除，新增子命令只需：变体 + `display_order` + 归入某 `TOP_GROUPS` 行。
 
 ### 3.3 新增/修改子命令的 help checklist
@@ -129,7 +129,7 @@ args → try_flag_help（FLAG_HELP 逐 flag 详情，clap 解析前）
 - [ ] 新 flag/命令的格式与作用是否同步进 `helpfile.rs`（API 请求映射 `API_TAIL` 有变则更新）？
 - [ ] config 键变化 → `DEFAULT_INI` 节标题与每键注释同步？
 - [ ] 输出有变化 → 同步 `TUI.md` §2.1/§5
-- [ ] 冒烟：`fqdt --help`、`fqdt <cmd> --help`、`fqdt <cmd> <flag> --help`、`fqdt help <cmd>` 四路
+- [ ] 冒烟：`fq --help`、`fq <cmd> --help`、`fq <cmd> <flag> --help`、`fq help <cmd>` 四路
 
 ---
 
@@ -155,7 +155,7 @@ args → try_flag_help（FLAG_HELP 逐 flag 详情，clap 解析前）
 - 无参运行可打印 help 作入门（jq 模式：精简版 + 指向 `--help` 全量）。
 - man page 式段落：Name/Usage/Commands/Options/Examples。
 
-**fqdt 落地差异**（有意为之）：
+**fq 落地差异**（有意为之）：
 - 顶层 help 不放"运行 xxx --help"提示（不教 help，见 §2.2）；
 - 配置键不进 help（唯一来源 config.ini 注释，见 §2.3）；
 - 示例放 `HELP_TAILS` 而非 clap doc（集中管理 + `ui.help_examples` 开关）。
@@ -172,7 +172,7 @@ args → try_flag_help（FLAG_HELP 逐 flag 详情，clap 解析前）
 2. **一句话它是干什么的**：动词开头、≤20 字、无括号（见 5.2）→ 写变体 doc 注释（顶层 help 靠内省取这行，双份维护靠内省消除）。
 3. **位置参数怎么称呼**：通名小写 `<id>`（对象多义时）、具体对象才用专名；取值规则（"id 或书名关键词"）写 arg help 一个短语，深规则进 FLAG_HELP/详情。
 4. **示例要不要**：默认关（`ui.help_examples`），开启时 1–3 条真实可跑、覆盖不同场景、绝不写 `[options]` 占位 → HELP_TAILS 登记。
-5. **四路冒烟**：`fqdt --help` / `fqdt <cmd> --help` / `fqdt <cmd> <flag> --help` / `fqdt help <cmd>`。
+5. **四路冒烟**：`fq --help` / `fq <cmd> --help` / `fq <cmd> <flag> --help` / `fq help <cmd>`。
 
 ### 5.2 括号内信息的归属（用户多次纠正的高频坑）
 
@@ -214,7 +214,7 @@ Cmd 变体        → 该命令专属 flag（download 的 -t、audio 的 --lrc�
 - **警告**：`  warn ` + 降级后果，一章一次（`warn_fallback` 去重），不逐条刷屏。
 - 三类全部走 stderr 或收据行规则（TUI.md 一行一记录）；stdout 只有数据。
 
-### 5.5 哪些 subcommands 该合并/简化（判定标准 + fqdt 案例）
+### 5.5 哪些 subcommands 该合并/简化（判定标准 + fq 案例）
 
 **判定标准**（按序问，命中即动）：
 
@@ -224,14 +224,14 @@ Cmd 变体        → 该命令专属 flag（download 的 -t、audio 的 --lrc�
 4. **顶层膨胀？** 顶层命令 >7 个可扫读单位 → 按任务分组进 `TOP_GROUPS`，能归对象的归对象（服务类留顶层：serve/api/config/login）。
 5. **总是一起用？** A 的输出恒为 B 的输入 → B 做 A 的 flag（`search -D` 自动续下载，而非独立 `dl` 命令）。
 
-**反向（不该合）**：不同对象（download/update 都是"书"但语义相反，保留）；破坏肌肉记忆无收益（fqdt 别名体系 s/d/a/t/u 稳定）；合并后 arg 冲突（位置参数语义不同）。
+**反向（不该合）**：不同对象（download/update 都是"书"但语义相反，保留）；破坏肌肉记忆无收益（fq 别名体系 s/d/a/t/u 稳定）；合并后 arg 冲突（位置参数语义不同）。
 
 **简化输出侧**：每加一个子命令先想"结果行能否一行说完"——说不完的交互（选书序号）非 TTY 必须有报错指引而非挂死。
 
 ### 5.6 措辞统一性（m0153 子项）
 
 - **动词/名词统一**：摘要行一律动词开头（`下载正文`、`搜索书籍`），对象名词只做宾语；Usage 行里子命令名本身是名词（`download`/`search`），不因摘要动词而改名——动词化约束只作用于 doc/help 文案，不作用于命令名。
-- **Usage 行格式**：`Usage: fqdt <cmd> [选项] <参数>`——子命令路径全写（help.txt 的 `usage_of` 补全父路径）；选项段 `Options:`、参数段 `Arguments:`、子命令段 `Subcommands:`（**一个词**、带冒号，m0115 纠正 m0151 的 `Sub commands:`）；bool flag 不占 value 位；占位符按 §2.5 规则 5 的合法形式。
+- **Usage 行格式**：`Usage: fq <cmd> [选项] <参数>`——子命令路径全写（help.txt 的 `usage_of` 补全父路径）；选项段 `Options:`、参数段 `Arguments:`、子命令段 `Subcommands:`（**一个词**、带冒号，m0115 纠正 m0151 的 `Sub commands:`）；bool flag 不占 value 位；占位符按 §2.5 规则 5 的合法形式。
 - **顶层 help 不写"优先级"尾行**（m0117）：flag > config 优先级说明不进顶层输出，需要时只放子命令 help text / FLAG_HELP 详情 / config.ini 模注。
 - **子命令排序**：顶层顺序 = `display_order`（与 `TOP_GROUPS` 组内顺序一致，§3.3）；组内常用在前；**同一命令在任何视图只出现一次**（别名列在定义处、不进帮助列表）。子命令 help 的 Options 段同理：专属 flag 在前、global flag（-v/--timeout）自动追加在后。
 - **错误文案与 help 一致性**：同名 flag 同语义（跨命令）；报错里提到的 flag/子命令必须与 help 中拼写完全一致（含大小写与占位符），用户照抄报错应能直接跑通——改名时 grep 报错文案与 help 同步（`grep -rn "旧名" src/*.rs` 含 err! 宏）。

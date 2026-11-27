@@ -31,7 +31,7 @@ fn deflated_opts() -> FileOptions<'static, ()> {
 /// - `download::Downloader::do_epub` — EPUB 模式下载
 ///
 /// # CLI 调用
-/// - `fqdt download <id> -f epub`
+/// - `fq download <id> -f epub`
 pub fn write_book(
     title: &str,
     items: &[(Chapter, Option<String>)],

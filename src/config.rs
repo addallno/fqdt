@@ -3,9 +3,33 @@ use crate::util::{CYAN, DIM, GREEN, RED, RST, YELLOW};
 use std::fs;
 use std::path::PathBuf;
 
+/// 改名迁移（101）：`~/.config/fqdt` → `~/.config/fq`（幂等；rename 失败保留旧目录不丢数据）。
+fn ensure_layout() {
+    let home = get_home();
+    let new = home.join(".config/fq");
+    let old = home.join(".config/fqdt");
+    if !new.exists() && old.exists() {
+        let _ = fs::create_dir_all(home.join(".config"));
+        let _ = fs::rename(&old, &new);
+    }
+}
+
+/// 配置目录（101）：迁移成功 → `~/.config/fq`；否则旧目录仍在 → 继续用旧目录。
+pub fn config_dir() -> PathBuf {
+    ensure_layout();
+    let home = get_home();
+    let new = home.join(".config/fq");
+    let old = home.join(".config/fqdt");
+    if new.exists() {
+        new
+    } else {
+        old
+    }
+}
+
 impl Config {
     pub fn load() -> Self {
-        let path = get_home().join(".config/fqdt/config.ini");
+        let path = config_dir().join("config.ini");
         let mut cfg = Config::default();
         if let Ok(text) = fs::read_to_string(&path) {
             let mut section = String::new();
@@ -123,7 +147,7 @@ impl Config {
 
     /// 生成默认 config.ini；force=false 时已存在则不动（不覆盖用户改动）。
     pub fn save_default(force: bool) -> Result<(), String> {
-        let d = get_home().join(".config/fqdt");
+        let d = config_dir();
         fs::create_dir_all(&d).map_err(|e| e.to_string())?;
         let path = d.join("config.ini");
         if path.exists() && !force {
@@ -134,10 +158,10 @@ impl Config {
 
     // ===== 默认 config.ini 模板（save_default） =====
     // 节名必须与 KEYS 各条目的节一致（ini_write 按 KEYS 节写入，节名不同会产生重复键）。
-    // 每键上方一行中文注释说明作用；配置说明唯一来源=本文件 + `fqdt config <key> --help`。
+    // 每键上方一行中文注释说明作用；配置说明唯一来源=本文件 + `fq config <key> --help`。
     const DEFAULT_INI: &str = "\
 # 番茄小说下载器配置
-# 直接编辑本文件，或 fqdt config <点号键> <值>（如 fqdt config download.format epub）
+# 直接编辑本文件，或 fq config <点号键> <值>（如 fq config download.format epub）
 # 优先级: 命令行 flag > 本文件同义项
 
 ## Download
@@ -179,7 +203,7 @@ audio_content_url = http://101.35.133.34:5000/api/content?tab=听书&item_id={}&
 
 ## Audio
 [audio]
-# 默认音色编号（AI 音色 1-91；真人讲书用 --real 选集内音色），fqdt info audio <id> 查本书可用集合
+# 默认音色编号（AI 音色 1-91；真人讲书用 --real 选集内音色），fq info audio <id> 查本书可用集合
 audio_tone = 1
 # 音色回退列表，主音色失败时依次尝试
 audio_tone_fallbacks = 2,4,5,6,74,91
@@ -332,7 +356,7 @@ status =
     }
 }
 
-// ===== git 式 config 子命令（fqdt config --list / get / set / unset） =====
+// ===== git 式 config 子命令（fq config --list / get / set / unset） =====
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Kind {
@@ -350,7 +374,7 @@ type KeyEntry = (
     fn(&Config) -> String,
 );
 
-/// 点号键 → (ini 键, 所属节, 类型, 取值器)。`fqdt config --list` 与 set/get 共用。
+/// 点号键 → (ini 键, 所属节, 类型, 取值器)。`fq config --list` 与 set/get 共用。
 pub const KEYS: &[KeyEntry] = &[
     (
         "download.concurrent",
@@ -552,7 +576,7 @@ pub const KEYS: &[KeyEntry] = &[
     }),
 ];
 
-// ===== config 键详情（`fqdt config <key> --help`，v0.17.0） =====
+// ===== config 键详情（`fq config <key> --help`，v0.17.0） =====
 
 /// 键详情：(点号键, 一句话标题, 详细说明)。
 const CONFIG_HELP: &[(&str, &str, &str)] = &[
@@ -618,7 +642,7 @@ fn kind_label(k: Kind) -> &'static str {
     }
 }
 
-/// `fqdt config <key> --help`：命中渲染详情返回 true，未命中返回 false。
+/// `fq config <key> --help`：命中渲染详情返回 true，未命中返回 false。
 pub fn key_help(part: &str) -> bool {
     let tail = |e: &KeyEntry| e.0.split('.').next_back().unwrap_or("");
     let hits: Vec<&KeyEntry> = KEYS
@@ -642,7 +666,7 @@ pub fn key_help(part: &str) -> bool {
                 crate::emit_line(&format!("    {}  {DIM}{brief}{RST}", e.0));
             }
             crate::emit_line(&format!(
-                "  {DIM}补全点号键后重试: fqdt config {} --help{RST}",
+                "  {DIM}补全点号键后重试: fq config {} --help{RST}",
                 hits[0].0
             ));
             true
@@ -660,7 +684,7 @@ fn render_key_help(e: &KeyEntry) {
     };
     crate::emit_line(&format!("  {CYAN}{dotted}{RST}  {YELLOW}{brief}{RST}"));
     crate::emit_line(&format!(
-        "  {DIM}fqdt config set {dotted} <value> · flag 优先于 config{RST}"
+        "  {DIM}fq config set {dotted} <value> · flag 优先于 config{RST}"
     ));
     crate::emit_line("");
     crate::emit_line(&format!("    {:<4}  {}", "类型", kind_label(kind)));
@@ -676,11 +700,11 @@ fn render_key_help(e: &KeyEntry) {
         Kind::Str => "<值>",
     };
     crate::emit_line(&format!(
-        "    {:<4}  fqdt config set {dotted} {example_val}",
+        "    {:<4}  fq config set {dotted} {example_val}",
         "设置"
     ));
     crate::emit_line(&format!(
-        "    {:<4}  fqdt config unset {dotted}（恢复默认）",
+        "    {:<4}  fq config unset {dotted}（恢复默认）",
         "恢复"
     ));
 }
@@ -727,40 +751,40 @@ pub fn cookie_has_session(c: &str) -> bool {
     })
 }
 
-/// `fqdt config --list` | `<key>` | `<key> <value>` | `--unset <key>`（git config 式）。
-/// `fqdt config get <key>|--all`：单键详情 / -a 列全部。
+/// `fq config --list` | `<key>` | `<key> <value>` | `--unset <key>`（git config 式）。
+/// `fq config get <key>|--all`：单键详情 / -a 列全部。
 pub fn run_get(key: Option<String>, all: bool) {
     if all {
         return list_all();
     }
     let Some(k) = key else {
-        return eprintln!("  err 用法: fqdt config get <key> | fqdt config get --all");
+        return eprintln!("  err 用法: fq config get <key> | fq config get --all");
     };
     if !key_help(&k) {
         eprintln!("  err 未知键: {k}（get --all 查看全部）");
     }
 }
 
-/// `fqdt config set <key> <value>`。
+/// `fq config set <key> <value>`。
 pub fn run_set(key: String, value: String) {
     set_key(&key, &value);
 }
 
-/// `fqdt config unset <key>`（恢复默认值）。
+/// `fq config unset <key>`（恢复默认值）。
 pub fn run_unset(key: String) {
     unset_key(&key);
 }
 
-/// `fqdt config init [--force]`：生成默认配置文件；--force 覆盖旧模板（键说明升级用）。
+/// `fq config init [--force]`：生成默认配置文件；--force 覆盖旧模板（键说明升级用）。
 pub fn run_init(force: bool) {
-    let existed = get_home().join(".config/fqdt/config.ini").exists();
+    let existed = config_dir().join("config.ini").exists();
     match Config::save_default(force) {
         Ok(()) if existed && !force => {
             crate::emit_line(&format!(
-                "  {DIM}已存在，未覆盖；fqdt config init --force 用新模板（含键说明）重建{RST}"
+                "  {DIM}已存在，未覆盖；fq config init --force 用新模板（含键说明）重建{RST}"
             ));
         }
-        Ok(()) => crate::emit_line(&format!("{GREEN}ok{RST} ~/.config/fqdt/config.ini")),
+        Ok(()) => crate::emit_line(&format!("{GREEN}ok{RST} ~/.config/fq/config.ini")),
         Err(e) => eprintln!("  {RED}err{RST} {e}"),
     }
 }
@@ -778,7 +802,7 @@ pub fn run_cmd(key: Option<String>, value: Option<String>, list: bool, unset: bo
         return list_all();
     }
     let Some(k) = key else {
-        eprintln!("  err 用法: fqdt config get <key>|--all | set <key> <value> | unset <key> | init [--force]");
+        eprintln!("  err 用法: fq config get <key>|--all | set <key> <value> | unset <key> | init [--force]");
         return;
     };
     if k == "init" && value.is_none() && !unset {
@@ -817,7 +841,7 @@ fn set_key(dotted: &str, val: &str) {
             }
         );
     }
-    let path = get_home().join(".config/fqdt/config.ini");
+    let path = config_dir().join("config.ini");
     if let Err(err) = ini_write(&path, e.1, e.2, val) {
         return eprintln!("  err {err}");
     }
@@ -829,7 +853,7 @@ fn unset_key(dotted: &str) {
     let Some(e) = KEYS.iter().find(|e| e.0 == dotted) else {
         return eprintln!("  err 未知键: {dotted}（--list 查看全部）");
     };
-    let path = get_home().join(".config/fqdt/config.ini");
+    let path = config_dir().join("config.ini");
     let Ok(text) = fs::read_to_string(&path) else {
         return eprintln!("  err 配置未设置过: {dotted}");
     };

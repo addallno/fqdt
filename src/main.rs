@@ -17,7 +17,7 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::path::Path;
 use types::Config;
 
-/// `fqdt config` 子命令（省并式，m0162：list 并入 get --all）
+/// `fq config` 子命令（省并式，m0162：list 并入 get --all）
 #[derive(Subcommand)]
 enum ConfigCmd {
     /// 查看配置：单键详情，或 -a 列全部
@@ -48,13 +48,13 @@ enum ConfigCmd {
 
 #[derive(Parser)]
 #[command(
-    name = "fqdt",
+    name = "fq",
     version,
     about = "番茄小说下载器",
     subcommand_help_heading = "Subcommands"
 )]
 struct Cli {
-    // 仅顶层出现（不进子命令 help）；须置于子命令前：fqdt --catalog-url X search …
+    // 仅顶层出现（不进子命令 help）；须置于子命令前：fq --catalog-url X search …
     #[arg(long, help = "搜索 API 源")]
     search_url: Option<String>,
     #[arg(long, help = "目录 API 源")]
@@ -166,7 +166,7 @@ enum Cmd {
             long,
             hide = true,
             default_value = "1",
-            help = "AI 音色编号，fqdt info audio <id> 查可用"
+            help = "AI 音色编号，fq info audio <id> 查可用"
         )]
         tone: usize,
         #[arg(
@@ -322,7 +322,7 @@ struct PickArgs {
     nth: Option<usize>,
 }
 
-/// `fqdt info` 子命令：书籍 section + 发现流 + 个人数据。
+/// `fq info` 子命令：书籍 section + 发现流 + 个人数据。
 /// 原位置参数 section 改为真子命令，flag 按子命令归属（通用 flag 仅 --timeout/-v）。
 #[derive(Subcommand)]
 enum InfoCmd {
@@ -456,7 +456,7 @@ enum InfoCmd {
     },
 }
 
-/// `fqdt shelf` 子命令（42②：裸 shelf 报错要求子命令，list 为书架入口）。
+/// `fq shelf` 子命令（42②：裸 shelf 报错要求子命令，list 为书架入口）。
 /// 预留：查看类可加 `--dump` flag 打印原始结构（42④，暂未实现）。
 #[derive(Subcommand)]
 enum ShelfCmd {
@@ -538,9 +538,9 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("类型", "整数"),
         ("取值", "默认 1；常见 1 甜美少女 · 2 清亮青叔 · 4 成熟大叔 · 5 开朗青年 · 6 温柔淑女 · 74 大叔升级 · 51 多人发音"),
         ("说明", "文字版 AI 朗读音色；各书可用集合不同"),
-        ("查询", "fqdt info audio <id> 查看本书可用编号"),
+        ("查询", "fq info audio <id> 查看本书可用编号"),
         ("配置", "config.ini [audio] audio_tone"),
-        ("示例", "fqdt audio <id> --tone 6"),
+        ("示例", "fq audio <id> --tone 6"),
         ("相关", "-T/--type"),
     ]}),
     ("audio", "--lrc", FlagDoc { brief: "歌词模式", takes_value: true, fields: &[
@@ -548,33 +548,33 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("取值", "external / embed / both / off，默认 external"),
         ("说明", "external=同名 .lrc 文件；embed=嵌入 MP3 ID3 USLT；both=两者；off=不生成"),
         ("限制", "仅音频下载路径生效；MP4 容器嵌入无效故默认 external"),
-        ("示例", "fqdt audio <id> --lrc embed"),
+        ("示例", "fq audio <id> --lrc embed"),
         ("相关", "-T/--type"),
     ]}),
     ("audio", "--type", FlagDoc { brief: "来源 real|ai|tts", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "real 真人讲书版 / ai 智能朗读 / tts 本地合成（Edge-TTS），三者互斥"),
         ("说明", "real 自动发现最热真人听书版；ai 用文字版音色配 --tone；tts 先下正文再本地合成 MP3（需 edge-tts）"),
-        ("示例", "fqdt audio <id> -T real    fqdt audio <id> -T ai --tone 6    fqdt audio <id> -T tts"),
+        ("示例", "fq audio <id> -T real    fq audio <id> -T ai --tone 6    fq audio <id> -T tts"),
         ("相关", "--tone --voice -c/--container"),
-        ("查询", "fqdt info relative <id> 查看该书真人版"),
+        ("查询", "fq info relative <id> 查看该书真人版"),
     ]}),
     ("audio", "--container", FlagDoc { brief: "输出容器 m4a/mp3/ogg", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "m4a 保持原样 / mp3 转码 MP3 / ogg 默认 Ogg Opus"),
-        ("示例", "fqdt audio <id> -c mp3"),
+        ("示例", "fq audio <id> -c mp3"),
     ]}),
     ("update", "--type", FlagDoc { brief: "增量类别 content/audio", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "content 正文 / audio 音频，逗号分隔多值；默认全部"),
         ("说明", "目录模式按类别过滤增量块；id 模式 -T audio 转音频工作流"),
-        ("示例", "fqdt update <目录> -T content    fqdt update <目录> -T content,audio"),
+        ("示例", "fq update <目录> -T content    fq update <目录> -T content,audio"),
     ]}),
     ("audio", "--voice", FlagDoc { brief: "Edge-TTS 语音名", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("默认", "zh-CN-XiaoxiaoNeural"),
         ("说明", "仅 -T tts 时生效"),
-        ("示例", "fqdt audio <id> -T tts --voice zh-CN-YunxiNeural"),
+        ("示例", "fq audio <id> -T tts --voice zh-CN-YunxiNeural"),
         ("相关", "-T/--type"),
     ]}),
     ("view", "--range", FlagDoc { brief: "章节范围", takes_value: true, fields: &[
@@ -585,53 +585,53 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("类型", "字符串"),
         ("取值", "N 单章 / N-M 区间 / -M 末 M 章 / N- 自 N 起"),
         ("说明", "按目录序筛选；缺省全部章节"),
-        ("示例", "fqdt download <id> -r 1-50   fqdt download <id> -r -5"),
+        ("示例", "fq download <id> -r 1-50   fq download <id> -r -5"),
         ("相关", "-t -j"),
     ]}),
     ("download", "--format", FlagDoc { brief: "输出格式", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "txt/ epub"),
         ("配置", "config.ini [download] format"),
-        ("示例", "fqdt download <id> -t epub"),
+        ("示例", "fq download <id> -t epub"),
     ]}),
     ("download", "--jobs", FlagDoc { brief: "并发数", takes_value: true, fields: &[
         ("类型", "整数"),
         ("默认", "按 CPU 核数"),
         ("配置", "config.ini [download] concurrent"),
-        ("示例", "fqdt download <id> -j 4"),
+        ("示例", "fq download <id> -j 4"),
     ]}),
     ("download", "--force", FlagDoc { brief: "强制覆盖", takes_value: false, fields: &[
         ("说明", "已存在文件重新下载；缺省跳过已下载章节"),
-        ("示例", "fqdt download <id> --force"),
+        ("示例", "fq download <id> --force"),
     ]}),
     ("download", "--interval", FlagDoc { brief: "请求间隔毫秒", takes_value: true, fields: &[
         ("类型", "整数"),
         ("默认", "0"),
         ("说明", "每章请求之间的等待，限速用"),
-        ("示例", "fqdt download <id> -i 500"),
+        ("示例", "fq download <id> -i 500"),
     ]}),
     ("search", "--auto", FlagDoc { brief: "自动下载第 N 本", takes_value: true, fields: &[
         ("类型", "整数"),
         ("说明", "跳过交互选择，直接下载第 N 条结果；配合 -o/-r/-t"),
-        ("示例", "fqdt search 诡秘 -D 1"),
+        ("示例", "fq search 诡秘 -D 1"),
         ("相关", "-o -r -t"),
     ]}),
     ("search", "--page", FlagDoc { brief: "页码", takes_value: true, fields: &[
         ("类型", "整数"),
         ("默认", "1"),
-        ("示例", "fqdt search 诡秘 -p 2"),
+        ("示例", "fq search 诡秘 -p 2"),
     ]}),
     ("search", "--range", FlagDoc { brief: "章节范围", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "同 download：N / N-M / -M / N-"),
         ("说明", "仅 -D 自动下载时生效"),
-        ("示例", "fqdt search 诡秘 -D 1 -r 1-50"),
+        ("示例", "fq search 诡秘 -D 1 -r 1-50"),
     ]}),
     ("search", "--format", FlagDoc { brief: "输出格式", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "txt/ epub"),
         ("说明", "仅 -D 自动下载时生效"),
-        ("示例", "fqdt search 诡秘 -D 1 -t epub"),
+        ("示例", "fq search 诡秘 -D 1 -t epub"),
     ]}),
     ("search", "--jobs", FlagDoc { brief: "并发数", takes_value: true, fields: &[
         ("类型", "整数"), ("默认", "按 CPU 核数"), ("说明", "仅 -D 自动下载时生效"),
@@ -643,11 +643,11 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("类型", "字符串"),
         ("取值", "同 download：N / N-M / -M / N-"),
         ("限制", "仅 chapters 与概览生效"),
-        ("示例", "fqdt info chapters <id> -r 1-50"),
+        ("示例", "fq info chapters <id> -r 1-50"),
     ]}),
     ("info", "--show", FlagDoc { brief: "正文预览", takes_value: false, fields: &[
         ("说明", "概览前列章节附带正文"),
-        ("示例", "fqdt info overview <id> --show"),
+        ("示例", "fq info overview <id> --show"),
     ]}),
 ];
 
@@ -717,7 +717,7 @@ fn render_flag(sub: &str, flag: &str, d: &FlagDoc) {
     };
     crate::emit_line(&format!("  {CYAN}{usage}{RST}  {YELLOW}{}{RST}", d.brief));
     crate::emit_line(&format!(
-        "  {DIM}Subcommand fqdt {sub} · 优先级 flag > config{RST}"
+        "  {DIM}Subcommand fq {sub} · 优先级 flag > config{RST}"
     ));
     crate::emit_line("");
     for (k, v) in d.fields {
@@ -741,7 +741,7 @@ fn try_flag_help() {
     }
 }
 
-/// config 键详情：`fqdt config <key> --help`（尾段模糊匹配；多命中列候选）。
+/// config 键详情：`fq config <key> --help`（尾段模糊匹配；多命中列候选）。
 fn scan_config_key(args: &[String]) -> Option<String> {
     if args.first().map(|s| s != "config").unwrap_or(true) {
         return None;
@@ -925,7 +925,7 @@ fn render_sub_help(path: &[String], examples: bool) {
     if path.len() == 1 && path[0] == "help" {
         crate::emit_line("查看帮助");
         crate::emit_line("");
-        crate::emit_line(&format!("{TITLE}Usage:{RST} fqdt help [subcommands]"));
+        crate::emit_line(&format!("{TITLE}Usage:{RST} fq help [subcommands]"));
         crate::emit_line("");
         crate::emit_line(&format!("{TITLE}Arguments:{RST}"));
         crate::emit_line("  subcommands   显示关于该命令及其选项的帮助");
@@ -995,7 +995,7 @@ const TOP_OPTIONS: &[(&str, &str)] = &[
 ];
 
 /// 顶层 help 请求判定：裸调用 / --help / -h / help，且尚未出现子命令。
-/// `fqdt search --help`、`fqdt help search` 等仍交 clap。
+/// `fq search --help`、`fq help search` 等仍交 clap。
 fn top_help_requested(args: &[String]) -> bool {
     if args.is_empty() {
         return true;
@@ -1031,9 +1031,9 @@ fn with_help_styles(cmd: clap::Command) -> clap::Command {
 /// 手写顶层 help：子命令按分类顺序平铺（不显示分组标题）+ Options（优先级尾行 m0117 移除）。
 fn render_top_help() {
     let cmd = Cli::command();
-    crate::emit_line(&format!("{CYAN}fqdt{RST} — 番茄小说下载器"));
+    crate::emit_line(&format!("{CYAN}fq{RST} — 番茄小说下载器"));
     crate::emit_line("");
-    crate::emit_line(&format!("  {DIM}用法: fqdt [Options] <Subcommand>{RST}"));
+    crate::emit_line(&format!("  {DIM}用法: fq [Options] <Subcommand>{RST}"));
     crate::emit_line("");
     crate::emit_line(&format!("{TITLE}Subcommands:{RST}"));
     // 分类只决定顺序，不再打印组名（用户：按顺序列出即可，看得出用途）
@@ -1067,22 +1067,22 @@ fn sub_about(cmd: &clap::Command, name: &str) -> String {
 /// help 底部附加段：(子命令名, 附加说明, 示例)。示例受 config `ui.help_examples` 控制。
 /// 附加说明不写"flag 详情/配置键"类内容（用户明确：帮助里不教用 help、不列配置键）。
 const HELP_TAILS: &[(&str, &str, &str)] = &[
-    ("search", "", "Examples:\n  fqdt search 诡秘之主\n  fqdt search 诡秘 -D 1"),
+    ("search", "", "Examples:\n  fq search 诡秘之主\n  fq search 诡秘 -D 1"),
     ("info", "",
-     "Examples:\n  fqdt info overview <id>\n  fqdt info chapters <id> -r 1-50\n  fqdt info overview <id> --add\n  fqdt info recommend\n  fqdt info category --tab 1\n  fqdt info progress --search 词\n  fqdt info overview <id>"),
-    ("download", "", "Examples:\n  fqdt download <id> -r 1-50 -t epub"),
-    ("view", "", "Examples:\n  fqdt view 诡秘之主\n  fqdt view 7185478854738185271 -r 1-50"),
+     "Examples:\n  fq info overview <id>\n  fq info chapters <id> -r 1-50\n  fq info overview <id> --add\n  fq info recommend\n  fq info category --tab 1\n  fq info progress --search 词\n  fq info overview <id>"),
+    ("download", "", "Examples:\n  fq download <id> -r 1-50 -t epub"),
+    ("view", "", "Examples:\n  fq view 诡秘之主\n  fq view 7185478854738185271 -r 1-50"),
     ("audio", "",
-     "Examples:\n  fqdt audio <id> -T real\n  fqdt audio <id> -T ai --tone 6\n  fqdt audio 诡秘之主 -T ai\n  fqdt audio <id> -c mp3"),
-    ("update", "", "Examples:\n  fqdt update <目录>\n  fqdt update <目录> -T content\n  fqdt update <id> -r 1-50"),
-    ("tts", "", "Examples:\n  fqdt tts book.txt"),
+     "Examples:\n  fq audio <id> -T real\n  fq audio <id> -T ai --tone 6\n  fq audio 诡秘之主 -T ai\n  fq audio <id> -c mp3"),
+    ("update", "", "Examples:\n  fq update <目录>\n  fq update <目录> -T content\n  fq update <id> -r 1-50"),
+    ("tts", "", "Examples:\n  fq tts book.txt"),
     ("shelf", "",
-     "Examples:\n  fqdt shelf list\n  fqdt shelf list 已读\n  fqdt shelf list --local\n  fqdt shelf add <id>:<标题>\n  fqdt shelf add <id>\n  fqdt shelf move <id> 已读\n  fqdt shelf download 1"),
+     "Examples:\n  fq shelf list\n  fq shelf list 已读\n  fq shelf list --local\n  fq shelf add <id>:<标题>\n  fq shelf add <id>\n  fq shelf move <id> 已读\n  fq shelf download 1"),
     ("login", "",
-     "Examples:\n  fqdt login '<Cookie>'\n  fqdt login --check"),
+     "Examples:\n  fq login '<Cookie>'\n  fq login --check"),
     ("config", "",
-     "Examples:\n  fqdt config init\n  fqdt config --list\n  fqdt config info.top_chapters 20"),
-    ("api", "", "Examples:\n  fqdt api /api/v1/search -q query=诡秘 -q tab_type=3\n  fqdt api /api/v1/books/123 --jq data.book_name"),
+     "Examples:\n  fq config init\n  fq config --list\n  fq config info.top_chapters 20"),
+    ("api", "", "Examples:\n  fq api /api/v1/search -q query=诡秘 -q tab_type=3\n  fq api /api/v1/books/123 --jq data.book_name"),
     ("serve", "", ""),
 ];
 
@@ -1122,7 +1122,7 @@ fn apply_help_tails(cmd: &mut clap::Command, examples: bool) {
 
 #[tokio::main]
 async fn main() {
-    // 逐 flag / config 键详情：在 clap 解析前拦截（`fqdt audio --tone --help` 等四场景）
+    // 逐 flag / config 键详情：在 clap 解析前拦截（`fq audio --tone --help` 等四场景）
     try_flag_help();
     let mut cmd = with_help_styles(Cli::command());
     let mut cfg = Config::load();
@@ -1300,7 +1300,7 @@ async fn main() {
             list,
         } => run_api(path, method, query, data, jq, status, list).await,
         Cmd::Serve { port, lan } => run_serve(port, lan).await,
-        Cmd::Version => println!("fqdt {}", env!("CARGO_PKG_VERSION")),
+        Cmd::Version => println!("fq {}", env!("CARGO_PKG_VERSION")),
         Cmd::Custom(args) => dispatch_custom(args, &cfg),
     }
 }
@@ -1810,7 +1810,7 @@ pub(crate) fn emit_line(s: &str) {
     }
 }
 
-/// `fqdt serve`：前台运行 HTTP 服务，Ctrl-C 退出并刷盘
+/// `fq serve`：前台运行 HTTP 服务，Ctrl-C 退出并刷盘
 async fn run_serve(port: u16, lan: bool) {
     match fqapi::serve_at(port, lan).await {
         Ok(url) => {
@@ -1845,7 +1845,7 @@ fn merge_query(path: &str, extra: &[String]) -> (String, String) {
     (p, q)
 }
 
-/// `fqdt api` 分发：列出端点，或透传调用后按 `--jq` 输出
+/// `fq api` 分发：列出端点，或透传调用后按 `--jq` 输出
 async fn run_api(
     path: Option<String>,
     method: String,
@@ -1872,8 +1872,8 @@ async fn run_api(
     let Some(path) = path else {
         eprintln!(
             "  err 缺少端点路径\n  \
-             用法: fqdt api <path> [-X METHOD] [-q k=v]... [--data BODY] [--jq PATH] [--status]\n  \
-             \x20     fqdt api --list"
+             用法: fq api <path> [-X METHOD] [-q k=v]... [--data BODY] [--jq PATH] [--status]\n  \
+             \x20     fq api --list"
         );
         std::process::exit(1);
     };

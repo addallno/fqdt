@@ -3,7 +3,7 @@
 //! UI 布局抄 `bugzmanov/bookokrat`（1292★，ratatui）：普通模式 = 左目录面板 +
 //! 右正文 + 底部 3 行帮助栏，焦点面板边框高亮；`z` 进 zen 模式（全屏正文，
 //! 藏目录与帮助栏）。进度模型（章 item_id + 行偏移）抄 `rereader`；内容源接
-//! fqdt `fetch_content`。
+//! fq `fetch_content`。
 //!
 //! 键位（91 大重设计，m0130）：正文焦点 `j/k/↑↓` 段落光标 · `,`.` 翻 2/3、1/2 页 ·
 //! `<>`/`n/p` 切章 · `space` 查看光标处图片 · `d/u/g/G` 行滚 · `Tab` 目录 ·
@@ -199,7 +199,7 @@ impl Reader {
     }
 }
 
-/// `fqdt read` 入口：TTY 检查 → 目录/书名 → 恢复进度 → 进入 TUI 循环。
+/// `fq read` 入口：TTY 检查 → 目录/书名 → 恢复进度 → 进入 TUI 循环。
 /// 启动模式应用（89）：ui.page_mode 翻页 + ui.view_mode 默认视图（zen 启动）。
 fn apply_startup_modes(rd: &mut Reader, cfg: &Config) {
     rd.page_mode = if cfg.ui_page_mode.eq_ignore_ascii_case("up-down")
@@ -837,7 +837,7 @@ fn open_editor(
         rd.msg = "未找到编辑器；可用 -e/--editor、config ui.editor 或 EDITOR 指定".into();
         return Ok(());
     };
-    let path = std::env::temp_dir().join(format!("fqdt-chapter-{}.txt", rd.cur));
+    let path = std::env::temp_dir().join(format!("fq-chapter-{}.txt", rd.cur));
     std::fs::write(&path, &rd.raw).map_err(|e| format!("写临时文件失败: {e}"))?;
     let _ = disable_raw_mode();
     let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
@@ -1218,7 +1218,7 @@ fn draw_help_box(f: &mut Frame, rd: &Reader) {
         Line::from(vec![t("  退出时自动记忆阅读位置，下次进入回到原处。")]),
         Line::from(vec![t("  光标停在图片段时可放大查看。")]),
         Line::default(),
-        Line::from(vec![t("完整快捷键见 ~/.config/fqdt/help.txt")]),
+        Line::from(vec![t("完整快捷键见 ~/.config/fq/help.txt")]),
         Line::from(vec![t("<Esc>/? 关闭返回；k/j/↑↓ 翻动")]),
     ];
     // 103F：超一屏可滚动，偏移钳在总行数-屏高内

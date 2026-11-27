@@ -170,7 +170,6 @@ impl DownloadParams {
 
 impl Default for Config {
     fn default() -> Self {
-        let home = get_home();
         Config {
             concurrent: default_concurrent(),
             format: "txt".into(),
@@ -178,9 +177,9 @@ impl Default for Config {
             filename_template: "{idx04}_{title}".into(),
             verbose: false,
             cache_enabled: true,
-            cache_dir: home.join(".config/fqdt/cache"),
+            cache_dir: crate::config::config_dir().join("cache"),
             cache_ttl: 86400,
-            bookmark_file: home.join(".config/fqdt/books.txt"),
+            bookmark_file: crate::config::config_dir().join("books.txt"),
             search_urls: vec![
                 "https://novel.snssdk.com/api/novel/channel/homepage/search/search/v1/?aid=1967&q={}&offset={}".into(),
                 "http://101.35.133.34:5000/api/search?key={}&offset={}".into(),

@@ -22,12 +22,12 @@ pub fn dns_servers() -> &'static [IpAddr] {
     SERVERS.get_or_init(probe_servers)
 }
 
-/// 探测顺序：`FQDT_DNS` 环境变量（逗号分隔，显式短路）→ `/etc/resolv.conf`
+/// 探测顺序：`FQ_DNS` 环境变量（逗号分隔，显式短路）→ `/etc/resolv.conf`
 /// （Linux/WSL 有系统 DNS 配置；WSL 网关不答 DNS，作 nameserver 会白等
 /// 12s/主机，故 resolv.conf 命中即跳过网关）→ `getprop net.dns1/net.dns2`
 /// （Android ≤7 有效）→ `/proc/net/route` 默认网关 → 公共 DNS 兜底。
 fn probe_servers() -> Vec<IpAddr> {
-    if let Ok(env) = std::env::var("FQDT_DNS") {
+    if let Ok(env) = std::env::var("FQ_DNS") {
         let mut s: Vec<IpAddr> = Vec::new();
         for part in env.split([',', ';', ' ']) {
             if let Ok(ip) = part.trim().parse::<IpAddr>() {

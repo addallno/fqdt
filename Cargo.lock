@@ -711,6 +711,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "fq"
+version = "0.40.0"
+dependencies = [
+ "base64 0.22.1",
+ "clap",
+ "crossterm",
+ "fqapi_core",
+ "id3",
+ "indicatif",
+ "rand",
+ "ratatui",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "webpki-roots",
+ "zip",
+]
+
+[[package]]
 name = "fqapi_core"
 version = "0.2.0"
 dependencies = [
@@ -742,27 +763,6 @@ dependencies = [
  "url",
  "webpki-roots",
  "zeroize",
-]
-
-[[package]]
-name = "fqdt"
-version = "0.39.0"
-dependencies = [
- "base64 0.22.1",
- "clap",
- "crossterm",
- "fqapi_core",
- "id3",
- "indicatif",
- "rand",
- "ratatui",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "tokio",
- "webpki-roots",
- "zip",
 ]
 
 [[package]]

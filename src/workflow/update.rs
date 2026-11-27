@@ -13,7 +13,7 @@ use crate::workflow::download;
 /// - `api.fetch_catalog()`、`download::Downloader::run()`、`audio` 工作流
 ///
 /// # CLI 调用
-/// - `fqdt update <id|path> [-T content,audio] [-r 范围] [-o 目录] [-j 并发] [-f]`
+/// - `fq update <id|path> [-T content,audio] [-r 范围] [-o 目录] [-j 并发] [-f]`
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     target: &str,

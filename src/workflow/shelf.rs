@@ -1,6 +1,6 @@
 //! # shelf — 书架管理（本地书架 + 云端书架入口）
 //!
-//! 42②：`fqdt shelf` 子命令化，裸输入报错；`list` 为书架入口——
+//! 42②：`fq shelf` 子命令化，裸输入报错；`list` 为书架入口——
 //! 未登录/`--local` 显示本地书架，已登录显示云端（42① 一层视图）。
 
 use super::account;
@@ -10,11 +10,11 @@ use crate::types::Config;
 use crate::util::{CYAN, DIM, RED, RST};
 use crate::ShelfCmd;
 
-/// `fqdt shelf <sub>` 分发；裸 shelf 报错要求子命令（不打迁移提示，46）。
+/// `fq shelf <sub>` 分发；裸 shelf 报错要求子命令（不打迁移提示，46）。
 pub async fn run(cmd: Option<ShelfCmd>, cfg: &Config) {
     let Some(cmd) = cmd else {
         return eprintln!(
-            "  {RED}err{RST} 用法: fqdt shelf <list|add|remove|move|check|delete|download|update>"
+            "  {RED}err{RST} 用法: fq shelf <list|add|remove|move|check|delete|download|update>"
         );
     };
     match cmd {
@@ -56,7 +56,7 @@ async fn list(
             }
             if !local {
                 crate::emit_line(&format!(
-                    "  {DIM}未登录，显示本地书架（fqdt login 设置后查看云端）{RST}"
+                    "  {DIM}未登录，显示本地书架（fq login 设置后查看云端）{RST}"
                 ));
             }
             local_list();

@@ -1,4 +1,4 @@
-//! 统一运行时存储：`~/.config/fqdt/store.json`（0600，原子写 tmp+rename）。
+//! 统一运行时存储：`~/.config/fq/store.json`（0600，原子写 tmp+rename）。
 //!
 //! 收纳四类运行时状态：cookie、本地书架 bookmarks、作者缓存、shelf 快照（TTL 600s，
 //! 离线可看上次书架 + 秒开）。首启自动从旧格式迁移（cookie/books.txt/authors.json
@@ -14,7 +14,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::types::get_home;
 use crate::util::{RED, RST};
 
 /// shelf 快照有效期（秒）：600 内直接用快照免网络，过期重拉。
@@ -73,7 +72,7 @@ pub struct ShelfSnap {
 }
 
 pub fn store_path() -> PathBuf {
-    get_home().join(".config/fqdt/store.json")
+    crate::config::config_dir().join("store.json")
 }
 
 pub fn now_sec() -> u64 {
