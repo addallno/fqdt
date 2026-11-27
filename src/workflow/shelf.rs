@@ -77,6 +77,15 @@ async fn add(book: &str) {
 
 /// 云端写操作统一入口：读 Cookie 后交 account::shelf_op。
 async fn cloud_op(op: &str, book_id: &str, group: Option<&str>) {
+    // 100：shelf 书架操作是单本档——组引用与路径引用拒收
+    if crate::util::shelf_group_prefix(book_id).is_some() {
+        eprintln!("  err shelf {op} 不支持组（@shelf/组名）");
+        return;
+    }
+    if book_id.contains('/') {
+        eprintln!("  err 无法识别的路径 {book_id}");
+        return;
+    }
     let Some(cookie) = account::need_cookie() else {
         return;
     };

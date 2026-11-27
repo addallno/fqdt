@@ -480,6 +480,37 @@ fn num_u64(v: &Value) -> Option<u64> {
 
 /// 网页书架三端点合并：info（列表+分组）+ progress（进度）+ multidetail（书名/当前章节）。
 /// `with_author=true` 时逐本拉作者（core detail，本地缓存 30 天，10 并发）。
+/// @shelf/组名展开（100）：新鲜快照直接过滤；否则拉网页通道书架（落快照）。
+pub async fn shelf_group_ids(group: &str, cfg: &Config) -> Result<Vec<String>, String> {
+    if let Some((v, fresh)) = crate::store::shelf_snap() {
+        if fresh {
+            return group_ids(&v, group);
+        }
+    }
+    let cookie =
+        crate::store::cookie_get().ok_or_else(|| "未登录，无法获取书架分组".to_string())?;
+    let v = fetch_shelf_web(&cookie, cfg, false).await?;
+    let _ = crate::store::shelf_snap_set(v.clone());
+    group_ids(&v, group)
+}
+
+/// 快照内按组过滤书 id（100 纯函数）：books[].group 精确匹配，取 book_id。
+fn group_ids(v: &Value, group: &str) -> Result<Vec<String>, String> {
+    let arr = v
+        .get("books")
+        .and_then(|x| x.as_array())
+        .ok_or_else(|| "书架结构未知".to_string())?;
+    let ids: Vec<String> = arr
+        .iter()
+        .filter(|it| it.get("group").and_then(|x| x.as_str()).unwrap_or("") == group)
+        .filter_map(|it| it.get("book_id").and_then(|x| x.as_str()).map(String::from))
+        .collect();
+    if ids.is_empty() {
+        return Err(format!("分组 {group} 为空或不存在"));
+    }
+    Ok(ids)
+}
+
 async fn fetch_shelf_web(cookie: &str, cfg: &Config, with_author: bool) -> Result<Value, String> {
     let ids = shelf_ids(cookie).await?;
     let prog = shelf_prog_map(cookie).await?;
@@ -1311,6 +1342,23 @@ fn util_clear() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 100：快照按组过滤书 id（book_id 字段、组精确匹配、空组报错）。
+    #[test]
+    fn group_ids_filters_by_group() {
+        let v: Value = serde_json::from_str(
+            r#"{"books":[
+                {"book_id":"111","book_name":"A","group":"Reading"},
+                {"book_id":"222","book_name":"B","group":"ToRead"},
+                {"book_id":"333","book_name":"C","group":"Reading"}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(group_ids(&v, "Reading").unwrap(), vec!["111", "333"]);
+        assert!(group_ids(&v, "Nope").is_err());
+        let bad: Value = serde_json::from_str(r#"{"x":1}"#).unwrap();
+        assert!(group_ids(&bad, "Reading").is_err());
+    }
 
     /// 97：真 history 载荷（远端 fqdt i history --json 实录 data.data_list 结构）。
     #[test]

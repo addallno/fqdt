@@ -37,6 +37,16 @@ fn to_tcolor(c: Color) -> ratatui::style::Color {
     }
 }
 
+/// TARGET 组引用前缀（100）：`@shelf/组名` 或 `@shelf.组名` → 组名；非组引用 None。
+pub fn shelf_group_prefix(t: &str) -> Option<&str> {
+    let t = t.trim();
+    let rest = t
+        .strip_prefix("@shelf/")
+        .or_else(|| t.strip_prefix("@shelf."))?;
+    let g = rest.trim();
+    (!g.is_empty()).then_some(g)
+}
+
 /// 语义色 → ratatui Style（TUI 用；色值仍单点来自本文件）。
 pub fn fg(c: Color) -> ratatui::style::Style {
     ratatui::style::Style::default().fg(to_tcolor(c))
@@ -421,8 +431,19 @@ pub fn jq_display(v: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{jq_extract, rev};
+    use super::{jq_extract, rev, shelf_group_prefix};
     use serde_json::json;
+
+    /// 100：组前缀两形态与边界（空组/无前缀/路径不误判）。
+    #[test]
+    fn shelf_group_prefix_forms() {
+        assert_eq!(shelf_group_prefix("@shelf/Reading"), Some("Reading"));
+        assert_eq!(shelf_group_prefix(" @shelf.Reading "), Some("Reading"));
+        assert_eq!(shelf_group_prefix("@shelf/"), None);
+        assert_eq!(shelf_group_prefix("@shelf"), None);
+        assert_eq!(shelf_group_prefix("诡秘之主"), None);
+        assert_eq!(shelf_group_prefix("./read/MkLv"), None);
+    }
 
     #[test]
     fn rev_explicit_bg_with_contrast_fg() {

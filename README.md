@@ -77,6 +77,8 @@ fqdt --help                       # 全部命令
 
 `info` 子命令：`overview`（默认）/ `chapters` / `intro` / `author` / `comments` / `cover` / `relative` / `audio`；发现类 `recommend` / `category`；个人数据 `folders` / `history` / `progress` / `user` / `highlights`（需登录，均可 `--json`）。
 
+TARGET 支持 `id`、`key`（关键词选书）、本地已下载目录（批量增量）与 `@shelf/组名`（书架分组逐本，`@shelf.` 点分隔同义）。组引用仅 `download` / `update` / `audio` 支持；`view` / `info` 等单本命令遇组提示「不支持组」，无法解析的路径报「无法识别的路径」。
+
 ## download — 下载正文
 
 ```sh

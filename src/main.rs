@@ -110,7 +110,10 @@ enum Cmd {
     #[command(alias = "d")]
     #[command(display_order = 20)]
     Download {
-        #[arg(value_name = "id|path", help = "id、key 或已下载目录")]
+        #[arg(
+            value_name = "id|path|@shelf/组",
+            help = "id、key、已下载目录或 @shelf/组名"
+        )]
         book_id: String,
         #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
@@ -182,7 +185,10 @@ enum Cmd {
     #[command(alias = "u")]
     #[command(display_order = 22)]
     Update {
-        #[arg(value_name = "id|path", help = "id、key 或已下载目录")]
+        #[arg(
+            value_name = "id|path|@shelf/组",
+            help = "id、key、已下载目录或 @shelf/组名"
+        )]
         target: String,
         #[arg(short = 'o', long, help = "输出目录")]
         output: Option<String>,
@@ -323,7 +329,7 @@ enum InfoCmd {
     /// 概览：标题/热度/简介 + 前 N 章 + 前 N 条书评
     Overview {
         /// id 或 key
-        #[arg(value_name = "id|key")]
+        #[arg(value_name = "id|path|@shelf/组", help = "id、key、目录或 @shelf/组名")]
         book_id: String,
         #[arg(short = 'r', long, help = "章节范围")]
         range: Option<String>,
@@ -1422,6 +1428,20 @@ async fn resolve_book_id(
     vb: bool,
     nth: Option<usize>,
 ) -> Option<(String, Option<String>)> {
+    // 100：组引用单本命令拒收；路径只认已存在目录（download/audio 前置分流后不走到这）
+    let t = target.trim();
+    if crate::util::shelf_group_prefix(t).is_some() {
+        eprintln!("  err 单本命令不支持组（@shelf/组名 仅 download/update/audio）");
+        return None;
+    }
+    if t.contains('/') {
+        if std::path::Path::new(t).is_dir() {
+            eprintln!("  err 不支持目录（download/update/audio 可用目录）");
+        } else {
+            eprintln!("  err 无法识别的路径 {t}");
+        }
+        return None;
+    }
     if target.chars().all(|c| c.is_ascii_digit()) && target.len() >= 10 {
         return Some((target, None));
     }
@@ -1453,8 +1473,38 @@ async fn dispatch_download(
     cfg: &Config,
 ) {
     let vb = verbose || cfg.verbose;
-    let Some((book_id, _)) = resolve_book_id(target, cfg, vb, nth).await else {
+    // 100：@shelf/组名 → 组内逐本；已存在目录原样（修复 90 关键词搜索截胡目录的回归）
+    if let Some(g) = crate::util::shelf_group_prefix(&target) {
+        match crate::workflow::account::shelf_group_ids(g, cfg).await {
+            Ok(ids) => {
+                emit_line(&format!("  组 {g}：{} 本", ids.len()));
+                for id in ids {
+                    Box::pin(dispatch_download(
+                        id,
+                        output.clone(),
+                        range.clone(),
+                        format.clone(),
+                        jobs,
+                        force,
+                        verbose,
+                        _interval,
+                        nth,
+                        cfg,
+                    ))
+                    .await;
+                }
+            }
+            Err(e) => eprintln!("  err {e}"),
+        }
         return;
+    }
+    let book_id = if std::path::Path::new(target.trim()).is_dir() {
+        target
+    } else {
+        match resolve_book_id(target, cfg, vb, nth).await {
+            Some((id, _)) => id,
+            None => return,
+        }
     };
     let p = types::DownloadParams {
         output,
@@ -1491,6 +1541,36 @@ async fn dispatch_audio(
     nth: Option<usize>,
     base_cfg: &Config,
 ) {
+    // 100：@shelf/组名 → 组内逐本（目录判定在下方现有逻辑）
+    if let Some(g) = crate::util::shelf_group_prefix(&book_id) {
+        match crate::workflow::account::shelf_group_ids(g, base_cfg).await {
+            Ok(ids) => {
+                emit_line(&format!("  组 {g}：{} 本", ids.len()));
+                for id in ids {
+                    Box::pin(dispatch_audio(
+                        id,
+                        output.clone(),
+                        range.clone(),
+                        tone,
+                        lrc.clone(),
+                        _jobs,
+                        force,
+                        verbose,
+                        _interval,
+                        only,
+                        container,
+                        voice,
+                        cover,
+                        nth,
+                        base_cfg,
+                    ))
+                    .await;
+                }
+            }
+            Err(e) => eprintln!("  err {e}"),
+        }
+        return;
+    }
     // -T/--type 来源归一（real|ai|tts 互斥，m0064 分组 flag）
     let mut real = false;
     let mut ai = false;
@@ -1655,6 +1735,33 @@ async fn dispatch_update(
     cfg: &Config,
 ) {
     let vb = verbose || cfg.verbose;
+    // 100：@shelf/组名 → 组内逐本；不存在的路径直接拒（真目录/单本走原有流程）
+    if let Some(g) = crate::util::shelf_group_prefix(&target) {
+        match crate::workflow::account::shelf_group_ids(g, cfg).await {
+            Ok(ids) => {
+                emit_line(&format!("  组 {g}：{} 本", ids.len()));
+                for id in ids {
+                    workflow::update::run(
+                        &id,
+                        output.as_deref(),
+                        range.as_deref(),
+                        only.as_deref(),
+                        jobs,
+                        force,
+                        vb,
+                        cfg,
+                    )
+                    .await;
+                }
+            }
+            Err(e) => eprintln!("  err {e}"),
+        }
+        return;
+    }
+    if target.contains('/') && !std::path::Path::new(target.trim()).is_dir() {
+        eprintln!("  err 无法识别的路径 {target}");
+        return;
+    }
     workflow::update::run(
         &target,
         output.as_deref(),
@@ -1799,5 +1906,23 @@ async fn run_api(
     }
     if reply.status >= 400 {
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// 100：TARGET 组前缀解析（@shelf/ 与 @shelf. 两形态、空组、普通词不误判）。
+    #[test]
+    fn target_group_prefix_forms() {
+        assert_eq!(
+            crate::util::shelf_group_prefix("@shelf/Reading"),
+            Some("Reading")
+        );
+        assert_eq!(
+            crate::util::shelf_group_prefix("@shelf.Reading"),
+            Some("Reading")
+        );
+        assert_eq!(crate::util::shelf_group_prefix("@shelf/"), None);
+        assert_eq!(crate::util::shelf_group_prefix("诡秘之主"), None);
     }
 }
