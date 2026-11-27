@@ -183,8 +183,9 @@ impl Reader {
             // 框 2 + 上 1 + 下 1
             screen.saturating_sub(4).max(1)
         } else {
-            // 框 2 + 状态 1 + 空行 1 + 页尾 tail_blank
-            screen.saturating_sub(4 + self.tail_blank).max(1)
+            // 框 2 + 顶留白 1 + 页尾 tail_blank（107⑨：状态行挪底框，
+            // 原「状态 1 + 空行 1」让给正文，只留 1 行呼吸）
+            screen.saturating_sub(3 + self.tail_blank).max(1)
         }
     }
 
@@ -1046,20 +1047,24 @@ fn draw_normal(f: &mut Frame, rd: &Reader) {
     draw_content(f, rd, main[1]);
 }
 
-/// zen 模式：全屏四边框（m2998）——title=章题、底框=---- 状态 ----，
-/// 正文四边留隔（上 1 行、下 1 行、左靠段首缩进、右 2 格，m3000）。
+/// zen 模式：全屏四边框（m2998）——title=章题（107⑨：书名挪底框状态行）、
+/// 底框=`{书名} ---- 进度 ----`；正文四边留隔（上 1 行、下 1 行、左靠段首缩进、右 2 格）。
 fn draw_zen(f: &mut Frame, rd: &Reader) {
     let area = f.area();
-    let ch = &rd.chs[rd.cur];
+    let ch_title = rd
+        .chs
+        .get(rd.cur)
+        .map(|c| c.title.clone())
+        .unwrap_or_default();
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(util::fg_t(rd.theme.border).add_modifier(ratatui::style::Modifier::BOLD))
-        .title(ratatui::text::Line::from(vec![
-            Span::styled(format!(" {}", rd.title), util::rev(rd.theme.selected)),
-            Span::styled(format!(" {} ", ch.title), util::rev(rd.theme.title)),
-        ]))
+        .title(Span::styled(
+            format!(" {} ", ch_title),
+            util::rev(rd.theme.title),
+        ))
         .title_bottom(Span::styled(
-            format!(" {} ", zen_status_fit(rd, area.width.saturating_sub(2))),
+            format!(" {} ", frame_status_fit(rd, area.width.saturating_sub(2))),
             util::fg_t(rd.theme.status),
         ));
     let inner = block.inner(area);
@@ -1077,25 +1082,34 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
     f.render_widget(block, area);
 }
 
-/// zen 底框状态（m2999）：`---- x/y 章 · 行 a/b ----`，宽度不够逐级砍不卡半截。
-fn zen_status_fit(rd: &Reader, width: u16) -> String {
-    let ch_n = rd.cur + 1;
-    let ch_t = rd.chs.len();
-    // 107②：行号=光标段所在行（与 normal 状态行同语义）
+/// 行号语义（107②）：光标段首行/总行——底框状态与恢复对齐共用。
+fn read_pos(rd: &Reader) -> (usize, usize) {
+    let total = rd.lines.len();
     let pos = rd
         .paras
         .get(rd.cursor)
         .map(|p| p.start + 1)
         .unwrap_or(rd.scroll as usize + 1)
-        .min(rd.lines.len().max(1));
-    let line_t = rd.lines.len();
-    let w = |s: &str| Span::raw(s.to_string()).width() as u16;
+        .min(total.max(1));
+    (pos, total)
+}
+
+/// 底框状态行（107⑨）：`{书名} ---- {x}/{t}章 · {p}/{l}行 ----`——zen/normal
+/// 共用，宽度不够逐级砍（先砍尾 ----、再书名、再行进度、再章进度）。
+fn frame_status_fit(rd: &Reader, width: u16) -> String {
+    let (pos, total) = read_pos(rd);
+    let ch_n = rd.cur + 1;
+    let ch_t = rd.chs.len();
+    let book = rd.title.trim();
     let cands = [
-        format!("---- {ch_n}/{ch_t}章 · {pos}/{line_t}行 ----"),
-        format!("{ch_n}/{ch_t}章 · {pos}/{line_t}行"),
+        format!("{book} ---- {ch_n}/{ch_t}章 · {pos}/{total}行 ----"),
+        format!("{book} {ch_n}/{ch_t}章 · {pos}/{total}行"),
+        format!("---- {ch_n}/{ch_t}章 · {pos}/{total}行 ----"),
+        format!("{ch_n}/{ch_t}章 · {pos}/{total}行"),
         format!("{ch_n}/{ch_t}章"),
         format!("{ch_n}/{ch_t}"),
     ];
+    let w = |s: &str| Span::raw(s.to_string()).width() as u16;
     cands
         .into_iter()
         .find(|c| w(c) <= width)
@@ -1177,10 +1191,20 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
     } else {
         util::fg(DIM)
     };
+    // 107⑨：框标题=章题（书名挪底框状态行）；状态行进底框，原顶行位置渲染正文
+    let ch_title = rd
+        .chs
+        .get(rd.cur)
+        .map(|c| c.title.clone())
+        .unwrap_or_default();
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(border)
-        .title(Span::styled(format!(" {} ", rd.title), title_style));
+        .title(Span::styled(format!(" {} ", ch_title), title_style))
+        .title_bottom(Span::styled(
+            format!(" {} ", frame_status_fit(rd, area.width.saturating_sub(2))),
+            util::fg_t(rd.theme.status),
+        ));
     // 非焦点面板整体降权（正文行全 DIM），切换时色阶反转即时可见
     let body_style = if focused {
         util::fg_t(rd.theme.content)
@@ -1195,21 +1219,11 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         r.height = r.height.saturating_sub(2);
         r
     };
-    // 顶行进度 + 正文
-    let body = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .split(inner);
-    f.render_widget(
-        Paragraph::new(top_line_fit(rd, body[0].width)).style(body_style),
-        body[0],
-    );
+    // 正文：顶行状态已挪底框（107⑨），原位置渲染正文；顶框下留 1 行呼吸，
     // 页尾空行走 ui.tail_blank（103⑪：末行距下框 N 行）
-    let mut para_area = body[2];
+    let mut para_area = inner;
+    para_area.y = inner.y + 1;
+    para_area.height = inner.height.saturating_sub(1).max(1);
     para_area.height = para_area.height.saturating_sub(rd.tail_blank).max(1);
     f.render_widget(
         Paragraph::new(highlight_lines(rd))
@@ -1291,45 +1305,6 @@ fn highlight_lines(rd: &Reader) -> Vec<Line<'static>> {
         }
     }
     lines
-}
-
-/// 状态行宽度自适应（批C①，m0130）：全量 → 去书名 → 仅进度 → 仅章进度 → 空行。
-/// 逐级砍到总宽 ≤ width，绝不卡半截。
-fn top_line_fit(rd: &Reader, width: u16) -> Line<'static> {
-    let ch = &rd.chs[rd.cur];
-    let total = rd.lines.len();
-    // 107②：行号=光标段所在行（读到哪显示哪），不再用视窗首行（首屏恒1、章末恒 m/n）
-    let pos = rd
-        .paras
-        .get(rd.cursor)
-        .map(|p| p.start + 1)
-        .unwrap_or(rd.scroll as usize + 1)
-        .min(total.max(1));
-    let progress = format!("  {}/{}章 · {}/{}行", rd.cur + 1, rd.chs.len(), pos, total);
-    let ch_only = format!("  {}/{}章", rd.cur + 1, rd.chs.len());
-    // 候选层级（由全到简）；⑧ 顶行统一去书名（书名进框标题）
-    let mk_no_title = |_rd: &Reader, ch: &Chapter| {
-        Line::from(vec![
-            Span::styled(ch.title.clone(), util::fg_t(rd.theme.title)),
-            Span::styled(progress.clone(), util::fg_t(rd.theme.status)),
-        ])
-    };
-    let mk_progress = || {
-        Line::from(Span::styled(
-            progress.trim_start().to_string(),
-            util::fg_t(rd.theme.status),
-        ))
-    };
-    let mk_ch = || {
-        Line::from(Span::styled(
-            ch_only.trim_start().to_string(),
-            util::fg_t(rd.theme.status),
-        ))
-    };
-    let w = width as usize;
-    let fits = |l: &Line| l.spans.iter().map(|s| s.width()).sum::<usize>() <= w;
-    let cands = [mk_no_title(rd, ch), mk_progress(), mk_ch(), Line::default()];
-    cands.into_iter().find(fits).unwrap_or_default()
 }
 
 // draw_helpbar 已删（85 非 zen 去帮助栏）；HELP/HELP_NAV 供批C③ ?/h 帮助框使用。
@@ -1470,22 +1445,21 @@ mod tests {
         // ② 行号=光标段首行：光标到末段（start=98 → 99/100），scroll 仍 0
         rd.scroll = 0;
         rd.cursor = rd.paras.len() - 1;
-        let s = top_line_fit(&rd, 80).to_string();
+        let s = frame_status_fit(&rd, 80);
         assert!(s.contains("99/100"), "行号应=光标段行，got {s}");
-        let z = zen_status_fit(&rd, 80);
-        assert!(z.contains("99/100"), "zen 行号同语义，got {z}");
+        let z = frame_status_fit(&rd, 80);
+        assert!(z.contains("99/100"), "底框状态同语义，got {z}");
         // ③ 恢复 scroll 后 align：光标对齐视窗顶段，按键 ↓ 不跳回第一页
         rd.scroll = 50;
         align_cursor_to_view(&mut rd);
         assert!(rd.paras[rd.cursor].end > 50, "光标段应覆盖视窗顶");
         apply_action(Action::CursorMove(1), &mut rd, 24);
         assert!(rd.scroll > 0, "按键不应跳回第一页，scroll={}", rd.scroll);
-        // ④ 切 zen：normal(tail_blank=1) view=19 → max=81；zen view=20 → max=80 → clamp
+        // ④ 切 zen：normal(tail_blank=1) view=20 → max=80；构造越界 scroll=90 → clamp ≤80
         rd.zen = false;
         rd.tail_blank = 1;
         rd.cursor = 0;
-        rd.scroll = (100 - rd.view_h(24) as usize) as u16;
-        assert_eq!(rd.scroll, 81);
+        rd.scroll = 90;
         apply_action(Action::ToggleZen, &mut rd, 24);
         assert!(
             (rd.scroll as usize) <= 100 - rd.view_h(24) as usize,
@@ -1494,7 +1468,7 @@ mod tests {
         );
     }
 
-    /// 103 步骤4：view_h 与渲染区一致（zen=屏-4；normal=屏-4-tail）。
+    /// 103 步骤4 + 107⑨：view_h 与渲染区一致（zen=屏-4；normal=屏-3-tail，状态挪底框）。
     #[test]
     fn view_h_matches_render() {
         let mut rd = Reader::new("t".into(), vec![]);
@@ -1502,9 +1476,9 @@ mod tests {
         assert_eq!(rd.view_h(24), 20);
         rd.zen = false;
         rd.tail_blank = 1;
-        assert_eq!(rd.view_h(24), 19);
-        rd.tail_blank = 0;
         assert_eq!(rd.view_h(24), 20);
+        rd.tail_blank = 0;
+        assert_eq!(rd.view_h(24), 21);
         assert_eq!(rd.view_h(1), 1); // 不下溢
     }
 
@@ -1768,9 +1742,9 @@ mod tests {
         assert!(!t3.contains("目录"), "zen 不应有目录面板");
     }
 
-    /// 批C①：状态行宽度自适应——每级总宽 ≤ 给定宽，绝不卡半截。
+    /// 107⑨：底框状态宽度自适应——每级总宽 ≤ 给定宽，绝不卡半截。
     #[test]
-    fn top_line_fit_never_truncates() {
+    fn frame_status_fit_never_truncates() {
         let chs = vec![Chapter {
             index: 1,
             item_id: "a".into(),
@@ -1782,32 +1756,77 @@ mod tests {
             .collect();
         // 各宽度档：输出显示宽 ≤ 宽度
         for w in [0u16, 5, 10, 16, 24, 40, 80, 200] {
-            let l = top_line_fit(&rd, w);
-            let got: usize = l.spans.iter().map(|s| s.width()).sum();
-            assert!(
-                got <= w as usize,
-                "width={w} 时输出宽 {got} 超限: {:?}",
-                l.spans
-                    .iter()
-                    .map(|s| s.content.to_string())
-                    .collect::<Vec<_>>()
-            );
+            let s = frame_status_fit(&rd, w);
+            let got = Span::raw(s.as_str()).width() as u16;
+            assert!(got <= w, "width={w} 时输出宽 {got} 超限: {s:?}");
         }
-        // 极宽 → 全量：⑧ 顶行统一去书名（书名进框标题），状态 `138/173章 · 1/199行`
-        let full = top_line_fit(&rd, 200);
-        let text: String = full.spans.iter().map(|s| s.content.to_string()).collect();
-        assert!(!text.contains("超长书名"), "⑧ 顶行不应含书名: {text}");
-        assert!(text.contains("1/1章"), "全量应含章进度: {text}");
-        assert!(text.contains("1/50行"), "全量应含行进度: {text}");
+        // 极宽 → 全量：书名 ---- 章进度 · 行进度 ----（107⑨ 书名进底框）
+        let full = frame_status_fit(&rd, 200);
+        assert!(full.contains("超长书名"), "全量应含书名: {full}");
+        assert!(full.contains("1/1章"), "全量应含章进度: {full}");
+        assert!(full.contains("1/50行"), "全量应含行进度: {full}");
+        assert!(full.contains("----"), "全量应含分隔: {full}");
         // 中宽 → 砍掉书名仍含章/行进度
-        let mid = top_line_fit(&rd, 30);
-        let mtext: String = mid.spans.iter().map(|s| s.content.to_string()).collect();
-        assert!(!mtext.contains("超长书名"), "30 宽应砍书名: {mtext}");
-        assert!(mtext.contains("章"), "30 宽应保留章进度: {mtext}");
-        // 极窄 → 空行或极简，不 panic 不超宽
-        let tiny = top_line_fit(&rd, 3);
-        let tw: usize = tiny.spans.iter().map(|s| s.width()).sum();
-        assert!(tw <= 3, "极窄仍不超: {tw}");
+        let mid = frame_status_fit(&rd, 30);
+        assert!(!mid.contains("超长书名"), "30 宽应砍书名: {mid}");
+        assert!(mid.contains("章"), "30 宽应保留章进度: {mid}");
+        // 极窄 → 极简章进度，不 panic 不超宽
+        let tiny = frame_status_fit(&rd, 3);
+        let tw = Span::raw(tiny.as_str()).width();
+        assert!(tw <= 3, "极窄仍不超: {tw} {tiny:?}");
+    }
+
+    /// 107⑨：框标题=章题（书名挪底框）、状态行进底框、顶行位置渲染正文。
+    #[test]
+    fn frame_layout_title_and_status() {
+        use ratatui::{backend::TestBackend, Terminal};
+        let chs = vec![Chapter {
+            index: 1,
+            item_id: "a".into(),
+            title: "第一章试炼".into(),
+        }];
+        let mut rd = Reader::new("超长书名甲乙丙".into(), chs);
+        rd.lines = (0..50).map(|i| Line::from(format!("正文{i:02}"))).collect();
+        rebuild_paras(&mut rd);
+        rd.focus = Focus::Content;
+        let mut term = Terminal::new(TestBackend::new(60, 16)).unwrap();
+        // TestBackend 全角字占双 cell（字+空格），归一化去空格再断言
+        let grab = |term: &mut Terminal<TestBackend>, y: u16| -> String {
+            let buf = term.backend().buffer();
+            let s: String = (0..60u16).map(|x| buf[(x, y)].symbol()).collect();
+            s.replace(' ', "")
+        };
+        term.draw(|f| draw_content(f, &rd, f.area())).unwrap();
+        // 顶行框标题=章题，不含书名
+        let top = grab(&mut term, 0);
+        assert!(top.contains("第一章试炼"), "框标题应=章题: {top:?}");
+        assert!(!top.contains("超长书名"), "框标题不应含书名: {top:?}");
+        // 行1=呼吸空行（无状态行）；正文从行2起
+        assert!(
+            !grab(&mut term, 1).contains("章"),
+            "顶行状态应挪走: {:?}",
+            grab(&mut term, 1)
+        );
+        assert!(
+            grab(&mut term, 2).contains("正文00"),
+            "正文应从行2起: {:?}",
+            grab(&mut term, 2)
+        );
+        // 底行状态含书名 + 章进度
+        let bot = grab(&mut term, 15);
+        assert!(bot.contains("超长书名甲乙丙"), "底框应含书名: {bot:?}");
+        assert!(bot.contains("1/1章"), "底框应含章进度: {bot:?}");
+        // zen：标题=章题去书名，书名进底框
+        rd.zen = true;
+        term.draw(|f| draw_zen(f, &rd)).unwrap();
+        let ztop = grab(&mut term, 0);
+        let zbot = grab(&mut term, 15);
+        assert!(ztop.contains("第一章试炼"), "zen 标题应=章题: {ztop:?}");
+        assert!(!ztop.contains("超长书名"), "zen 标题不应含书名: {ztop:?}");
+        assert!(
+            zbot.contains("超长书名甲乙丙"),
+            "zen 底框应含书名: {zbot:?}"
+        );
     }
 
     #[test]
@@ -1981,11 +2000,12 @@ mod tests {
         ensure_cursor_visible(&mut rd, h);
         assert_eq!(rd.scroll, 0, "top-edge 钳 0");
         // --- scroll_edge 配置生效：带宽随比例变 ---
-        rd.scroll_edge = 40; // edge = 19*40/100 = 7
+        rd.scroll_edge = 40; // edge = view*40/100
+        let e40 = view * 40 / 100;
         rd.scroll = 20;
-        rd.cursor = 1; // top=11 < 20+7 → 11-7
+        rd.cursor = 1; // top=11 < 20+e40 → 11-e40
         ensure_cursor_visible(&mut rd, h);
-        assert_eq!(rd.scroll as usize, 11 - 7, "scroll_edge=40 吃配置");
+        assert_eq!(rd.scroll as usize, 11 - e40, "scroll_edge=40 吃配置");
     }
 
     /// 91 光标移动钳制端点且保持可见。
@@ -2235,22 +2255,31 @@ mod tests {
         let mut rd = Reader::new("t".into(), chs);
         rd.lines = (0..50).map(|i| Line::from(format!("行{i:02}"))).collect();
         rd.need_load = false;
-        let h = 16u16; // view = 16-4-tail(1) = 11
+        let h = 16u16; // view = 16-3-tail(1) = 12（107⑨ 状态挪底框）
+        let view = rd.view_h(h);
         let page1 = screen_row_ids(&rd);
         assert_eq!(*page1.first().unwrap(), 0, "第一页应从行00起");
         let last1 = *page1.last().unwrap();
-        assert_eq!(last1, 10, "第一页末=行10（view=11 行），实际 {last1}");
+        assert_eq!(
+            last1,
+            view as u32 - 1,
+            "第一页末=行{last1}（view={view} 行），实际 {last1}"
+        );
         apply_action(Action::PageFlip(1), &mut rd, h);
-        assert_eq!(rd.scroll, 11, "翻页步长=view");
+        assert_eq!(rd.scroll, view, "翻页步长=view");
         let page2 = screen_row_ids(&rd);
-        assert_eq!(*page2.first().unwrap(), 11, "第二页首应紧接行11（不跳行）");
-        let expect_end = (*page1.last().unwrap() + 11).min(49);
+        assert_eq!(
+            *page2.first().unwrap(),
+            view as u32,
+            "第二页首应紧接行{view}（不跳行）"
+        );
+        let expect_end = (*page1.last().unwrap() + view as u32).min(49);
         assert_eq!(*page2.last().unwrap(), expect_end, "第二页满 view 行");
-        // 回翻交界：再翻回第一页，行集回到 0..10
+        // 回翻交界：再翻回第一页，行集回到 0..view-1
         apply_action(Action::PageFlip(-1), &mut rd, h);
         assert_eq!(rd.scroll, 0);
         let back = screen_row_ids(&rd);
-        assert_eq!(*back.last().unwrap(), 10, "回翻第一页末行不丢");
+        assert_eq!(*back.last().unwrap(), view as u32 - 1, "回翻第一页末行不丢");
     }
 
     #[test]
