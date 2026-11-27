@@ -219,6 +219,36 @@ fn detect_audio_ext(path: &Path) -> &'static str {
     ".mp3"
 }
 
+/// 非标准 Opus-in-MP4 修复（105 纯函数）：上游（Lavf 重封装）产出 mp4a sample entry
+/// 内装 dOps（Opus DecoderSpecificInfo）而无 esds——ffmpeg 走 AAC 分支把 dOps 当
+/// ASC 解析 → invalid sampling rate index → 解码/转码/ogg copy 全败。
+/// 标准封装 tag 应为 Opus；mp4a 后 64B 窗口内见 dOps 且全文件无 esds → 等长替换 tag。
+/// 返回是否修改；任何不符条件均不动文件。
+fn patch_opus_sample_entry(data: &mut [u8]) -> bool {
+    if data.windows(4).any(|w| w == b"esds") {
+        return false; // 标准 AAC 封装（mp4a+esds）不碰
+    }
+    let Some(i) = data.windows(4).position(|w| w == b"mp4a") else {
+        return false;
+    };
+    let end = (i + 64).min(data.len());
+    if !data[i..end].windows(4).any(|w| w == b"dOps") {
+        return false; // mp4a 后无 dOps：正常/其他封装
+    }
+    data[i..i + 4].copy_from_slice(b"Opus");
+    true
+}
+
+/// 落盘版修复（best-effort）：读文件 → patch → 写回；条件不符零写入。
+fn fix_opus_box(path: &Path) -> Result<bool, String> {
+    let mut data = fs::read(path).map_err(|e| format!("读取文件失败: {}", e))?;
+    if !patch_opus_sample_entry(&mut data) {
+        return Ok(false);
+    }
+    fs::write(path, &data).map_err(|e| format!("写回文件失败: {}", e))?;
+    Ok(true)
+}
+
 /// ffmpeg 是否可用（进程内只探测一次）。
 fn ffmpeg_available() -> bool {
     static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -473,6 +503,8 @@ async fn dl_one(
                     last_err = format!("tone={} 解密失败: {}", t, e);
                     continue;
                 }
+                // 105：上游 mp4a+dOps 混搭封装修复（best-effort，失败则后续转换 warn 兜底）
+                let _ = fix_opus_box(&work);
                 // 番茄音源解密后是 MP4(Opus)，普通播放器不支持 →
                 // 默认 remux Ogg(Opus)；--mp3 转码 MP3；--keep-m4a 保留原样
                 let mut ext = detect_audio_ext(&work);
@@ -1105,4 +1137,37 @@ fn run_edge_tts(
         return Err(format!("edge-tts 退出码 {}", out.status));
     }
     Err("找不到 edge-tts 命令".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 105：mp4a+dOps 混搭 → tag 改 Opus；标准封装/无关文件不动。
+    #[test]
+    fn patch_opus_sample_entry_fixes_mixed_box() {
+        // 混搭：mp4a 后 64B 窗口内有 dOps、无 esds → 替换
+        let mut mixed = b"ftypmp4a".to_vec();
+        mixed.extend_from_slice(&[0u8; 32]);
+        mixed.extend_from_slice(b"dOps");
+        mixed.extend_from_slice(&[0u8; 16]);
+        assert!(patch_opus_sample_entry(&mut mixed));
+        assert_eq!(&mixed[4..8], b"Opus");
+        // 幂等：已是 Opus（无 mp4a）→ 不动
+        assert!(!patch_opus_sample_entry(&mut mixed));
+        // 标准 AAC：mp4a + esds → 不碰
+        let mut aac = b"xxxxmp4a".to_vec();
+        aac.extend_from_slice(&[0u8; 8]);
+        aac.extend_from_slice(b"esds");
+        assert!(!patch_opus_sample_entry(&mut aac));
+        assert_eq!(&aac[4..8], b"mp4a");
+        // mp4a 后窗口内无 dOps → 不动
+        let mut other = b"xxxxmp4a".to_vec();
+        other.extend_from_slice(&[0u8; 128]);
+        assert!(!patch_opus_sample_entry(&mut other));
+        assert_eq!(&other[4..8], b"mp4a");
+        // 无 mp4a → 不动
+        let mut none = b"OggSxxxx".to_vec();
+        assert!(!patch_opus_sample_entry(&mut none));
+    }
 }
