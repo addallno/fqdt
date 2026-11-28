@@ -108,6 +108,8 @@ struct Reader {
     page_mode: PageMode,
     /// 外部编辑器命令（87：e 挂起 TUI 只读打开当前章，run 启动时解析）
     editor: Option<String>,
+    /// 切章预取缓存：item_id → 原始 HTML（111③ 提速：命中零网络，仅留 cur±3）
+    chapter_cache: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
 }
 
 /// 按键动作（由 on_key 判定，循环里执行）。
@@ -166,6 +168,9 @@ impl Reader {
             cursor: 0,
             page_mode: PageMode::RightLeft,
             editor: None,
+            chapter_cache: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
             help_shown: false,
             theme: crate::theme::resolve("default", &crate::theme::ThemeOverride::default()),
             help_scroll: 0,
@@ -352,9 +357,10 @@ fn animate_scroll(
     old: u16,
     new: u16,
     height: u16,
+    force: bool,
 ) -> Result<(), String> {
     let view = rd.view_h(height) as usize;
-    if !scroll_animateable(old, new, view) {
+    if !force && !scroll_animateable(old, new, view) {
         term.draw(|f| draw(f, rd)).map_err(|e| e.to_string())?;
         return Ok(());
     }
@@ -376,21 +382,33 @@ async fn loop_with(rd: &mut Reader, api: &Client, out: &mut Stdout) -> Result<()
     let mut height: u16 = term.size().map(|s| s.height).unwrap_or(24);
     let mut shown: u16 = rd.scroll; // 上次绘制的窗口起点（103⑮ 过渡动画基准）
     loop {
+        let mut cross_old: Option<u16> = None;
         if rd.need_load {
+            let old = rd.scroll;
             reload(rd, api, width).await?;
             rd.need_load = false;
             settle_pending(rd, height);
             // 107⑤：内容整章替换 → 强制全量重绘，清掉跨章前状态行残影
             rd.full_redraw = true;
+            if rd.scroll != old {
+                cross_old = Some(old);
+            }
         }
         // 107⑤：全量重绘帧先 clear（ratatui prev buffer 复位 → 本帧全量 diff）
         if rd.full_redraw {
             term.clear().map_err(|e| e.to_string())?;
             rd.full_redraw = false;
         }
-        // 103⑮ 翻页/滚动过渡：scroll 变化 → 小步逐帧滑动（大跳瞬切）
-        if rd.scroll != shown && rd.anim_frames > 1 {
-            animate_scroll(&mut term, rd, shown, rd.scroll, height)?;
+        // 111③ 跨章过渡：内容已换新章，从旧 scroll 位置滑到新（绕过大跳瞬切，观感不硬切）
+        if let Some(old) = cross_old {
+            if rd.anim_frames > 1 {
+                animate_scroll(&mut term, rd, old, rd.scroll, height, true)?;
+            } else {
+                term.draw(|f| draw(f, rd)).map_err(|e| e.to_string())?;
+            }
+        } else if rd.scroll != shown && rd.anim_frames > 1 {
+            // 103⑮ 翻页/滚动过渡：scroll 变化 → 小步逐帧滑动（大跳瞬切）
+            animate_scroll(&mut term, rd, shown, rd.scroll, height, false)?;
         } else {
             term.draw(|f| draw(f, rd)).map_err(|e| e.to_string())?;
         }
@@ -445,6 +463,19 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
         }
         Action::Scroll(d) => {
             scroll_by(rd, d, height);
+            // 111①：g/G 章首尾大跳 → 光标同步视窗底/顶段（否则行号滞留旧段
+            // 如 G 到章尾仍显 227/244；半页滚动等小 delta 不动光标，保持 91 相对段）
+            if d.abs() >= i32::MAX / 4 {
+                if d > 0 {
+                    rd.cursor = rd
+                        .paras
+                        .iter()
+                        .rposition(|p| p.end > rd.scroll as usize)
+                        .unwrap_or(0);
+                } else {
+                    align_cursor_to_view(rd);
+                }
+            }
             sync_cursor_from_view(rd, height);
         }
         Action::CursorMove(d) => {
@@ -597,12 +628,66 @@ fn terminal_width() -> u16 {
     crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80)
 }
 
-/// 加载当前章：取正文（保留 <img>，107⑩）→ 剥 HTML 留图标记 → 按宽度折行。
+/// 111③：后台预取相邻章（cur±1 未缓存则 spawn 拉取）+ 只留 cur±3（防无界增长）。
+/// 不阻塞当前事件循环；任务在 view 退出（runtime shutdown）时自然取消。
+fn prefetch_neighbors(rd: &Reader, api: &Client) {
+    if rd.chs.is_empty() {
+        return;
+    }
+    let mut to_fetch: Vec<String> = Vec::new();
+    {
+        use std::collections::HashSet;
+        let cur = rd.cur.min(rd.chs.len() - 1);
+        let lo = cur.saturating_sub(3);
+        let hi = (cur + 3).min(rd.chs.len() - 1);
+        let keep: HashSet<String> = (lo..=hi).map(|i| rd.chs[i].item_id.clone()).collect();
+        let mut cache = rd.chapter_cache.lock().unwrap();
+        cache.retain(|k, _| keep.contains(k));
+        for d in [-1i64, 1] {
+            let idx = cur as i64 + d;
+            if idx < 0 || idx as usize >= rd.chs.len() {
+                continue;
+            }
+            let id = rd.chs[idx as usize].item_id.clone();
+            if !cache.contains_key(&id) {
+                to_fetch.push(id);
+            }
+        }
+    } // 锁在此释放
+    for id in to_fetch {
+        let api2 = api.clone();
+        let slot = rd.chapter_cache.clone();
+        tokio::spawn(async move {
+            if let Ok(html) = api2.fetch_content_rich(&id).await {
+                if let Ok(mut c) = slot.lock() {
+                    c.insert(id, html);
+                }
+            }
+        });
+    }
+}
+
+/// 加载当前章：取正文（保留 <img>，107⑩）→ 剴 HTML 留图标记 → 按宽度折行。
 async fn reload(rd: &mut Reader, api: &Client, width: u16) -> Result<(), String> {
     let item = rd.chs[rd.cur].item_id.clone();
-    let res = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(api.fetch_content_rich(&item))
-    });
+    // 111③ 提速：缓存命中零网络（预取的相邻章切过去瞬时）
+    let cached = rd.chapter_cache.lock().unwrap().get(&item).cloned();
+    let res = match cached {
+        Some(html) => Ok(html),
+        None => {
+            let r = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(api.fetch_content_rich(&item))
+            });
+            if let Ok(html) = &r {
+                rd.chapter_cache
+                    .lock()
+                    .unwrap()
+                    .insert(item.clone(), html.clone());
+            }
+            r
+        }
+    };
+    prefetch_neighbors(rd, api);
     match res {
         Ok(html) => {
             rd.raw = api::strip_html_imgs(&html);
@@ -844,8 +929,9 @@ fn settle_pending(rd: &mut Reader, height: u16) {
     if rd.pending_end {
         rd.pending_end = false;
         rd.scroll = rd.lines.len().saturating_sub(rd.view_h(height) as usize) as u16;
-        // 107③：落章尾后光标对齐视窗顶段（否则光标滞留段0，按键跳页）
-        align_cursor_to_view(rd);
+        // 111②：光标落**末段**（末行）——用户期望章尾停最后一行，非视窗顶段
+        //（107③ 的"视窗顶段"导致 228 行首而非 230 末行；末段与末页 scroll 匹配不跳页）
+        rd.cursor = rd.paras.len().saturating_sub(1);
     }
 }
 
@@ -1119,13 +1205,21 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
     f.render_widget(block, area);
 }
 
-/// 行号语义（107②）：光标段首行/总行——底框状态与恢复对齐共用。
+/// 行号语义（107②→111①）：光标段**末行**/总行——读到哪=段末；
+/// 章末末段（228..230）显示 230/230 不再卡 228（m0525①）。
 fn read_pos(rd: &Reader) -> (usize, usize) {
     let total = rd.lines.len();
     let pos = rd
         .paras
         .get(rd.cursor)
-        .map(|p| p.start + 1)
+        .map(|p| {
+            // 光标=末段 → total（文末尾空行不入段，end=total-1；读完末段=到底 → n/n 满）
+            if rd.cursor + 1 == rd.paras.len() {
+                total
+            } else {
+                p.end // end=exclusive(0-based) → 末行 1-based 恰为 end
+            }
+        })
         .unwrap_or(rd.scroll as usize + 1)
         .min(total.max(1));
     (pos, total)
@@ -1535,13 +1629,13 @@ mod tests {
             .collect();
         rebuild_paras(&mut rd);
         assert_eq!(rd.paras.len(), 50);
-        // ② 行号=光标段首行：光标到末段（start=98 → 99/100），scroll 仍 0
+        // ② 行号：光标=末段 → 100/100 满（111① 含尾空行语义），scroll 仍 0
         rd.scroll = 0;
         rd.cursor = rd.paras.len() - 1;
         let s = fs_text(&rd, 80);
-        assert!(s.contains("99/100"), "行号应=光标段行，got {s}");
+        assert!(s.contains("100/100"), "末段行号应 100/100 满，got {s}");
         let z = fs_text(&rd, 80);
-        assert!(z.contains("99/100"), "底框状态同语义，got {z}");
+        assert!(z.contains("100/100"), "底框状态同语义，got {z}");
         // ③ 恢复 scroll 后 align：光标对齐视窗顶段，按键 ↓ 不跳回第一页
         rd.scroll = 50;
         align_cursor_to_view(&mut rd);
@@ -2519,5 +2613,69 @@ mod tests {
         mk(&mut rd);
         assert!(!apply_progress_restore(&mut rd, None, None));
         assert_eq!((rd.cur, rd.scroll), (0, 0));
+    }
+
+    /// 111①②：章末行号=光标段末行（228..230 → 230/230 不再卡段首）；
+    /// settle 落章尾时光标=末段（末行），非视窗顶段。
+    #[test]
+    fn chapter_end_pos_and_settle_cursor() {
+        let chs = vec![
+            Chapter {
+                index: 1,
+                item_id: "a".into(),
+                title: "一".into(),
+            },
+            Chapter {
+                index: 2,
+                item_id: "b".into(),
+                title: "二".into(),
+            },
+        ];
+        let mut rd = Reader::new("a".into(), chs);
+        // 21 行 = 20 内容 + 文末尾空行（不入段，末段 end=20）
+        rd.lines = (0..21).map(|i| Line::from(format!("L{i}"))).collect();
+        rd.paras = vec![
+            Para {
+                start: 0,
+                end: 10,
+                kind: ParaKind::Text,
+            },
+            Para {
+                start: 10,
+                end: 20,
+                kind: ParaKind::Text,
+            },
+        ];
+        // ① 行号：段0 → 段末 10；末段 → total（21/21 含尾空行满格）
+        rd.cursor = 0;
+        assert_eq!(read_pos(&rd), (10, 21), "段0 应显段末行 10");
+        rd.cursor = 1;
+        assert_eq!(read_pos(&rd), (21, 21), "章末末段应 21/21 满（含尾空行）");
+        // ② settle 落章尾：光标=末段（非视窗顶段）
+        rd.cur = 1;
+        rd.scroll = 0;
+        rd.pending_end = true;
+        settle_pending(&mut rd, 24);
+        assert_eq!(rd.cursor, 1, "settle 后光标应落末段（末行）");
+        assert_eq!(
+            rd.scroll as usize,
+            21 - rd.view_h(24) as usize,
+            "落章尾末页"
+        );
+        // 末段 → 行号 21/21 满
+        assert_eq!(read_pos(&rd), (21, 21));
+        // ③ g/G 章首尾大跳：光标同步视窗底/顶段（G 后行号不再滞留旧段）
+        rd.cursor = 0;
+        rd.scroll = 0;
+        apply_action(Action::Scroll(i32::MAX / 2), &mut rd, 24); // G 章尾
+        assert_eq!(rd.cursor, 1, "G 光标应落末段");
+        assert_eq!(read_pos(&rd), (21, 21), "G 后行号 21/21 满");
+        apply_action(Action::Scroll(-(i32::MAX / 2)), &mut rd, 24); // g 章首
+        assert_eq!(rd.cursor, 0, "g 光标应落首段");
+        // 半页滚动不强制动光标（91 相对段语义保持——大跳判定不误伤）
+        rd.cursor = 0;
+        rd.scroll = 0;
+        apply_action(Action::Scroll(5), &mut rd, 24);
+        assert_eq!(rd.cursor, 0, "小滚动不移光标");
     }
 }
