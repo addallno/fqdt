@@ -305,6 +305,32 @@ async fn fetch_progress_web(cookie: &str) -> Result<Value, String> {
 }
 
 /// 快照书名/章节 map（book_id → (书名, 章节)），multidetail 失败时的兜底。
+/// 106 读方向：云端阅读进度（web→core 回退，全程静默）→ (item_id, read_progress 万分比)。
+/// 未登录/失败/结构未知返回 None——调用方回退本地进度。
+pub async fn cloud_read_progress(book_id: &str) -> Option<(String, u64)> {
+    let cookie = crate::config::load_cookie()?;
+    if cookie.trim().is_empty() {
+        return None;
+    }
+    let v = match fetch_progress_web(&cookie).await {
+        Ok(v) => v,
+        Err(_) => fetch_section(&cookie, "progress").await.ok()?,
+    };
+    let arr = v.get("data").and_then(|x| x.as_array())?;
+    arr.iter()
+        .find(|it| it.get("book_id").and_then(|x| x.as_str()) == Some(book_id))
+        .map(|it| {
+            (
+                it.get("item_id")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                it.get("read_progress").and_then(num_u64).unwrap_or(0),
+            )
+        })
+        .filter(|(item, _)| !item.is_empty())
+}
+
 fn snap_name_map() -> HashMap<String, (String, String)> {
     crate::store::shelf_snap()
         .and_then(|(s, _)| s.get("books").cloned())

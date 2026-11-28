@@ -30,6 +30,7 @@ fq search 诡秘之主              # 搜索
 fq download 7185478854738185271 # 下载正文（纯数字 = book_id）
 fq download 诡秘之主            # 书名关键词 → 交互选书
 fq download <id> -t epub -r 1-50 -j 8
+fq fetch book <id>              # 统一入口：book=正文 / audio=语音 / update=增量
 fq view 诡秘之主               # TUI 阅读器（分栏目录/正文，j/k 段光标，翻页键位见下方「view TUI 快捷键」，q 退出存进度）
 fq audio <id> -T ai --tone 6    # 有声书：AI 朗读指定音色
 fq info overview <id>           # 概览：热度 / 简介 / 前几章 / 书评
@@ -43,6 +44,7 @@ fq --help                       # 全部命令
 |------|------|------|
 | `search <关键词>` | | 搜索列表（`-D N` 顺带下载第 N 本） |
 | `info <section> [id]` | `i` | 书籍信息与个人数据（见下） |
+| `fetch book\|audio\|update …` | `f` | 获取统一入口（原样转发 download/audio/update，`-h` 看目标帮助） |
 | `download <id\|书名>` | `d` | 下载正文 txt/epub |
 | `audio <id\|书名>` | `a` | 下载有声书（`-T real/ai/tts` 三来源，默认 Ogg，`-c mp3` 转 MP3） |
 | `view <id\|key>` | | TUI 阅读器：分栏目录+正文、段落光标高亮、翻页/切章/看图、zen 全屏、进度自动记忆（键位见「view TUI 快捷键」） |

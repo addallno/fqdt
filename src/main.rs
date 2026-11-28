@@ -106,6 +106,17 @@ enum Cmd {
         #[command(subcommand)]
         cmd: InfoCmd,
     },
+    /// 获取：fetch book|audio|update（download/audio/update 的统一入口）
+    #[command(alias = "f")]
+    #[command(display_order = 19)]
+    #[command(disable_help_flag = true)]
+    Fetch {
+        /// book=下载正文 / audio=下载语音 / update=增量更新
+        target: String,
+        /// 目标命令的完整参数（原样转发，-h 看目标命令帮助）
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        rest: Vec<String>,
+    },
     /// 下载正文
     #[command(alias = "d")]
     #[command(display_order = 20)]
@@ -208,7 +219,7 @@ enum Cmd {
         #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
         interval: u64,
     },
-    /// 文本转语音
+    /// 文本转语音（等价 fq audio -T tts，usage 不变）
     #[command(alias = "t")]
     #[command(display_order = 31)]
     Tts {
@@ -656,6 +667,7 @@ fn canonical_sub(s: &str) -> &str {
     match s {
         "a" => "audio",
         "d" => "download",
+        "f" => "fetch",
         "i" => "info",
         "s" => "shelf",
         "u" => "update",
@@ -977,7 +989,7 @@ fn render_sub_help(path: &[String], examples: bool) {
 /// 顶层分组：(组名, 子命令)。clap 模板无分组能力，手写渲染（FLAG_HELP 先例）。
 const TOP_GROUPS: &[(&str, &[&str])] = &[
     ("查询", &["search", "info"]),
-    ("下载", &["download", "audio", "update"]),
+    ("下载", &["fetch", "download", "audio", "update"]),
     ("管理", &["shelf", "view", "tts", "login", "config"]),
     ("服务", &["serve", "api"]),
     ("其他", &["version", "help"]),
@@ -1070,6 +1082,8 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
     ("search", "", "Examples:\n  fq search 诡秘之主\n  fq search 诡秘 -D 1"),
     ("info", "",
      "Examples:\n  fq info overview <id>\n  fq info chapters <id> -r 1-50\n  fq info overview <id> --add\n  fq info recommend\n  fq info category --tab 1\n  fq info progress --search 词\n  fq info overview <id>"),
+    ("fetch", "",
+     "Examples:\n  fq fetch book <id> -r 1-50\n  fq fetch audio <id> -T real\n  fq fetch update <目录>"),
     ("download", "", "Examples:\n  fq download <id> -r 1-50 -t epub"),
     ("view", "", "Examples:\n  fq view 诡秘之主\n  fq view 7185478854738185271 -r 1-50"),
     ("audio", "",
@@ -1189,6 +1203,88 @@ async fn main() {
             .await
         }
         Cmd::Info { cmd } => dispatch_info(cmd, verbose, &cfg).await,
+        Cmd::Fetch { target, rest } => {
+            // 80：fetch 组——参数原样转发给目标命令重新解析（零重复定义，-h 透传目标帮助）
+            let base = match target.as_str() {
+                "book" | "b" => "download",
+                "audio" | "a" => "audio",
+                "update" | "u" => "update",
+                other => {
+                    eprintln!("  err 未知 fetch 目标 {other}（book|audio|update）");
+                    std::process::exit(2);
+                }
+            };
+            let mut argv: Vec<String> = vec!["fq".into(), base.into()];
+            argv.extend(rest);
+            let cli2 = Cli::parse_from(&argv);
+            match cli2.cmd {
+                Cmd::Download {
+                    book_id,
+                    output,
+                    range,
+                    format,
+                    jobs,
+                    force,
+                    interval,
+                    pick,
+                } => {
+                    dispatch_download(
+                        book_id, output, range, format, jobs, force, verbose, interval, pick.nth,
+                        &cfg,
+                    )
+                    .await
+                }
+                Cmd::Audio {
+                    book_id,
+                    output,
+                    range,
+                    tone,
+                    lrc,
+                    jobs,
+                    force,
+                    interval,
+                    only,
+                    container,
+                    voice,
+                    cover,
+                    pick,
+                } => {
+                    dispatch_audio(
+                        book_id,
+                        output,
+                        range,
+                        tone,
+                        lrc,
+                        jobs,
+                        force,
+                        verbose,
+                        interval,
+                        only.as_deref(),
+                        container.as_deref(),
+                        &voice,
+                        cover,
+                        pick.nth,
+                        &cfg,
+                    )
+                    .await
+                }
+                Cmd::Update {
+                    target,
+                    output,
+                    range,
+                    only,
+                    jobs,
+                    force,
+                    interval,
+                } => {
+                    dispatch_update(
+                        target, output, range, only, jobs, force, verbose, interval, &cfg,
+                    )
+                    .await
+                }
+                _ => eprintln!("  err fetch 转调内部错误"),
+            }
+        }
         Cmd::Download {
             book_id,
             output,
@@ -1911,6 +2007,7 @@ async fn run_api(
 
 #[cfg(test)]
 mod tests {
+    use super::{canonical_sub, Cli, Cmd, HELP_TAILS, TOP_GROUPS};
     /// 100：TARGET 组前缀解析（@shelf/ 与 @shelf. 两形态、空组、普通词不误判）。
     #[test]
     fn target_group_prefix_forms() {
@@ -1924,5 +2021,41 @@ mod tests {
         );
         assert_eq!(crate::util::shelf_group_prefix("@shelf/"), None);
         assert_eq!(crate::util::shelf_group_prefix("诡秘之主"), None);
+    }
+
+    /// 80：fetch 组——trailing_var_arg 原样转发、别名 f、下载组/示例登记。
+    #[test]
+    fn fetch_group_parse_and_alias() {
+        use clap::Parser;
+        let cli = Cli::parse_from([
+            "fq",
+            "fetch",
+            "book",
+            "7185478854738185271",
+            "-f",
+            "-r",
+            "1-50",
+        ]);
+        match cli.cmd {
+            Cmd::Fetch { target, rest } => {
+                assert_eq!(target, "book");
+                assert_eq!(
+                    rest,
+                    vec!["7185478854738185271", "-f", "-r", "1-50"],
+                    "目标命令的 flag 应原样进 rest"
+                );
+            }
+            _ => panic!("应解析为 Fetch"),
+        }
+        assert_eq!(canonical_sub("f"), "fetch");
+        let (_, dl) = TOP_GROUPS
+            .iter()
+            .find(|(n, _)| *n == "下载")
+            .expect("下载组存在");
+        assert!(dl.contains(&"fetch"), "下载组应含 fetch");
+        assert!(
+            HELP_TAILS.iter().any(|e| e.0 == "fetch"),
+            "fetch 应有示例段"
+        );
     }
 }

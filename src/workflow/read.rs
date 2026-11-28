@@ -233,6 +233,32 @@ fn resolve_title(detail: Option<&str>, hint: Option<&str>, id: &str) -> String {
     id.to_string()
 }
 
+/// 106 读方向：进度恢复。云端 item_id 定章（权威），同章沿用本地 scroll；
+/// 云端无匹配/为空 → 回退本地 item_id+scroll。返回是否采用云端。
+fn apply_progress_restore(
+    rd: &mut Reader,
+    cloud: Option<&str>,
+    local: Option<&store::ReadPos>,
+) -> bool {
+    if let Some(item) = cloud {
+        if let Some(i) = rd.chs.iter().position(|c| c.item_id == item) {
+            rd.cur = i;
+            rd.scroll = match local {
+                Some(p) if p.item_id == item => p.scroll.min(u16::MAX as usize) as u16,
+                _ => 0,
+            };
+            return true;
+        }
+    }
+    if let Some(p) = local {
+        if let Some(i) = rd.chs.iter().position(|c| c.item_id == p.item_id) {
+            rd.cur = i;
+            rd.scroll = p.scroll.min(u16::MAX as usize) as u16;
+        }
+    }
+    false
+}
+
 pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config, title_hint: Option<&str>) {
     if !std::io::stdout().is_terminal() {
         eprintln!("  err read 需要交互式终端；可先 download 下载后用其他工具阅读");
@@ -271,12 +297,12 @@ pub async fn run(book_id: &str, range: Option<&str>, cfg: &Config, title_hint: O
     rd.tail_blank = cfg.ui_tail_blank.min(4) as u16;
     rd.anim_frames = cfg.ui_anim_frames.min(12) as u16;
     rd.editor = resolve_editor(cfg);
-    if let Some(p) = store::read_get(book_id) {
-        if let Some(i) = rd.chs.iter().position(|c| c.item_id == p.item_id) {
-            rd.cur = i;
-            rd.scroll = p.scroll.min(u16::MAX as usize) as u16;
-        }
-    }
+    // 106 读方向：云端进度优先（item_id 定章权威），失败/未登录静默回退本地
+    let local = store::read_get(book_id);
+    let cloud = crate::workflow::account::cloud_read_progress(book_id)
+        .await
+        .map(|(item, _)| item);
+    apply_progress_restore(&mut rd, cloud.as_deref(), local.as_ref());
     rd.sel = rd.cur;
     rd.need_load = true;
     if let Err(e) = event_loop(&mut rd, &api).await {
@@ -1077,10 +1103,7 @@ fn draw_zen(f: &mut Frame, rd: &Reader) {
             format!(" {} ", ch_title),
             util::rev(rd.theme.title),
         ))
-        .title_bottom(Span::styled(
-            format!(" {} ", frame_status_fit(rd, area.width.saturating_sub(2))),
-            util::fg_t(rd.theme.status),
-        ));
+        .title_bottom(frame_status_line(rd, area.width.saturating_sub(2)));
     let inner = block.inner(area);
     // 上 1 行、下 1 行；宽 = 内宽 - 2（右留 2，与 content_width zen 一致）
     let body = Rect {
@@ -1108,26 +1131,73 @@ fn read_pos(rd: &Reader) -> (usize, usize) {
     (pos, total)
 }
 
-/// 底框状态行（107⑨）：`{书名} ---- {x}/{t}章 · {p}/{l}行 ----`——zen/normal
-/// 共用，宽度不够逐级砍（先砍尾 ----、再书名、再行进度、再章进度）。
-fn frame_status_fit(rd: &Reader, width: u16) -> String {
+/// 底框状态行（107⑨/109）：返回 (书名, ─填充, 进度)——左书名右进度、中间填充，
+/// 总显示宽 ≤ width；宽度不足逐级砍（先砍行进度、再章进度，书名超长截断）。
+fn frame_status_fit(rd: &Reader, width: u16) -> (String, String, String) {
     let (pos, total) = read_pos(rd);
     let ch_n = rd.cur + 1;
     let ch_t = rd.chs.len();
-    let book = rd.title.trim();
-    let cands = [
-        format!("{book} ---- {ch_n}/{ch_t}章 · {pos}/{total}行 ----"),
-        format!("{book} {ch_n}/{ch_t}章 · {pos}/{total}行"),
-        format!("---- {ch_n}/{ch_t}章 · {pos}/{total}行 ----"),
+    let book = rd.title.trim().to_string();
+    let progs = [
         format!("{ch_n}/{ch_t}章 · {pos}/{total}行"),
+        format!("{ch_n}/{ch_t}章 · {pos}/{total}"),
         format!("{ch_n}/{ch_t}章"),
         format!("{ch_n}/{ch_t}"),
     ];
     let w = |s: &str| Span::raw(s.to_string()).width() as u16;
-    cands
-        .into_iter()
-        .find(|c| w(c) <= width)
-        .unwrap_or_default()
+    for prog in &progs {
+        let wp = w(prog);
+        if wp > width {
+            continue;
+        }
+        let room = width - wp; // 书名 + 填充（填充至少 1 格）
+        if room < 2 {
+            continue;
+        }
+        let wb = w(&book);
+        if wb >= 1 && wb < room {
+            let fill = room - wb;
+            return (book, "─".repeat(fill as usize), prog.clone());
+        }
+        // 书名超长 → 按显示宽截断（保 1 格填充）
+        let cut = truncate_width(&book, (room - 1) as usize);
+        let wc = w(&cut);
+        if wc >= 1 && room > wc {
+            let fill = room - wc;
+            return (cut, "─".repeat(fill as usize), prog.clone());
+        }
+    }
+    // 极窄：只留最小进度级并截到 width
+    let p = truncate_width(progs.last().unwrap(), width as usize);
+    (String::new(), String::new(), p)
+}
+
+/// 按显示宽截断（CJK=2 格），不切半字符；放不下返回空串。
+fn truncate_width(s: &str, max_w: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in s.chars() {
+        let cw = Span::raw(ch.to_string()).width();
+        if used + cw > max_w {
+            break;
+        }
+        out.push(ch);
+        used += cw;
+    }
+    out
+}
+
+/// 底框状态行（109）：左书名（亮蓝——用户 m0443 初提蓝色、避开 title 青/selected 品红/status 黄）
+/// + 中─填充（border）+ 右进度（status）。
+fn frame_status_line(rd: &Reader, width: u16) -> Line<'static> {
+    let (b, fill, p) = frame_status_fit(rd, width);
+    Line::from(vec![
+        Span::raw(" "),
+        Span::styled(b, util::fg_t(ratatui::style::Color::Rgb(0x5f, 0x87, 0xff))),
+        Span::styled(fill, util::fg_t(rd.theme.border)),
+        Span::styled(p, util::fg_t(rd.theme.status)),
+        Span::raw(" "),
+    ])
 }
 
 /// 左目录面板：边框按焦点高亮，当前章高亮，选中反白。
@@ -1215,10 +1285,7 @@ fn draw_content(f: &mut Frame, rd: &Reader, area: Rect) {
         .borders(Borders::ALL)
         .border_style(border)
         .title(Span::styled(format!(" {} ", ch_title), title_style))
-        .title_bottom(Span::styled(
-            format!(" {} ", frame_status_fit(rd, area.width.saturating_sub(2))),
-            util::fg_t(rd.theme.status),
-        ));
+        .title_bottom(frame_status_line(rd, area.width.saturating_sub(2)));
     // 非焦点面板整体降权（正文行全 DIM），切换时色阶反转即时可见
     let body_style = if focused {
         util::fg_t(rd.theme.content)
@@ -1471,9 +1538,9 @@ mod tests {
         // ② 行号=光标段首行：光标到末段（start=98 → 99/100），scroll 仍 0
         rd.scroll = 0;
         rd.cursor = rd.paras.len() - 1;
-        let s = frame_status_fit(&rd, 80);
+        let s = fs_text(&rd, 80);
         assert!(s.contains("99/100"), "行号应=光标段行，got {s}");
-        let z = frame_status_fit(&rd, 80);
+        let z = fs_text(&rd, 80);
         assert!(z.contains("99/100"), "底框状态同语义，got {z}");
         // ③ 恢复 scroll 后 align：光标对齐视窗顶段，按键 ↓ 不跳回第一页
         rd.scroll = 50;
@@ -1544,6 +1611,12 @@ mod tests {
     }
 
     use super::*;
+
+    /// 测试辅助：三段拼回单串（沿用旧 contains 断言语义）。
+    fn fs_text(rd: &Reader, w: u16) -> String {
+        let (b, f, p) = frame_status_fit(rd, w);
+        format!("{b}{f}{p}")
+    }
     use crossterm::event::KeyCode;
 
     #[test]
@@ -1782,22 +1855,24 @@ mod tests {
             .collect();
         // 各宽度档：输出显示宽 ≤ 宽度
         for w in [0u16, 5, 10, 16, 24, 40, 80, 200] {
-            let s = frame_status_fit(&rd, w);
+            let s = fs_text(&rd, w);
             let got = Span::raw(s.as_str()).width() as u16;
             assert!(got <= w, "width={w} 时输出宽 {got} 超限: {s:?}");
         }
-        // 极宽 → 全量：书名 ---- 章进度 · 行进度 ----（107⑨ 书名进底框）
-        let full = frame_status_fit(&rd, 200);
+        // 极宽 → 全量：左书名 + ─填充 + 右进度（109 左右分栏）
+        let full = fs_text(&rd, 200);
         assert!(full.contains("超长书名"), "全量应含书名: {full}");
         assert!(full.contains("1/1章"), "全量应含章进度: {full}");
         assert!(full.contains("1/50行"), "全量应含行进度: {full}");
-        assert!(full.contains("----"), "全量应含分隔: {full}");
-        // 中宽 → 砍掉书名仍含章/行进度
-        let mid = frame_status_fit(&rd, 30);
-        assert!(!mid.contains("超长书名"), "30 宽应砍书名: {mid}");
-        assert!(mid.contains("章"), "30 宽应保留章进度: {mid}");
+        assert!(full.contains('─'), "全量应含─填充: {full}");
+        // 中宽 → 书名截断（尾部截掉）仍含章进度
+        let mid = fs_text(&rd, 30);
+        let mw = Span::raw(mid.as_str()).width() as u16;
+        assert!(mw <= 30, "30 宽仍不超: {mw} {mid:?}");
+        assert!(!mid.contains("完整标题"), "30 宽应截书名尾: {mid}");
+        assert!(mid.contains('章'), "30 宽应保留章进度: {mid}");
         // 极窄 → 极简章进度，不 panic 不超宽
-        let tiny = frame_status_fit(&rd, 3);
+        let tiny = fs_text(&rd, 3);
         let tw = Span::raw(tiny.as_str()).width();
         assert!(tw <= 3, "极窄仍不超: {tw} {tiny:?}");
     }
@@ -2391,5 +2466,58 @@ mod tests {
         );
         assert_eq!(pick_editor("", None, None, None), None);
         assert_eq!(pick_editor("  ", Some(" "), None, None), None);
+    }
+
+    #[test]
+    fn progress_restore_priority() {
+        // 106 读方向：云端 item_id 定章权威、同章沿用本地 scroll、云端失配/无 → 回退本地
+        let mk = |rd: &mut Reader| {
+            rd.cur = 0;
+            rd.scroll = 0;
+        };
+        let chs = || {
+            vec![
+                Chapter {
+                    index: 1,
+                    item_id: "a".into(),
+                    title: "第1章".into(),
+                },
+                Chapter {
+                    index: 2,
+                    item_id: "b".into(),
+                    title: "第2章".into(),
+                },
+                Chapter {
+                    index: 3,
+                    item_id: "c".into(),
+                    title: "第3章".into(),
+                },
+            ]
+        };
+        let local = ReadPos {
+            item_id: "a".into(),
+            scroll: 7,
+        };
+        // 云端同章 → 定章 + 本地 scroll 沿用
+        let mut rd = Reader::new("t".into(), chs());
+        assert!(apply_progress_restore(&mut rd, Some("a"), Some(&local)));
+        assert_eq!((rd.cur, rd.scroll), (0, 7), "同章用本地 scroll");
+        // 云端异章 → 换章 + scroll=0（本地 scroll 属别章）
+        let mut rd = Reader::new("t".into(), chs());
+        assert!(apply_progress_restore(&mut rd, Some("c"), Some(&local)));
+        assert_eq!((rd.cur, rd.scroll), (2, 0), "异章 scroll 归零");
+        // 云端 item 不在目录 → 回退本地
+        let mut rd = Reader::new("t".into(), chs());
+        assert!(!apply_progress_restore(&mut rd, Some("zzz"), Some(&local)));
+        assert_eq!((rd.cur, rd.scroll), (0, 7), "云端失配回退本地");
+        // 云端无（未登录/失败）→ 回退本地
+        let mut rd = Reader::new("t".into(), chs());
+        assert!(!apply_progress_restore(&mut rd, None, Some(&local)));
+        assert_eq!((rd.cur, rd.scroll), (0, 7), "云端缺省回退本地");
+        // 双无 → 保持初始
+        let mut rd = Reader::new("t".into(), chs());
+        mk(&mut rd);
+        assert!(!apply_progress_restore(&mut rd, None, None));
+        assert_eq!((rd.cur, rd.scroll), (0, 0));
     }
 }
