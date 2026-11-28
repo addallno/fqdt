@@ -102,6 +102,8 @@ struct Reader {
     anim_frames: u16,
     /// 跨上章后落章尾（103⑥，reload 完成后消费）
     pending_end: bool,
+    /// 加载完成后强制全量重绘（107⑤：跨章帧状态行 cell 残留 → clear 重画）
+    full_redraw: bool,
     /// 翻页模式（90/91，ui.page_mode）
     page_mode: PageMode,
     /// 外部编辑器命令（87：e 挂起 TUI 只读打开当前章，run 启动时解析）
@@ -172,6 +174,7 @@ impl Reader {
             tail_blank: 1,
             anim_frames: 3,
             pending_end: false,
+            full_redraw: false,
         }
     }
 
@@ -351,6 +354,13 @@ async fn loop_with(rd: &mut Reader, api: &Client, out: &mut Stdout) -> Result<()
             reload(rd, api, width).await?;
             rd.need_load = false;
             settle_pending(rd, height);
+            // 107⑤：内容整章替换 → 强制全量重绘，清掉跨章前状态行残影
+            rd.full_redraw = true;
+        }
+        // 107⑤：全量重绘帧先 clear（ratatui prev buffer 复位 → 本帧全量 diff）
+        if rd.full_redraw {
+            term.clear().map_err(|e| e.to_string())?;
+            rd.full_redraw = false;
         }
         // 103⑮ 翻页/滚动过渡：scroll 变化 → 小步逐帧滑动（大跳瞬切）
         if rd.scroll != shown && rd.anim_frames > 1 {
@@ -456,6 +466,10 @@ fn apply_action(act: Action, rd: &mut Reader, height: u16) -> bool {
             if d < 0 && rd.scroll == 0 && rd.cur > 0 {
                 rd.cur -= 1;
                 rd.scroll = 0;
+                // 107⑤：旧章 paras/cursor 必须清——否则 settle 后光标段
+                // start 对新章 lines 计行号出 pos>total（如 21/19行）
+                rd.cursor = 0;
+                rd.paras.clear();
                 rd.pending_end = true;
                 rd.need_load = true;
                 return false;
@@ -1365,6 +1379,18 @@ mod tests {
         scroll_by(&mut rd, 1, h); // small 到底 → 下章
         assert_eq!(rd.cur, 1, "末行↓下章");
         assert!(rd.need_load);
+        // 107⑤：PageFlip(-1) 首页跨章必须清 paras/cursor（防 pos>total 如 21/19行）
+        rd.cur = 1;
+        rd.scroll = 0;
+        rd.need_load = false;
+        rd.lines = (0..30).map(|i| Line::from(format!("N{i}"))).collect();
+        rebuild_paras(&mut rd);
+        rd.cursor = 5;
+        apply_action(Action::PageFlip(-1), &mut rd, h);
+        assert_eq!(rd.cur, 0, "首页 Left→上章");
+        assert!(rd.paras.is_empty(), "跨章应清旧章 paras");
+        assert_eq!(rd.cursor, 0, "跨章应清 cursor");
+        assert!(rd.pending_end, "PageFlip(-1) 跨章挂 pending_end");
     }
 
     /// 107⑥⑦：PrevCh 落章尾；CursorMove 首段↑ / 末段↓边界跨章。
