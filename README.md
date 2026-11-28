@@ -16,7 +16,7 @@
 
 ```sh
 # 从 GitHub Releases 下载（x86_64；aarch64 用 fq-aarch64-linux-musl）
-curl -L https://github.com/addallno/fq/releases/latest/download/fq-x86_64-linux-musl -o ~/fq
+curl -L https://github.com/addallno/FanqieCLI/releases/latest/download/fq-x86_64-linux-musl -o ~/fq
 chmod +x ~/fq
 ~/fq --version
 ```
