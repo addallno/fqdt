@@ -106,128 +106,13 @@ enum Cmd {
         #[command(subcommand)]
         cmd: InfoCmd,
     },
-    /// 获取：fetch book|audio|update（download/audio/update 的统一入口）
+    /// 获取：fetch book|audio|update|tts
     #[command(alias = "f")]
     #[command(display_order = 19)]
-    #[command(disable_help_flag = true)]
+    #[command(subcommand_help_heading = "Subcommands")]
     Fetch {
-        /// book=下载正文 / audio=下载语音 / update=增量更新
-        target: String,
-        /// 目标命令的完整参数（原样转发，-h 看目标命令帮助）
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        rest: Vec<String>,
-    },
-    /// 下载正文
-    #[command(alias = "d")]
-    #[command(display_order = 20)]
-    Download {
-        #[arg(
-            value_name = "id|path|@shelf/组",
-            help = "id、key、已下载目录或 @shelf/组名"
-        )]
-        book_id: String,
-        #[arg(short = 'o', long, help = "输出目录")]
-        output: Option<String>,
-        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
-        range: Option<String>,
-        #[arg(short = 't', long, value_name = "type", help = "输出格式: txt / epub")]
-        format: Option<String>,
-        #[arg(short = 'j', long, help = "并发数")]
-        jobs: Option<usize>,
-        #[arg(short = 'f', long, help = "强制覆盖已存在文件")]
-        force: bool,
-        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
-        interval: u64,
-        #[command(flatten)]
-        pick: PickArgs,
-    },
-    /// 下载语音
-    #[command(alias = "a")]
-    #[command(display_order = 21)]
-    Audio {
-        #[arg(value_name = "id|key", help = "id 或 key")]
-        book_id: String,
-        #[arg(short = 'o', long, help = "输出目录")]
-        output: Option<String>,
-        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
-        range: Option<String>,
-        #[arg(short = 'j', long, help = "并发数")]
-        jobs: Option<usize>,
-        #[arg(short = 'f', long, help = "强制覆盖已存在文件")]
-        force: bool,
-        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
-        interval: u64,
-        #[arg(long, help = "歌词模式 external/embed/both/off")]
-        lrc: Option<String>,
-        #[arg(
-            short = 'T',
-            long = "type",
-            value_name = "类型",
-            help = "来源 real|ai|tts（真人讲书/智能朗读/本地合成，互斥）"
-        )]
-        only: Option<String>,
-        #[arg(
-            short = 'c',
-            long = "container",
-            value_name = "容器",
-            help = "输出容器 m4a/mp3/ogg（默认 ogg）"
-        )]
-        container: Option<String>,
-        #[arg(
-            long,
-            hide = true,
-            default_value = "1",
-            help = "AI 音色编号，fq info audio <id> 查可用"
-        )]
-        tone: usize,
-        #[arg(
-            long,
-            hide = true,
-            default_value = "zh-CN-XiaoxiaoNeural",
-            help = "语音名"
-        )]
-        voice: String,
-        #[arg(long, help = "新下载 MP3 嵌入书籍封面")]
-        cover: bool,
-        #[command(flatten)]
-        pick: PickArgs,
-    },
-    /// 增量更新已下载的书籍
-    #[command(alias = "u")]
-    #[command(display_order = 22)]
-    Update {
-        #[arg(
-            value_name = "id|path|@shelf/组",
-            help = "id、key、已下载目录或 @shelf/组名"
-        )]
-        target: String,
-        #[arg(short = 'o', long, help = "输出目录")]
-        output: Option<String>,
-        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
-        range: Option<String>,
-        #[arg(
-            short = 'T',
-            long = "type",
-            value_name = "类型",
-            help = "增量类别 content/audio，逗号分隔，默认全部"
-        )]
-        only: Option<String>,
-        #[arg(short = 'j', long, help = "并发数")]
-        jobs: Option<usize>,
-        #[arg(short = 'f', long, help = "强制覆盖已存在文件")]
-        force: bool,
-        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
-        interval: u64,
-    },
-    /// 文本转语音（等价 fq audio -T tts，usage 不变）
-    #[command(alias = "t")]
-    #[command(display_order = 31)]
-    Tts {
-        path: String,
-        #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音名")]
-        voice: String,
-        #[arg(short = 'j', long, help = "并发数")]
-        jobs: Option<usize>,
+        #[command(subcommand)]
+        cmd: FetchCmd,
     },
     /// 书架管理
     #[command(alias = "s")]
@@ -319,6 +204,120 @@ enum Cmd {
     /// 自定义命令
     #[command(external_subcommand)]
     Custom(Vec<String>),
+}
+
+/// fetch 子命令组（110）：原顶层 download/audio/update/tts 移入，usage/help 原样保留。
+#[derive(Subcommand)]
+enum FetchCmd {
+    /// 下载正文（原 download）
+    #[command(alias = "b")]
+    #[command(alias = "d")]
+    Book {
+        #[arg(
+            value_name = "id|path|@shelf/组",
+            help = "id、key、已下载目录或 @shelf/组名"
+        )]
+        book_id: String,
+        #[arg(short = 'o', long, help = "输出目录")]
+        output: Option<String>,
+        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
+        range: Option<String>,
+        #[arg(short = 't', long, value_name = "type", help = "输出格式: txt / epub")]
+        format: Option<String>,
+        #[arg(short = 'j', long, help = "并发数")]
+        jobs: Option<usize>,
+        #[arg(short = 'f', long, help = "强制覆盖已存在文件")]
+        force: bool,
+        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
+        interval: u64,
+        #[command(flatten)]
+        pick: PickArgs,
+    },
+    /// 下载语音（原 audio）
+    #[command(alias = "a")]
+    Audio {
+        #[arg(value_name = "id|key", help = "id 或 key")]
+        book_id: String,
+        #[arg(short = 'o', long, help = "输出目录")]
+        output: Option<String>,
+        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
+        range: Option<String>,
+        #[arg(short = 'j', long, help = "并发数")]
+        jobs: Option<usize>,
+        #[arg(short = 'f', long, help = "强制覆盖已存在文件")]
+        force: bool,
+        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
+        interval: u64,
+        #[arg(long, help = "歌词模式 external/embed/both/off")]
+        lrc: Option<String>,
+        #[arg(
+            short = 'T',
+            long = "type",
+            value_name = "类型",
+            help = "来源 real|ai|tts（真人讲书/智能朗读/本地合成，互斥）"
+        )]
+        only: Option<String>,
+        #[arg(
+            short = 'c',
+            long = "container",
+            value_name = "容器",
+            help = "输出容器 m4a/mp3/ogg（默认 ogg）"
+        )]
+        container: Option<String>,
+        #[arg(
+            long,
+            hide = true,
+            default_value = "1",
+            help = "AI 音色编号，fq info audio <id> 查可用"
+        )]
+        tone: usize,
+        #[arg(
+            long,
+            hide = true,
+            default_value = "zh-CN-XiaoxiaoNeural",
+            help = "语音名"
+        )]
+        voice: String,
+        #[arg(long, help = "新下载 MP3 嵌入书籍封面")]
+        cover: bool,
+        #[command(flatten)]
+        pick: PickArgs,
+    },
+    /// 增量更新已下载的书籍（原 update）
+    #[command(alias = "u")]
+    Update {
+        #[arg(
+            value_name = "id|path|@shelf/组",
+            help = "id、key、已下载目录或 @shelf/组名"
+        )]
+        target: String,
+        #[arg(short = 'o', long, help = "输出目录")]
+        output: Option<String>,
+        #[arg(short = 'r', long, help = "章节范围 1-50 / -5 / 10-")]
+        range: Option<String>,
+        #[arg(
+            short = 'T',
+            long = "type",
+            value_name = "类型",
+            help = "增量类别 content/audio，逗号分隔，默认全部"
+        )]
+        only: Option<String>,
+        #[arg(short = 'j', long, help = "并发数")]
+        jobs: Option<usize>,
+        #[arg(short = 'f', long, help = "强制覆盖已存在文件")]
+        force: bool,
+        #[arg(short = 'i', long, default_value = "0", help = "请求间隔毫秒")]
+        interval: u64,
+    },
+    /// 文本转语音（原 tts，等价 fq fetch audio -T tts）
+    #[command(alias = "t")]
+    Tts {
+        path: String,
+        #[arg(long, default_value = "zh-CN-XiaoxiaoNeural", help = "Edge-TTS 语音名")]
+        voice: String,
+        #[arg(short = 'j', long, help = "并发数")]
+        jobs: Option<usize>,
+    },
 }
 
 /// key 搜索选书序号 flag（99/104）：多结果时取第 n 个、跳过手动输入；-n 优先于 search.mode
@@ -551,7 +550,7 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("说明", "文字版 AI 朗读音色；各书可用集合不同"),
         ("查询", "fq info audio <id> 查看本书可用编号"),
         ("配置", "config.ini [audio] audio_tone"),
-        ("示例", "fq audio <id> --tone 6"),
+        ("示例", "fq fetch audio <id> --tone 6"),
         ("相关", "-T/--type"),
     ]}),
     ("audio", "--lrc", FlagDoc { brief: "歌词模式", takes_value: true, fields: &[
@@ -559,67 +558,67 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
         ("取值", "external / embed / both / off，默认 external"),
         ("说明", "external=同名 .lrc 文件；embed=嵌入 MP3 ID3 USLT；both=两者；off=不生成"),
         ("限制", "仅音频下载路径生效；MP4 容器嵌入无效故默认 external"),
-        ("示例", "fq audio <id> --lrc embed"),
+        ("示例", "fq fetch audio <id> --lrc embed"),
         ("相关", "-T/--type"),
     ]}),
     ("audio", "--type", FlagDoc { brief: "来源 real|ai|tts", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "real 真人讲书版 / ai 智能朗读 / tts 本地合成（Edge-TTS），三者互斥"),
         ("说明", "real 自动发现最热真人听书版；ai 用文字版音色配 --tone；tts 先下正文再本地合成 MP3（需 edge-tts）"),
-        ("示例", "fq audio <id> -T real    fq audio <id> -T ai --tone 6    fq audio <id> -T tts"),
+        ("示例", "fq fetch audio <id> -T real    fq fetch audio <id> -T ai --tone 6    fq fetch audio <id> -T tts"),
         ("相关", "--tone --voice -c/--container"),
         ("查询", "fq info relative <id> 查看该书真人版"),
     ]}),
     ("audio", "--container", FlagDoc { brief: "输出容器 m4a/mp3/ogg", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "m4a 保持原样 / mp3 转码 MP3 / ogg 默认 Ogg Opus"),
-        ("示例", "fq audio <id> -c mp3"),
+        ("示例", "fq fetch audio <id> -c mp3"),
     ]}),
     ("update", "--type", FlagDoc { brief: "增量类别 content/audio", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "content 正文 / audio 音频，逗号分隔多值；默认全部"),
         ("说明", "目录模式按类别过滤增量块；id 模式 -T audio 转音频工作流"),
-        ("示例", "fq update <目录> -T content    fq update <目录> -T content,audio"),
+        ("示例", "fq fetch update <目录> -T content    fq fetch update <目录> -T content,audio"),
     ]}),
     ("audio", "--voice", FlagDoc { brief: "Edge-TTS 语音名", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("默认", "zh-CN-XiaoxiaoNeural"),
         ("说明", "仅 -T tts 时生效"),
-        ("示例", "fq audio <id> -T tts --voice zh-CN-YunxiNeural"),
+        ("示例", "fq fetch audio <id> -T tts --voice zh-CN-YunxiNeural"),
         ("相关", "-T/--type"),
     ]}),
     ("view", "--range", FlagDoc { brief: "章节范围", takes_value: true, fields: &[
         ("取值", "1-50 区间 / -5 前 5 章 / 10- 自 10 起到末尾"),
         ("说明", "缺省读全本；进度按章记忆，重入自动回位"),
     ]}),
-    ("download", "--range", FlagDoc { brief: "章节范围", takes_value: true, fields: &[
+    ("book", "--range", FlagDoc { brief: "章节范围", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "N 单章 / N-M 区间 / -M 末 M 章 / N- 自 N 起"),
         ("说明", "按目录序筛选；缺省全部章节"),
-        ("示例", "fq download <id> -r 1-50   fq download <id> -r -5"),
+        ("示例", "fq fetch book <id> -r 1-50   fq fetch book <id> -r -5"),
         ("相关", "-t -j"),
     ]}),
-    ("download", "--format", FlagDoc { brief: "输出格式", takes_value: true, fields: &[
+    ("book", "--format", FlagDoc { brief: "输出格式", takes_value: true, fields: &[
         ("类型", "字符串"),
         ("取值", "txt/ epub"),
         ("配置", "config.ini [download] format"),
-        ("示例", "fq download <id> -t epub"),
+        ("示例", "fq fetch book <id> -t epub"),
     ]}),
-    ("download", "--jobs", FlagDoc { brief: "并发数", takes_value: true, fields: &[
+    ("book", "--jobs", FlagDoc { brief: "并发数", takes_value: true, fields: &[
         ("类型", "整数"),
         ("默认", "按 CPU 核数"),
         ("配置", "config.ini [download] concurrent"),
-        ("示例", "fq download <id> -j 4"),
+        ("示例", "fq fetch book <id> -j 4"),
     ]}),
-    ("download", "--force", FlagDoc { brief: "强制覆盖", takes_value: false, fields: &[
+    ("book", "--force", FlagDoc { brief: "强制覆盖", takes_value: false, fields: &[
         ("说明", "已存在文件重新下载；缺省跳过已下载章节"),
-        ("示例", "fq download <id> --force"),
+        ("示例", "fq fetch book <id> --force"),
     ]}),
-    ("download", "--interval", FlagDoc { brief: "请求间隔毫秒", takes_value: true, fields: &[
+    ("book", "--interval", FlagDoc { brief: "请求间隔毫秒", takes_value: true, fields: &[
         ("类型", "整数"),
         ("默认", "0"),
         ("说明", "每章请求之间的等待，限速用"),
-        ("示例", "fq download <id> -i 500"),
+        ("示例", "fq fetch book <id> -i 500"),
     ]}),
     ("search", "--auto", FlagDoc { brief: "自动下载第 N 本", takes_value: true, fields: &[
         ("类型", "整数"),
@@ -666,7 +665,8 @@ const FLAG_HELP: &[(&str, &str, FlagDoc)] = &[
 fn canonical_sub(s: &str) -> &str {
     match s {
         "a" => "audio",
-        "d" => "download",
+        "b" => "book",
+        "d" => "book",
         "f" => "fetch",
         "i" => "info",
         "s" => "shelf",
@@ -728,8 +728,12 @@ fn render_flag(sub: &str, flag: &str, d: &FlagDoc) {
         flag.to_string()
     };
     crate::emit_line(&format!("  {CYAN}{usage}{RST}  {YELLOW}{}{RST}", d.brief));
+    let path = match sub {
+        "book" | "audio" | "update" | "tts" => format!("fetch {sub}"),
+        _ => sub.to_string(),
+    };
     crate::emit_line(&format!(
-        "  {DIM}Subcommand fq {sub} · 优先级 flag > config{RST}"
+        "  {DIM}Subcommand fq {path} · 优先级 flag > config{RST}"
     ));
     crate::emit_line("");
     for (k, v) in d.fields {
@@ -989,8 +993,8 @@ fn render_sub_help(path: &[String], examples: bool) {
 /// 顶层分组：(组名, 子命令)。clap 模板无分组能力，手写渲染（FLAG_HELP 先例）。
 const TOP_GROUPS: &[(&str, &[&str])] = &[
     ("查询", &["search", "info"]),
-    ("下载", &["fetch", "download", "audio", "update"]),
-    ("管理", &["shelf", "view", "tts", "login", "config"]),
+    ("下载", &["fetch"]),
+    ("管理", &["shelf", "view", "login", "config"]),
     ("服务", &["serve", "api"]),
     ("其他", &["version", "help"]),
 ];
@@ -1084,12 +1088,12 @@ const HELP_TAILS: &[(&str, &str, &str)] = &[
      "Examples:\n  fq info overview <id>\n  fq info chapters <id> -r 1-50\n  fq info overview <id> --add\n  fq info recommend\n  fq info category --tab 1\n  fq info progress --search 词\n  fq info overview <id>"),
     ("fetch", "",
      "Examples:\n  fq fetch book <id> -r 1-50\n  fq fetch audio <id> -T real\n  fq fetch update <目录>"),
-    ("download", "", "Examples:\n  fq download <id> -r 1-50 -t epub"),
+    ("book", "", "Examples:\n  fq fetch book <id> -r 1-50 -t epub"),
     ("view", "", "Examples:\n  fq view 诡秘之主\n  fq view 7185478854738185271 -r 1-50"),
     ("audio", "",
-     "Examples:\n  fq audio <id> -T real\n  fq audio <id> -T ai --tone 6\n  fq audio 诡秘之主 -T ai\n  fq audio <id> -c mp3"),
-    ("update", "", "Examples:\n  fq update <目录>\n  fq update <目录> -T content\n  fq update <id> -r 1-50"),
-    ("tts", "", "Examples:\n  fq tts book.txt"),
+     "Examples:\n  fq fetch audio <id> -T real\n  fq fetch audio <id> -T ai --tone 6\n  fq fetch audio 诡秘之主 -T ai\n  fq fetch audio <id> -c mp3"),
+    ("update", "", "Examples:\n  fq fetch update <目录>\n  fq fetch update <目录> -T content\n  fq fetch update <id> -r 1-50"),
+    ("tts", "", "Examples:\n  fq fetch tts book.txt"),
     ("shelf", "",
      "Examples:\n  fq shelf list\n  fq shelf list 已读\n  fq shelf list --local\n  fq shelf add <id>:<标题>\n  fq shelf add <id>\n  fq shelf move <id> 已读\n  fq shelf download 1"),
     ("login", "",
@@ -1203,119 +1207,23 @@ async fn main() {
             .await
         }
         Cmd::Info { cmd } => dispatch_info(cmd, verbose, &cfg).await,
-        Cmd::Fetch { target, rest } => {
-            // 80：fetch 组——参数原样转发给目标命令重新解析（零重复定义，-h 透传目标帮助）
-            let base = match target.as_str() {
-                "book" | "b" => "download",
-                "audio" | "a" => "audio",
-                "update" | "u" => "update",
-                other => {
-                    eprintln!("  err 未知 fetch 目标 {other}（book|audio|update）");
-                    std::process::exit(2);
-                }
-            };
-            let mut argv: Vec<String> = vec!["fq".into(), base.into()];
-            argv.extend(rest);
-            let cli2 = Cli::parse_from(&argv);
-            match cli2.cmd {
-                Cmd::Download {
-                    book_id,
-                    output,
-                    range,
-                    format,
-                    jobs,
-                    force,
-                    interval,
-                    pick,
-                } => {
-                    dispatch_download(
-                        book_id, output, range, format, jobs, force, verbose, interval, pick.nth,
-                        &cfg,
-                    )
-                    .await
-                }
-                Cmd::Audio {
-                    book_id,
-                    output,
-                    range,
-                    tone,
-                    lrc,
-                    jobs,
-                    force,
-                    interval,
-                    only,
-                    container,
-                    voice,
-                    cover,
-                    pick,
-                } => {
-                    dispatch_audio(
-                        book_id,
-                        output,
-                        range,
-                        tone,
-                        lrc,
-                        jobs,
-                        force,
-                        verbose,
-                        interval,
-                        only.as_deref(),
-                        container.as_deref(),
-                        &voice,
-                        cover,
-                        pick.nth,
-                        &cfg,
-                    )
-                    .await
-                }
-                Cmd::Update {
-                    target,
-                    output,
-                    range,
-                    only,
-                    jobs,
-                    force,
-                    interval,
-                } => {
-                    dispatch_update(
-                        target, output, range, only, jobs, force, verbose, interval, &cfg,
-                    )
-                    .await
-                }
-                _ => eprintln!("  err fetch 转调内部错误"),
+        Cmd::Fetch { cmd } => match cmd {
+            FetchCmd::Book {
+                book_id,
+                output,
+                range,
+                format,
+                jobs,
+                force,
+                interval,
+                pick,
+            } => {
+                dispatch_download(
+                    book_id, output, range, format, jobs, force, verbose, interval, pick.nth, &cfg,
+                )
+                .await
             }
-        }
-        Cmd::Download {
-            book_id,
-            output,
-            range,
-            format,
-            jobs,
-            force,
-            interval,
-            pick,
-        } => {
-            dispatch_download(
-                book_id, output, range, format, jobs, force, verbose, interval, pick.nth, &cfg,
-            )
-            .await
-        }
-        Cmd::Audio {
-            book_id,
-            output,
-            range,
-            tone,
-            lrc,
-            jobs,
-            force,
-            interval,
-            only,
-            container,
-            voice,
-            cover,
-            pick,
-        } => {
-            dispatch_audio(
+            FetchCmd::Audio {
                 book_id,
                 output,
                 range,
@@ -1323,32 +1231,50 @@ async fn main() {
                 lrc,
                 jobs,
                 force,
-                verbose,
                 interval,
-                only.as_deref(),
-                container.as_deref(),
-                &voice,
+                only,
+                container,
+                voice,
                 cover,
-                pick.nth,
-                &cfg,
-            )
-            .await
-        }
-        Cmd::Update {
-            target,
-            output,
-            range,
-            only,
-            jobs,
-            force,
-            interval,
-        } => {
-            dispatch_update(
-                target, output, range, only, jobs, force, verbose, interval, &cfg,
-            )
-            .await
-        }
-        Cmd::Tts { path, voice, jobs } => dispatch_tts(path, &voice, jobs, verbose, &cfg).await,
+                pick,
+            } => {
+                dispatch_audio(
+                    book_id,
+                    output,
+                    range,
+                    tone,
+                    lrc,
+                    jobs,
+                    force,
+                    verbose,
+                    interval,
+                    only.as_deref(),
+                    container.as_deref(),
+                    &voice,
+                    cover,
+                    pick.nth,
+                    &cfg,
+                )
+                .await
+            }
+            FetchCmd::Update {
+                target,
+                output,
+                range,
+                only,
+                jobs,
+                force,
+                interval,
+            } => {
+                dispatch_update(
+                    target, output, range, only, jobs, force, verbose, interval, &cfg,
+                )
+                .await
+            }
+            FetchCmd::Tts { path, voice, jobs } => {
+                dispatch_tts(path, &voice, jobs, verbose, &cfg).await
+            }
+        },
         Cmd::Shelf { cmd } => workflow::shelf::run(cmd, &cfg).await,
         Cmd::View {
             book_id,
@@ -1403,6 +1329,18 @@ async fn main() {
 
 fn dispatch_custom(args: Vec<String>, cfg: &Config) {
     let cmd = args.first().map(|s| s.as_str()).unwrap_or("");
+    // 110：旧顶层命令已移入 fetch 组，给迁移提示（不进 Custom 模板）
+    let moved = match cmd {
+        "download" => Some("book"),
+        "audio" => Some("audio"),
+        "update" => Some("update"),
+        "tts" => Some("tts"),
+        _ => None,
+    };
+    if let Some(t) = moved {
+        eprintln!("  err 已移除：fq {cmd} → fq fetch {t}（--help 看用法）");
+        std::process::exit(2);
+    }
     if let Some(template) = cfg.custom_commands.get(cmd) {
         let rest: Vec<&str> = args[1..].iter().map(|s| s.as_str()).collect();
         let cmd_str = if rest.is_empty() {
@@ -2007,7 +1945,8 @@ async fn run_api(
 
 #[cfg(test)]
 mod tests {
-    use super::{canonical_sub, Cli, Cmd, HELP_TAILS, TOP_GROUPS};
+    use super::{canonical_sub, Cli, Cmd, FetchCmd, HELP_TAILS, TOP_GROUPS};
+    use clap::CommandFactory;
     /// 100：TARGET 组前缀解析（@shelf/ 与 @shelf. 两形态、空组、普通词不误判）。
     #[test]
     fn target_group_prefix_forms() {
@@ -2023,10 +1962,12 @@ mod tests {
         assert_eq!(crate::util::shelf_group_prefix("诡秘之主"), None);
     }
 
-    /// 80：fetch 组——trailing_var_arg 原样转发、别名 f、下载组/示例登记。
+    /// 110：fetch 真子命令组——原顶层 download/audio/update/tts 移入（usage/help 随行）、
+    /// 别名 f/b/a/u/t、顶层旧命令失效、下载组/示例登记。
     #[test]
     fn fetch_group_parse_and_alias() {
         use clap::Parser;
+        // book = 原 download 字段原样
         let cli = Cli::parse_from([
             "fq",
             "fetch",
@@ -2037,25 +1978,87 @@ mod tests {
             "1-50",
         ]);
         match cli.cmd {
-            Cmd::Fetch { target, rest } => {
-                assert_eq!(target, "book");
-                assert_eq!(
-                    rest,
-                    vec!["7185478854738185271", "-f", "-r", "1-50"],
-                    "目标命令的 flag 应原样进 rest"
-                );
+            Cmd::Fetch {
+                cmd:
+                    FetchCmd::Book {
+                        book_id,
+                        force,
+                        range,
+                        ..
+                    },
+            } => {
+                assert_eq!(book_id, "7185478854738185271");
+                assert!(force);
+                assert_eq!(range.as_deref(), Some("1-50"));
             }
-            _ => panic!("应解析为 Fetch"),
+            _ => panic!("应解析为 Fetch::Book"),
         }
+        // audio -T real = 原 audio 字段
+        let cli = Cli::parse_from(["fq", "fetch", "audio", "123", "-T", "real"]);
+        match cli.cmd {
+            Cmd::Fetch {
+                cmd: FetchCmd::Audio { only, .. },
+            } => assert_eq!(only.as_deref(), Some("real")),
+            _ => panic!("应解析为 Fetch::Audio"),
+        }
+        // tts 字段
+        let cli = Cli::parse_from(["fq", "fetch", "tts", "book.txt"]);
+        match cli.cmd {
+            Cmd::Fetch {
+                cmd: FetchCmd::Tts { path, .. },
+            } => assert_eq!(path, "book.txt"),
+            _ => panic!("应解析为 Fetch::Tts"),
+        }
+        // 顶层旧命令失效（breaking）：落入 external_subcommand Custom，不再有专用分支
+        match Cli::try_parse_from(["fq", "download", "123"])
+            .expect("Custom 兜底应可解析")
+            .cmd
+        {
+            Cmd::Custom(a) => assert_eq!(a, vec!["download", "123"]),
+            _ => panic!("顶层 download 应落入 Custom"),
+        }
+        match Cli::try_parse_from(["fq", "tts", "x.txt"])
+            .expect("Custom 兜底应可解析")
+            .cmd
+        {
+            Cmd::Custom(a) => assert_eq!(a, vec!["tts", "x.txt"]),
+            _ => panic!("顶层 tts 应落入 Custom"),
+        }
+        // 别名：f→fetch、b/a/u/t→fetch 子命令
+        let cli = Cli::parse_from(["fq", "f", "b", "123"]);
+        assert!(matches!(
+            cli.cmd,
+            Cmd::Fetch {
+                cmd: FetchCmd::Book { .. }
+            }
+        ));
+        let cli = Cli::parse_from(["fq", "fetch", "u", "dir"]);
+        assert!(matches!(
+            cli.cmd,
+            Cmd::Fetch {
+                cmd: FetchCmd::Update { .. }
+            }
+        ));
         assert_eq!(canonical_sub("f"), "fetch");
+        assert_eq!(canonical_sub("d"), "book");
+        assert_eq!(canonical_sub("b"), "book");
+        // 下载组只留 fetch；book/audio/update/tts/fetch 示例段齐
         let (_, dl) = TOP_GROUPS
             .iter()
             .find(|(n, _)| *n == "下载")
             .expect("下载组存在");
-        assert!(dl.contains(&"fetch"), "下载组应含 fetch");
-        assert!(
-            HELP_TAILS.iter().any(|e| e.0 == "fetch"),
-            "fetch 应有示例段"
-        );
+        assert_eq!(*dl, &["fetch"], "下载组应只剩 fetch");
+        for k in ["fetch", "book", "audio", "update", "tts"] {
+            assert!(HELP_TAILS.iter().any(|e| e.0 == k), "{k} 应有示例段");
+        }
+        // help 路径：fq help fetch book 可解析（find_subcommand 链）
+        let mut cmd = Cli::command();
+        for t in ["fetch", "book"] {
+            cmd = cmd
+                .find_subcommand(t)
+                .unwrap_or_else(|| panic!("路径 {t} 应存在"))
+                .clone();
+        }
+        assert!(!cmd.has_subcommands() && cmd.get_about().is_some());
     }
 }
